@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Space Grotesk", "Noto Sans TC", sans-serif;
+  --font-body: "Noto Sans TC", sans-serif;
+
+  --color-primary: #f48c25;
+  --color-primary-dark: #d9771e;
+  --color-background-light: #f8f7f5;
+  --color-background-dark: #0a0a0a;
+  --color-surface-dark: #1f1f1f;
+}
