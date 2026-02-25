@@ -2,3 +2,5 @@
 dist/
 .vite/
 .env
+.env.api
+server/data/db.json

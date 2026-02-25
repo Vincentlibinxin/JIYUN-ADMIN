@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../lib/config';
 
@@ -9,6 +9,14 @@ export default function AdminLoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    const expired = sessionStorage.getItem('adminAuthExpired');
+    if (expired === '1') {
+      setError('登入狀態已過期，請重新登入');
+      sessionStorage.removeItem('adminAuthExpired');
+    }
+  }, []);
 
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
@@ -35,15 +43,33 @@ export default function AdminLoginPage() {
         data = {};
       }
 
+      const payload = data?.data ?? data;
+      const token = payload?.token ?? payload?.accessToken;
+      const admin = payload?.admin ?? payload?.user ?? null;
+
       if (response.ok) {
-        localStorage.setItem('adminToken', data.token);
-        localStorage.setItem('adminUser', JSON.stringify(data.admin));
+        if (!token) {
+          setError('登入失敗：伺服器回應缺少憑證，請聯絡管理員');
+          return;
+        }
+
+        localStorage.setItem('adminToken', token);
+        localStorage.setItem('adminUser', JSON.stringify(admin));
         navigate('/dashboard');
       } else {
-        setError(data.error || (response.status === 401 ? '用户名或密码错误' : '登录失败'));
+        setError(
+          data.error ||
+          data.message ||
+          (response.status === 401 ? '用戶名或密碼錯誤' : '登入失敗')
+        );
       }
     } catch (err: any) {
-      setError(err.message || '请求失败');
+      const message = String(err?.message || '').toLowerCase();
+      if (message.includes('failed to fetch') || message.includes('network') || message.includes('load failed')) {
+        setError('無法連線後端服務，請確認 API 服務已啟動（預設 http://localhost:3001）');
+      } else {
+        setError(err.message || '請求失敗');
+      }
     } finally {
       setLoading(false);
     }
