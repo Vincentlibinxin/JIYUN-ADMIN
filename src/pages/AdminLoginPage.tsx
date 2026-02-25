@@ -27,14 +27,20 @@ export default function AdminLoginPage() {
         body: JSON.stringify({ username, password })
       });
 
-      const data = await response.json();
+      const raw = await response.text();
+      let data: any = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        data = {};
+      }
 
       if (response.ok) {
         localStorage.setItem('adminToken', data.token);
         localStorage.setItem('adminUser', JSON.stringify(data.admin));
         navigate('/dashboard');
       } else {
-        setError(data.error || '登录失败');
+        setError(data.error || (response.status === 401 ? '用户名或密码错误' : '登录失败'));
       }
     } catch (err: any) {
       setError(err.message || '请求失败');
@@ -137,7 +143,7 @@ export default function AdminLoginPage() {
         <footer className="pb-6 text-center mt-auto relative z-10 pt-8">
           <div className="flex flex-col items-center space-y-2">
             <p className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">
-              演示帳號: admin / admin123
+              演示帳號: admin / Admin123456
             </p>
             <p className="text-[10px] text-slate-600 uppercase tracking-widest font-mono">
               © 2026 RONGTAI STRAIT EXPRESS
