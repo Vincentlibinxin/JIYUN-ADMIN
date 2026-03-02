@@ -13,7 +13,7 @@ if (!requiredJwtSecret || requiredJwtSecret.length < 32 || requiredJwtSecret ===
 }
 
 const app = express();
-const port = Number(process.env.API_PORT || 3001);
+const port = 3001;
 
 const defaultOrigins = ['http://localhost:3002', 'http://127.0.0.1:3002'];
 const configuredOrigins = (process.env.CORS_ORIGINS || '')

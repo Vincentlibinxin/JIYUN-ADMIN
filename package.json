@@ -9,7 +9,7 @@
     "api:dev": "tsx watch --tsconfig server/tsconfig.json server/index.ts",
     "dev:all": "concurrently \"npm run api:dev\" \"npm run dev\"",
     "build": "vite build",
-    "preview": "vite preview --port=3002 --host=0.0.0.0",
+    "preview": "vite preview",
     "start:public": "concurrently \"npm run api\" \"npm run preview\""
   },
   "dependencies": {
