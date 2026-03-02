@@ -4,3 +4,4 @@ dist/
 .env
 .env.api
 server/data/db.json
+logs/

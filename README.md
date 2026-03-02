@@ -45,3 +45,42 @@ API 默认地址：`http://localhost:3001`
 ```dotenv
 VITE_API_BASE=http://localhost:3001/api
 ```
+
+## Windows 开机自动启动
+
+已提供脚本：
+
+- `scripts/start-services.ps1`：自动停止 3001/3002 旧进程并启动 API + 前端预览
+- `scripts/stop-services.ps1`：停止 3001/3002 服务
+
+注册开机自启动任务（管理员 PowerShell）：
+
+```powershell
+$taskName='JiyunAdminAutoStart'
+$scriptPath='C:\Users\Administrator\集运系统\ADMIN\scripts\start-services.ps1'
+$action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+$trigger=New-ScheduledTaskTrigger -AtStartup
+$principal=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+$settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force
+```
+
+常用维护命令：
+
+```powershell
+# 立即触发自启动任务
+Start-ScheduledTask -TaskName 'JiyunAdminAutoStart'
+
+# 查看任务状态
+Get-ScheduledTask -TaskName 'JiyunAdminAutoStart'
+Get-ScheduledTaskInfo -TaskName 'JiyunAdminAutoStart'
+
+# 删除任务
+Unregister-ScheduledTask -TaskName 'JiyunAdminAutoStart' -Confirm:$false
+```
+
+日志目录：`logs/`
+
+- `logs/autostart.log`
+- `logs/api.out.log`、`logs/api.err.log`
+- `logs/web.out.log`、`logs/web.err.log`
