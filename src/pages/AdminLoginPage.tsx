@@ -10,6 +10,16 @@ export default function AdminLoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  const clearServerSession = async (): Promise<void> => {
+    try {
+      await fetch(`${API_BASE}/admin/session/clear`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch {
+    }
+  };
+
   const formatRetryAfter = (seconds: number): string => {
     const safeSeconds = Math.max(0, Math.floor(seconds));
     const minutes = Math.floor(safeSeconds / 60);
@@ -21,6 +31,7 @@ export default function AdminLoginPage() {
   useEffect(() => {
     const expired = sessionStorage.getItem('adminAuthExpired');
     if (expired === '1') {
+      clearServerSession();
       setError('登入狀態已過期，請重新登入');
       sessionStorage.removeItem('adminAuthExpired');
     }

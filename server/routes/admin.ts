@@ -378,6 +378,11 @@ router.post('/logout', adminAuth, csrfGuard, async (_req: AdminRequest, res: Res
   res.json({ message: '已登出' });
 });
 
+router.post('/session/clear', async (_req: Request, res: Response): Promise<void> => {
+  clearAuthCookies(res);
+  res.json({ message: '会话已清理' });
+});
+
 router.get('/audit-logs', adminAuth, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 50);

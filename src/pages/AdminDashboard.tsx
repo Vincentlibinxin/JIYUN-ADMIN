@@ -109,7 +109,18 @@ export default function AdminDashboard() {
     }
   });
 
+  const clearServerSession = async (): Promise<void> => {
+    try {
+      await fetch(`${API_BASE}/admin/session/clear`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch {
+    }
+  };
+
   const forceRelogin = () => {
+    clearServerSession();
     sessionStorage.setItem('adminAuthExpired', '1');
     sessionStorage.removeItem('adminCsrfToken');
     localStorage.removeItem('adminUser');
