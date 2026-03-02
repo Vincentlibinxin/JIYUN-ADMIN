@@ -7,6 +7,7 @@ export default function AdminLoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [diagnostic, setDiagnostic] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -39,6 +40,7 @@ export default function AdminLoginPage() {
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
+    setDiagnostic('');
 
     if (!username || !password) {
       setError('用户名和密码不能为空');
@@ -81,6 +83,7 @@ export default function AdminLoginPage() {
         sessionStorage.setItem('adminCsrfToken', csrfToken);
         navigate('/dashboard');
       } else {
+        setDiagnostic(`HTTP ${response.status} ${response.statusText || ''}\nURL: ${API_BASE}/admin/login\nAPI_BASE: ${API_BASE}\nSERVER: ${String(data?.error || data?.message || 'n/a')}`);
         if (response.status === 429) {
           const retryAfterSeconds = Number(data?.retryAfterSeconds || 0);
           const waitText = retryAfterSeconds > 0 ? formatRetryAfter(retryAfterSeconds) : '稍后';
@@ -97,9 +100,11 @@ export default function AdminLoginPage() {
     } catch (err: any) {
       const message = String(err?.message || '').toLowerCase();
       if (message.includes('failed to fetch') || message.includes('network') || message.includes('load failed')) {
-        setError('無法連線後端服務，請確認 API 服務已啟動（預設 http://localhost:3001）');
+        setError('無法連線後端服務，請檢查網路或稍後重試');
+        setDiagnostic(`NETWORK_ERROR\nURL: ${API_BASE}/admin/login\nAPI_BASE: ${API_BASE}\nERROR: ${String(err?.message || 'unknown')}`);
       } else {
         setError(err.message || '請求失敗');
+        setDiagnostic(`UNEXPECTED_ERROR\nURL: ${API_BASE}/admin/login\nAPI_BASE: ${API_BASE}\nERROR: ${String(err?.message || 'unknown')}`);
       }
     } finally {
       setLoading(false);
@@ -152,6 +157,12 @@ export default function AdminLoginPage() {
               <div className="bg-red-500/20 border border-red-500/50 text-red-300 px-4 py-2 rounded-xl text-sm">
                 {error}
               </div>
+            )}
+            {diagnostic && (
+              <details className="bg-slate-900/60 border border-slate-700 text-slate-300 px-4 py-2 rounded-xl text-xs">
+                <summary className="cursor-pointer select-none">登入診斷資訊</summary>
+                <pre className="mt-2 whitespace-pre-wrap break-all">{diagnostic}</pre>
+              </details>
             )}
             <div className="group flex items-center bg-white rounded-xl shadow-lg overflow-hidden border border-slate-200 focus-within:border-[#f58220] focus-within:ring-2 focus-within:ring-[#f58220]/20 transition-all duration-300 h-12">
               <div className="w-12 h-full flex items-center justify-center bg-slate-50 border-r border-slate-100">

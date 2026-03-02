@@ -473,7 +473,7 @@ export default function AdminDashboard() {
     try {
       await adminFetch('/admin/logout', { method: 'POST' });
     } finally {
-      forceRelogin();
+      forceRelogin(false);
     }
   };
 
