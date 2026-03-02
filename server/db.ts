@@ -74,6 +74,18 @@ const getAdminCount = async (): Promise<number> => {
   return row ? row.count : 0;
 };
 
+const getAuditLogsCount = async (): Promise<number> => {
+  const row = await querySingle<{ count: number }>('SELECT COUNT(*) as count FROM admin_audit_logs');
+  return row ? row.count : 0;
+};
+
+const getSuperAdminCount = async (): Promise<number> => {
+  const row = await querySingle<{ count: number }>(
+    "SELECT COUNT(*) as count FROM admin_users WHERE role = 'super_admin'"
+  );
+  return row ? row.count : 0;
+};
+
 export const initDb = async (): Promise<void> => {
   const connection = await pool.getConnection();
   try {
@@ -154,15 +166,54 @@ export const initDb = async (): Promise<void> => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS admin_audit_logs (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        admin_id INT NULL,
+        action VARCHAR(64) NOT NULL,
+        target_type VARCHAR(64) NULL,
+        target_id INT NULL,
+        result VARCHAR(32) NOT NULL,
+        ip VARCHAR(64) NULL,
+        detail VARCHAR(255) NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_audit_admin_id (admin_id),
+        INDEX idx_audit_action (action),
+        INDEX idx_audit_created_at (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     const adminCount = await getAdminCount();
     if (adminCount === 0) {
-      const defaultUsername = process.env.DEFAULT_ADMIN_USERNAME || 'admin';
-      const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'Admin123456';
-      const defaultEmail = process.env.DEFAULT_ADMIN_EMAIL || 'admin@example.com';
+      const defaultUsername = (process.env.DEFAULT_ADMIN_USERNAME || '').trim();
+      const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD || '';
+      const defaultEmail = (process.env.DEFAULT_ADMIN_EMAIL || '').trim();
+
+      if (!defaultUsername || !defaultPassword || !defaultEmail) {
+        throw new Error('[DB] DEFAULT_ADMIN_USERNAME / DEFAULT_ADMIN_PASSWORD / DEFAULT_ADMIN_EMAIL are required for first-time setup.');
+      }
+
+      if (defaultPassword.length < 12) {
+        throw new Error('[DB] DEFAULT_ADMIN_PASSWORD must be at least 12 characters.');
+      }
+
       const hashed = bcrypt.hashSync(defaultPassword, 10);
       await connection.execute(
         'INSERT INTO admin_users (username, password, email, role) VALUES (?, ?, ?, ?)',
-        [defaultUsername, hashed, defaultEmail, 'admin']
+        [defaultUsername, hashed, defaultEmail, 'super_admin']
+      );
+    }
+
+    const superAdminCount = await getSuperAdminCount();
+    if (superAdminCount === 0) {
+      await connection.execute(
+        `UPDATE admin_users
+         SET role = 'super_admin', updated_at = NOW()
+         WHERE id = (
+           SELECT id FROM (
+             SELECT id FROM admin_users ORDER BY created_at ASC LIMIT 1
+           ) t
+         )`
       );
     }
   } finally {
@@ -172,6 +223,10 @@ export const initDb = async (): Promise<void> => {
 
 export const getAdminByUsername = async (username: string): Promise<any | null> => {
   return querySingle<any>('SELECT * FROM admin_users WHERE username = ? LIMIT 1', [username]);
+};
+
+export const getAdminById = async (adminId: number): Promise<any | null> => {
+  return querySingle<any>('SELECT * FROM admin_users WHERE id = ? LIMIT 1', [adminId]);
 };
 
 export const updateAdminLastLogin = async (adminId: number): Promise<void> => {
@@ -325,4 +380,46 @@ export const updateAdminStatus = async (adminId: number, status: string): Promis
 export const deleteAdmin = async (adminId: number): Promise<boolean> => {
   const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM admin_users WHERE id = ?', [adminId]);
   return result.affectedRows > 0;
+};
+
+export const logAdminAudit = async (payload: {
+  adminId?: number | null;
+  action: string;
+  targetType?: string | null;
+  targetId?: number | null;
+  result: 'success' | 'failed' | 'denied';
+  ip?: string | null;
+  detail?: string | null;
+}): Promise<void> => {
+  await pool.execute(
+    `INSERT INTO admin_audit_logs
+      (admin_id, action, target_type, target_id, result, ip, detail)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      payload.adminId ?? null,
+      payload.action,
+      payload.targetType ?? null,
+      payload.targetId ?? null,
+      payload.result,
+      payload.ip ?? null,
+      payload.detail ?? null,
+    ]
+  );
+};
+
+export const getAdminAuditLogsPaged = async (page: number, limit: number) => {
+  return toPagedResult(
+    page,
+    limit,
+    async (safeLimit, offset) => {
+      const [rows] = await pool.query<mysql.RowDataPacket[]>(
+        `SELECT id, admin_id, action, target_type, target_id, result, ip, detail, created_at
+         FROM admin_audit_logs
+         ORDER BY created_at DESC
+         LIMIT ${safeLimit} OFFSET ${offset}`
+      );
+      return rows as any[];
+    },
+    getAuditLogsCount
+  );
 };

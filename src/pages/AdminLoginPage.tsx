@@ -32,6 +32,7 @@ export default function AdminLoginPage() {
       const response = await fetch(`${API_BASE}/admin/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ username, password })
       });
 
@@ -44,17 +45,22 @@ export default function AdminLoginPage() {
       }
 
       const payload = data?.data ?? data;
-      const token = payload?.token ?? payload?.accessToken;
       const admin = payload?.admin ?? payload?.user ?? null;
+      const csrfToken = payload?.csrfToken;
 
       if (response.ok) {
-        if (!token) {
+        if (!admin) {
+          setError('登入失敗：伺服器回應缺少帳號資料，請聯絡管理員');
+          return;
+        }
+
+        if (!csrfToken) {
           setError('登入失敗：伺服器回應缺少憑證，請聯絡管理員');
           return;
         }
 
-        localStorage.setItem('adminToken', token);
         localStorage.setItem('adminUser', JSON.stringify(admin));
+        sessionStorage.setItem('adminCsrfToken', csrfToken);
         navigate('/dashboard');
       } else {
         setError(
@@ -168,9 +174,6 @@ export default function AdminLoginPage() {
 
         <footer className="pb-6 text-center mt-auto relative z-10 pt-8">
           <div className="flex flex-col items-center space-y-2">
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">
-              演示帳號: admin / Admin123456
-            </p>
             <p className="text-[10px] text-slate-600 uppercase tracking-widest font-mono">
               © 2026 RONGTAI STRAIT EXPRESS
             </p>

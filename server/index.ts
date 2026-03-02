@@ -7,6 +7,11 @@ import { initDb } from './db';
 dotenv.config({ path: '.env.api' });
 dotenv.config();
 
+const requiredJwtSecret = process.env.JWT_SECRET || '';
+if (!requiredJwtSecret || requiredJwtSecret.length < 32 || requiredJwtSecret === 'please-change-this-secret') {
+  throw new Error('[API] JWT_SECRET is missing or too weak. Use a random secret with at least 32 characters.');
+}
+
 const app = express();
 const port = Number(process.env.API_PORT || 3001);
 

@@ -21,10 +21,11 @@ npm run api
 
 API 默认地址：`http://localhost:3001`
 
-默认管理员账号（首次自动初始化）：
+首次启动前请在 `.env.api` 设置强密码（至少 12 位）与强 `JWT_SECRET`（至少 32 位随机字符）。
+
+默认管理员用户名（可在 `.env.api` 修改）：
 
 - 用户名：`admin`
-- 密码：`Admin123456`
 
 ## API 说明
 

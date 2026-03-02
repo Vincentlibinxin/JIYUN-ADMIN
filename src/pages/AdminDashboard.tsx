@@ -99,15 +99,45 @@ export default function AdminDashboard() {
   const [adminTotalPages, setAdminTotalPages] = useState(1);
   const [adminTotalItems, setAdminTotalItems] = useState(0);
   const [newAdmin, setNewAdmin] = useState({ username: '', password: '', email: '', role: 'admin' });
-  const adminUser = localStorage.getItem('adminUser') ? JSON.parse(localStorage.getItem('adminUser')!) : null;
-
-  const token = localStorage.getItem('adminToken');
+  const [adminUser, setAdminUser] = useState<any>(() => {
+    const raw = localStorage.getItem('adminUser');
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  });
 
   const forceRelogin = () => {
     sessionStorage.setItem('adminAuthExpired', '1');
-    localStorage.removeItem('adminToken');
+    sessionStorage.removeItem('adminCsrfToken');
     localStorage.removeItem('adminUser');
     navigate('/login');
+  };
+
+  const getCsrfToken = (): string => {
+    return sessionStorage.getItem('adminCsrfToken') || '';
+  };
+
+  const adminFetch = async (path: string, init: RequestInit = {}): Promise<Response> => {
+    const method = (init.method || 'GET').toUpperCase();
+    const headers = new Headers(init.headers || {});
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+      const csrfToken = getCsrfToken();
+      if (csrfToken) {
+        headers.set('X-CSRF-Token', csrfToken);
+      }
+      if (!headers.has('Content-Type') && init.body) {
+        headers.set('Content-Type', 'application/json');
+      }
+    }
+
+    return fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers,
+      credentials: 'include',
+    });
   };
 
   const ensureAuthorized = (response: Response): boolean => {
@@ -119,32 +149,55 @@ export default function AdminDashboard() {
     return true;
   };
 
-  useEffect(() => {
-    if (!token) {
-      navigate('/login');
-      return;
+  const ensureSession = async (): Promise<boolean> => {
+    try {
+      const response = await adminFetch('/admin/session');
+      if (!ensureAuthorized(response)) return false;
+      if (!response.ok) return false;
+      const data = await response.json();
+      const admin = data?.admin || null;
+      if (admin) {
+        setAdminUser(admin);
+        localStorage.setItem('adminUser', JSON.stringify(admin));
+      }
+      if (data?.csrfToken) {
+        sessionStorage.setItem('adminCsrfToken', data.csrfToken);
+      }
+      return true;
+    } catch {
+      forceRelogin();
+      return false;
     }
-    fetchUsers();
-    fetchOrders();
-    fetchParcels();
-  }, [token, navigate]);
+  };
 
   useEffect(() => {
-    if (!token) return;
+    let mounted = true;
+    const boot = async () => {
+      const ok = await ensureSession();
+      if (!ok || !mounted) return;
+      fetchUsers();
+      fetchOrders();
+      fetchParcels();
+    };
+    boot();
+    return () => {
+      mounted = false;
+    };
+  }, [navigate]);
+
+  useEffect(() => {
     if (activeTab === 'sms') {
       fetchSms();
     }
     if (activeTab === 'admins') {
       fetchAdmins();
     }
-  }, [activeTab, token]);
+  }, [activeTab]);
 
   const fetchUsers = async (page: number = 1, size: number = pageSize) => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE}/admin/users?page=${page}&limit=${size}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await adminFetch(`/admin/users?page=${page}&limit=${size}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('fetch users failed');
       const data = await response.json();
@@ -169,9 +222,7 @@ export default function AdminDashboard() {
   const fetchOrders = async (page: number = 1, size: number = orderPageSize) => {
     try {
       setOrdersLoading(true);
-      const response = await fetch(`${API_BASE}/admin/orders?page=${page}&limit=${size}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await adminFetch(`/admin/orders?page=${page}&limit=${size}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('fetch orders failed');
       const data = await response.json();
@@ -197,9 +248,7 @@ export default function AdminDashboard() {
   const fetchSms = async (page: number = 1, size: number = smsPageSize) => {
     try {
       setSmsLoading(true);
-      const response = await fetch(`${API_BASE}/admin/sms?page=${page}&limit=${size}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await adminFetch(`/admin/sms?page=${page}&limit=${size}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('fetch sms failed');
       const data = await response.json();
@@ -224,9 +273,7 @@ export default function AdminDashboard() {
   const fetchParcels = async (page: number = 1, size: number = parcelPageSize) => {
     try {
       setParcelsLoading(true);
-      const response = await fetch(`${API_BASE}/admin/parcels?page=${page}&limit=${size}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await adminFetch(`/admin/parcels?page=${page}&limit=${size}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('fetch parcels failed');
       const data = await response.json();
@@ -252,9 +299,7 @@ export default function AdminDashboard() {
   const fetchAdmins = async (page: number = 1, size: number = adminPageSize) => {
     try {
       setAdminsLoading(true);
-      const response = await fetch(`${API_BASE}/admin/admins?page=${page}&limit=${size}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await adminFetch(`/admin/admins?page=${page}&limit=${size}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('fetch admins failed');
       const data = await response.json();
@@ -286,9 +331,7 @@ export default function AdminDashboard() {
     try {
       setLoading(true);
       setCurrentPage(1);
-      const response = await fetch(`${API_BASE}/admin/users/search?q=${encodeURIComponent(searchQuery)}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await adminFetch(`/admin/users/search?q=${encodeURIComponent(searchQuery)}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('search users failed');
       const data = await response.json();
@@ -305,9 +348,8 @@ export default function AdminDashboard() {
     if (!confirm('確定要刪除此會員嗎？')) return;
 
     try {
-      const response = await fetch(`${API_BASE}/admin/users/${id}`, {
+      const response = await adminFetch(`/admin/users/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
       });
 
       if (!ensureAuthorized(response)) return;
@@ -324,12 +366,8 @@ export default function AdminDashboard() {
 
   const updateOrderStatus = async (orderId: number, newStatus: string) => {
     try {
-      const response = await fetch(`${API_BASE}/admin/orders/${orderId}`, {
+      const response = await adminFetch(`/admin/orders/${orderId}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
         body: JSON.stringify({ status: newStatus })
       });
 
@@ -345,12 +383,8 @@ export default function AdminDashboard() {
 
   const updateParcelStatus = async (parcelId: number, newStatus: string) => {
     try {
-      const response = await fetch(`${API_BASE}/admin/parcels/${parcelId}`, {
+      const response = await adminFetch(`/admin/parcels/${parcelId}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
         body: JSON.stringify({ status: newStatus })
       });
 
@@ -371,12 +405,8 @@ export default function AdminDashboard() {
     }
 
     try {
-      const response = await fetch(`${API_BASE}/admin/admins`, {
+      const response = await adminFetch('/admin/admins', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
         body: JSON.stringify(newAdmin)
       });
 
@@ -396,12 +426,8 @@ export default function AdminDashboard() {
 
   const updateAdminAccountStatus = async (adminId: number, status: string) => {
     try {
-      const response = await fetch(`${API_BASE}/admin/admins/${adminId}`, {
+      const response = await adminFetch(`/admin/admins/${adminId}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
         body: JSON.stringify({ status })
       });
 
@@ -419,9 +445,8 @@ export default function AdminDashboard() {
     if (!confirm('確定要刪除此管理員嗎？')) return;
 
     try {
-      const response = await fetch(`${API_BASE}/admin/admins/${adminId}`, {
+      const response = await adminFetch(`/admin/admins/${adminId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
       });
 
       if (!ensureAuthorized(response)) return;
@@ -436,8 +461,12 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleLogout = () => {
-    forceRelogin();
+  const handleLogout = async () => {
+    try {
+      await adminFetch('/admin/logout', { method: 'POST' });
+    } finally {
+      forceRelogin();
+    }
   };
 
   const statusColors: { [key: string]: string } = {
