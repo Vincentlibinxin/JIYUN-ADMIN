@@ -109,19 +109,12 @@ export default function AdminDashboard() {
     }
   });
 
-  const clearServerSession = async (): Promise<void> => {
-    try {
-      await fetch(`${API_BASE}/admin/session/clear`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-    } catch {
+  const forceRelogin = (showExpiredTip: boolean = true) => {
+    if (showExpiredTip) {
+      sessionStorage.setItem('adminAuthExpired', '1');
+    } else {
+      sessionStorage.removeItem('adminAuthExpired');
     }
-  };
-
-  const forceRelogin = () => {
-    clearServerSession();
-    sessionStorage.setItem('adminAuthExpired', '1');
     sessionStorage.removeItem('adminCsrfToken');
     localStorage.removeItem('adminUser');
     navigate('/login');
@@ -163,7 +156,11 @@ export default function AdminDashboard() {
   const ensureSession = async (): Promise<boolean> => {
     try {
       const response = await adminFetch('/admin/session');
-      if (!ensureAuthorized(response)) return false;
+      if (response.status === 401) {
+        const shouldShowTip = Boolean(localStorage.getItem('adminUser'));
+        forceRelogin(shouldShowTip);
+        return false;
+      }
       if (!response.ok) return false;
       const data = await response.json();
       const admin = data?.admin || null;

@@ -30,10 +30,9 @@ export default function AdminLoginPage() {
 
   useEffect(() => {
     const expired = sessionStorage.getItem('adminAuthExpired');
+    sessionStorage.removeItem('adminAuthExpired');
     if (expired === '1') {
-      clearServerSession();
       setError('登入狀態已過期，請重新登入');
-      sessionStorage.removeItem('adminAuthExpired');
     }
   }, []);
 
