@@ -2,7 +2,7 @@
 
 独立后台管理前端项目，API 服务现已可在本目录内独立启动。
 
-## 运行方式
+## 开发模式（仅本机）
 
 ```bash
 npm install
@@ -10,6 +10,16 @@ npm run dev
 ```
 
 默认地址：`http://localhost:3002`
+
+## 公网服务启动（推荐）
+
+```bash
+npm install
+npm run build
+npm run start:public
+```
+
+公网访问地址：`http://<你的公网IP>:3002`
 
 ## 本地 API 启动（当前目录）
 
