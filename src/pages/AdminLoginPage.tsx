@@ -10,6 +10,14 @@ export default function AdminLoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  const formatRetryAfter = (seconds: number): string => {
+    const safeSeconds = Math.max(0, Math.floor(seconds));
+    const minutes = Math.floor(safeSeconds / 60);
+    const remainSeconds = safeSeconds % 60;
+    if (minutes <= 0) return `${remainSeconds} 秒`;
+    return `${minutes} 分 ${remainSeconds} 秒`;
+  };
+
   useEffect(() => {
     const expired = sessionStorage.getItem('adminAuthExpired');
     if (expired === '1') {
@@ -63,6 +71,13 @@ export default function AdminLoginPage() {
         sessionStorage.setItem('adminCsrfToken', csrfToken);
         navigate('/dashboard');
       } else {
+        if (response.status === 429) {
+          const retryAfterSeconds = Number(data?.retryAfterSeconds || 0);
+          const waitText = retryAfterSeconds > 0 ? formatRetryAfter(retryAfterSeconds) : '稍后';
+          setError(`登录尝试过于频繁，请在 ${waitText} 后重试`);
+          return;
+        }
+
         setError(
           data.error ||
           data.message ||

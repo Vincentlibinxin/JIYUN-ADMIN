@@ -129,6 +129,13 @@ const isLoginBlocked = (key: string): boolean => {
   return false;
 };
 
+const getLoginBlockRemainingMs = (key: string): number => {
+  const now = Date.now();
+  const state = loginAttempts.get(key);
+  if (!state) return 0;
+  return Math.max(0, state.blockedUntil - now);
+};
+
 const markLoginFailure = (key: string): void => {
   const now = Date.now();
   const current = loginAttempts.get(key);
@@ -239,13 +246,22 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     const loginKey = getLoginKey(req, username);
     const requestIp = getRequestIp(req);
     if (isLoginBlocked(loginKey)) {
+      const remainingMs = getLoginBlockRemainingMs(loginKey);
+      const retryAfterSeconds = Math.max(1, Math.ceil(remainingMs / 1000));
+      const retryAfterAt = new Date(Date.now() + remainingMs).toISOString();
+
       await logAdminAudit({
         action: 'auth.login',
         result: 'denied',
         ip: requestIp,
         detail: `blocked username=${username}`,
       });
-      res.status(429).json({ error: '登录尝试过于频繁，请稍后再试' });
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+      res.status(429).json({
+        error: '登录尝试过于频繁，请稍后再试',
+        retryAfterSeconds,
+        retryAfterAt,
+      });
       return;
     }
 
