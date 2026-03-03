@@ -42,6 +42,8 @@ API 默认地址：`http://localhost:3001`
 - 默认通过 Vite 代理将 `/api` 转发到 `http://localhost:3001`
 - 如需自定义后端地址，可配置 `.env`:
 
+数据库结构文档：`数据库结构说明.md`
+
 ```dotenv
 VITE_API_BASE=http://localhost:3001/api
 ```
