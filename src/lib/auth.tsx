@@ -12,16 +12,9 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 const LOGOUT_SYNC_KEY = 'admin:logout-sync';
 
-function setExpiredTip(show: boolean): void {
-  if (show) {
-    sessionStorage.setItem('adminAuthExpired', '1');
-  } else {
-    sessionStorage.removeItem('adminAuthExpired');
-  }
-}
-
 function clearLocalSessionData(): void {
   sessionStorage.removeItem('adminCsrfToken');
+  sessionStorage.removeItem('adminAuthExpired');
   localStorage.removeItem('adminUser');
 }
 
@@ -38,21 +31,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const broadcastLogout = useCallback((showExpiredTip: boolean) => {
+  const broadcastLogout = useCallback(() => {
     localStorage.setItem(
       LOGOUT_SYNC_KEY,
-      JSON.stringify({ at: Date.now(), showExpiredTip }),
+      JSON.stringify({ at: Date.now() }),
     );
   }, []);
 
-  const runLogout = useCallback(async (options?: { callApi?: boolean; broadcast?: boolean; showExpiredTip?: boolean }) => {
+  const runLogout = useCallback(async (options?: { callApi?: boolean; broadcast?: boolean }) => {
     if (isLoggingOutRef.current) {
       return;
     }
 
     const callApi = options?.callApi !== false;
     const shouldBroadcast = options?.broadcast !== false;
-    const shouldShowExpiredTip = options?.showExpiredTip !== false;
 
     isLoggingOutRef.current = true;
     clearAutoLogoutTimer();
@@ -65,12 +57,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     } finally {
-      setExpiredTip(shouldShowExpiredTip);
       clearLocalSessionData();
       setUser(null);
       setLoading(false);
       if (shouldBroadcast) {
-        broadcastLogout(shouldShowExpiredTip);
+        broadcastLogout();
       }
       isLoggingOutRef.current = false;
     }
@@ -84,13 +75,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     clearAutoLogoutTimer();
     timerRef.current = window.setTimeout(() => {
-      void runLogout({ callApi: true, broadcast: true, showExpiredTip: false });
+      void runLogout({ callApi: true, broadcast: true });
     }, AUTO_LOGOUT_MS);
   }, [clearAutoLogoutTimer, loading, runLogout, user]);
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      void runLogout({ callApi: false, broadcast: true, showExpiredTip: true });
+      void runLogout({ callApi: false, broadcast: true });
     });
 
     return () => {
@@ -104,15 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      let showExpiredTip = true;
-      try {
-        const parsed = JSON.parse(event.newValue);
-        showExpiredTip = Boolean(parsed?.showExpiredTip);
-      } catch {
-      }
-
       clearAutoLogoutTimer();
-      setExpiredTip(showExpiredTip);
       clearLocalSessionData();
       setUser(null);
       setLoading(false);
@@ -163,7 +146,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         localStorage.setItem('adminUser', JSON.stringify(session.admin));
         sessionStorage.setItem('adminCsrfToken', session.csrfToken);
-        setExpiredTip(false);
         setUser(session.admin);
       } catch {
         if (!mounted) {
@@ -198,7 +180,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error('登入失敗：伺服器回應缺少憑證，請聯絡管理員');
     }
 
-    setExpiredTip(false);
     localStorage.setItem('adminUser', JSON.stringify(result.admin));
     sessionStorage.setItem('adminCsrfToken', result.csrfToken);
     setUser(result.admin);
@@ -206,7 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    await runLogout({ callApi: true, broadcast: true, showExpiredTip: false });
+    await runLogout({ callApi: true, broadcast: true });
   }, [runLogout]);
 
   const contextValue = useMemo<AuthContextValue>(() => ({

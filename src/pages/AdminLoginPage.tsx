@@ -1,4 +1,4 @@
-import { useState, FormEvent, useEffect } from 'react';
+import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiRequestError } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -19,14 +19,6 @@ export default function AdminLoginPage() {
     if (minutes <= 0) return `${remainSeconds} 秒`;
     return `${minutes} 分 ${remainSeconds} 秒`;
   };
-
-  useEffect(() => {
-    const expired = sessionStorage.getItem('adminAuthExpired');
-    sessionStorage.removeItem('adminAuthExpired');
-    if (expired === '1') {
-      setError('登入狀態已過期，請重新登入');
-    }
-  }, []);
 
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault();

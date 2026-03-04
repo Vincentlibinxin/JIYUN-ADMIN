@@ -102,7 +102,6 @@ export default function AdminDashboard() {
 
   const ensureAuthorized = (response: Response): boolean => {
     if (response.status === 401) {
-      setError('登入狀態已過期，請重新登入');
       return false;
     }
     return true;
