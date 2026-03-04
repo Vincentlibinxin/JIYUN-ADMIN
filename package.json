@@ -8,6 +8,7 @@
     "api": "tsx --tsconfig server/tsconfig.json server/index.ts",
     "api:dev": "tsx watch --tsconfig server/tsconfig.json server/index.ts",
     "dev:all": "concurrently \"npm run api:dev\" \"npm run dev\"",
+    "seed:parcels": "tsx scripts/seed-parcels.ts",
     "build": "vite build",
     "preview": "vite preview",
     "start:public": "concurrently \"npm run api\" \"npm run preview\""

@@ -46,7 +46,10 @@ API 默认地址：`http://localhost:3001`
 
 ```dotenv
 VITE_API_BASE=http://localhost:3001/api
+VITE_AUTO_LOGOUT_MINUTES=60
 ```
+
+`VITE_AUTO_LOGOUT_MINUTES` 为后台空闲自动登出分钟数（默认 60 分钟）。
 
 ## Windows 开机自动启动
 

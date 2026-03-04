@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Home, Users, User, ShoppingCart, MessageCircle, Package, ClipboardList, Shield } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import Pagination from '../components/Pagination';
-import { API_BASE } from '../lib/config';
+import { adminFetch } from '../lib/api';
+import { useAuth } from '../lib/auth';
 
 interface User {
   id: number;
@@ -62,7 +62,7 @@ interface Stats {
 }
 
 export default function AdminDashboard() {
-  const navigate = useNavigate();
+  const { user: adminUser, loading: authLoading, logout } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
   const [activeMenu, setActiveMenu] = useState('overview');
   const [users, setUsers] = useState<User[]>([]);
@@ -99,99 +99,24 @@ export default function AdminDashboard() {
   const [adminTotalPages, setAdminTotalPages] = useState(1);
   const [adminTotalItems, setAdminTotalItems] = useState(0);
   const [newAdmin, setNewAdmin] = useState({ username: '', password: '', email: '', role: 'admin' });
-  const [adminUser, setAdminUser] = useState<any>(() => {
-    const raw = localStorage.getItem('adminUser');
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  });
-
-  const forceRelogin = (showExpiredTip: boolean = true) => {
-    if (showExpiredTip) {
-      sessionStorage.setItem('adminAuthExpired', '1');
-    } else {
-      sessionStorage.removeItem('adminAuthExpired');
-    }
-    sessionStorage.removeItem('adminCsrfToken');
-    localStorage.removeItem('adminUser');
-    navigate('/login');
-  };
-
-  const getCsrfToken = (): string => {
-    return sessionStorage.getItem('adminCsrfToken') || '';
-  };
-
-  const adminFetch = async (path: string, init: RequestInit = {}): Promise<Response> => {
-    const method = (init.method || 'GET').toUpperCase();
-    const headers = new Headers(init.headers || {});
-    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
-      const csrfToken = getCsrfToken();
-      if (csrfToken) {
-        headers.set('X-CSRF-Token', csrfToken);
-      }
-      if (!headers.has('Content-Type') && init.body) {
-        headers.set('Content-Type', 'application/json');
-      }
-    }
-
-    return fetch(`${API_BASE}${path}`, {
-      ...init,
-      headers,
-      credentials: 'include',
-    });
-  };
 
   const ensureAuthorized = (response: Response): boolean => {
     if (response.status === 401) {
       setError('登入狀態已過期，請重新登入');
-      forceRelogin();
       return false;
     }
     return true;
   };
 
-  const ensureSession = async (): Promise<boolean> => {
-    try {
-      const response = await adminFetch('/admin/session');
-      if (response.status === 401) {
-        const shouldShowTip = Boolean(localStorage.getItem('adminUser'));
-        forceRelogin(shouldShowTip);
-        return false;
-      }
-      if (!response.ok) return false;
-      const data = await response.json();
-      const admin = data?.admin || null;
-      if (admin) {
-        setAdminUser(admin);
-        localStorage.setItem('adminUser', JSON.stringify(admin));
-      }
-      if (data?.csrfToken) {
-        sessionStorage.setItem('adminCsrfToken', data.csrfToken);
-      }
-      return true;
-    } catch {
-      forceRelogin();
-      return false;
-    }
-  };
-
   useEffect(() => {
-    let mounted = true;
-    const boot = async () => {
-      const ok = await ensureSession();
-      if (!ok || !mounted) return;
-      fetchUsers();
-      fetchOrders();
-      fetchParcels();
-    };
-    boot();
-    return () => {
-      mounted = false;
-    };
-  }, [navigate]);
+    if (authLoading || !adminUser) {
+      return;
+    }
+
+    fetchUsers();
+    fetchOrders();
+    fetchParcels();
+  }, [authLoading, adminUser]);
 
   useEffect(() => {
     if (activeTab === 'sms') {
@@ -470,11 +395,7 @@ export default function AdminDashboard() {
   };
 
   const handleLogout = async () => {
-    try {
-      await adminFetch('/admin/logout', { method: 'POST' });
-    } finally {
-      forceRelogin(false);
-    }
+    await logout();
   };
 
   const statusColors: { [key: string]: string } = {

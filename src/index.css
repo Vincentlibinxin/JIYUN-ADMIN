@@ -10,3 +10,7 @@
   --color-background-dark: #0a0a0a;
   --color-surface-dark: #1f1f1f;
 }
+
+main form details {
+  display: none !important;
+}
