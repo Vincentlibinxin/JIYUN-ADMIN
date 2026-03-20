@@ -1,4 +1,4 @@
-import bcrypt from 'bcryptjs';
+﻿import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
 
@@ -42,6 +42,32 @@ const toPagedResult = async <T>(
     total,
     pages: Math.max(1, Math.ceil(total / safeLimit)),
   };
+};
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+const normalizeDateOnly = (value?: string): string | null => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed || !DATE_ONLY_RE.test(trimmed)) return null;
+  return trimmed;
+};
+
+const buildCreatedAtFilter = (startDate?: string, endDate?: string) => {
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+  const from = normalizeDateOnly(startDate);
+  const to = normalizeDateOnly(endDate);
+
+  if (from) {
+    clauses.push('created_at >= ?');
+    params.push(`${from} 00:00:00`);
+  }
+  if (to) {
+    clauses.push('created_at <= ?');
+    params.push(`${to} 23:59:59`);
+  }
+
+  return { clauses, params };
 };
 
 const getUsersCount = async (): Promise<number> => {
@@ -267,21 +293,53 @@ export const deleteUser = async (userId: number): Promise<boolean> => {
   return result.affectedRows > 0;
 };
 
-export const getOrdersPaged = async (page: number, limit: number) => {
-  return toPagedResult(
-    page,
-    limit,
-    async (safeLimit, offset) => {
-      const [rows] = await pool.query<mysql.RowDataPacket[]>(
-        `SELECT id, user_id, total_amount, currency, status, created_at
-         FROM orders
-         ORDER BY created_at DESC
-         LIMIT ${safeLimit} OFFSET ${offset}`
-      );
-      return rows as any[];
-    },
-    getOrdersCount
+export const getOrdersPaged = async (page: number, limit: number, startDate?: string, endDate?: string) => {
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+  const { clauses, params } = buildCreatedAtFilter(startDate, endDate);
+  const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, user_id, total_amount, currency, status, created_at
+     FROM orders
+     ${whereSql}
+     ORDER BY created_at DESC
+     LIMIT ? OFFSET ?`,
+    [...params, safeLimit, offset]
   );
+
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count
+     FROM orders
+     ${whereSql}`,
+    params
+  );
+
+  const total = Number(countRows?.[0]?.count || 0);
+  return {
+    data: rows as any[],
+    total,
+    pages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+};
+
+export const searchOrders = async (keyword: string, startDate?: string, endDate?: string): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const { clauses, params } = buildCreatedAtFilter(startDate, endDate);
+  const keywordClause = '(CAST(id AS CHAR) LIKE ? OR CAST(user_id AS CHAR) LIKE ? OR status LIKE ?)';
+  const whereSql = clauses.length > 0
+    ? `WHERE ${keywordClause} AND ${clauses.join(' AND ')}`
+    : `WHERE ${keywordClause}`;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, user_id, total_amount, currency, status, created_at
+     FROM orders
+     ${whereSql}
+     ORDER BY created_at DESC`,
+    [like, like, like, ...params]
+  );
+  return rows as any[];
 };
 
 export const updateOrderStatus = async (orderId: number, status: string): Promise<boolean> => {
@@ -292,38 +350,114 @@ export const updateOrderStatus = async (orderId: number, status: string): Promis
   return result.affectedRows > 0;
 };
 
-export const getSmsPaged = async (page: number, limit: number) => {
-  return toPagedResult(
-    page,
-    limit,
-    async (safeLimit, offset) => {
-      const [rows] = await pool.query<mysql.RowDataPacket[]>(
-        `SELECT id, phone, code, verified, created_at, expires_at
-         FROM otp_codes
-         ORDER BY created_at DESC
-         LIMIT ${safeLimit} OFFSET ${offset}`
-      );
-      return rows as any[];
-    },
-    getSmsCount
+export const getSmsPaged = async (page: number, limit: number, startDate?: string, endDate?: string) => {
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+  const { clauses, params } = buildCreatedAtFilter(startDate, endDate);
+  const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, phone, code, verified, created_at, expires_at
+     FROM otp_codes
+     ${whereSql}
+     ORDER BY created_at DESC
+     LIMIT ? OFFSET ?`,
+    [...params, safeLimit, offset]
   );
+
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count
+     FROM otp_codes
+     ${whereSql}`,
+    params
+  );
+
+  const total = Number(countRows?.[0]?.count || 0);
+  return {
+    data: rows as any[],
+    total,
+    pages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
 };
 
-export const getParcelsPaged = async (page: number, limit: number) => {
-  return toPagedResult(
-    page,
-    limit,
-    async (safeLimit, offset) => {
-      const [rows] = await pool.query<mysql.RowDataPacket[]>(
-        `SELECT id, user_id, tracking_number, origin, destination, weight, status, estimated_delivery, created_at
-         FROM parcels
-         ORDER BY created_at DESC
-         LIMIT ${safeLimit} OFFSET ${offset}`
-      );
-      return rows as any[];
-    },
-    getParcelsCount
+export const searchSms = async (keyword: string, startDate?: string, endDate?: string): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const { clauses, params } = buildCreatedAtFilter(startDate, endDate);
+  const keywordClause = `(
+    CAST(id AS CHAR) LIKE ?
+    OR phone LIKE ?
+    OR code LIKE ?
+    OR CAST(verified AS CHAR) LIKE ?
+  )`;
+  const whereSql = clauses.length > 0
+    ? `WHERE ${keywordClause} AND ${clauses.join(' AND ')}`
+    : `WHERE ${keywordClause}`;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, phone, code, verified, created_at, expires_at
+     FROM otp_codes
+     ${whereSql}
+     ORDER BY created_at DESC`,
+    [like, like, like, like, ...params]
   );
+  return rows as any[];
+};
+
+export const getParcelsPaged = async (page: number, limit: number, startDate?: string, endDate?: string) => {
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+  const { clauses, params } = buildCreatedAtFilter(startDate, endDate);
+  const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, user_id, tracking_number, origin, destination, weight, status, estimated_delivery, created_at
+     FROM parcels
+     ${whereSql}
+     ORDER BY created_at DESC
+     LIMIT ? OFFSET ?`,
+    [...params, safeLimit, offset]
+  );
+
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count
+     FROM parcels
+     ${whereSql}`,
+    params
+  );
+
+  const total = Number(countRows?.[0]?.count || 0);
+  return {
+    data: rows as any[],
+    total,
+    pages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+};
+
+export const searchParcels = async (keyword: string, startDate?: string, endDate?: string): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const { clauses, params } = buildCreatedAtFilter(startDate, endDate);
+  const keywordClause = `(
+    CAST(id AS CHAR) LIKE ?
+    OR CAST(user_id AS CHAR) LIKE ?
+    OR tracking_number LIKE ?
+    OR origin LIKE ?
+    OR destination LIKE ?
+    OR status LIKE ?
+  )`;
+  const whereSql = clauses.length > 0
+    ? `WHERE ${keywordClause} AND ${clauses.join(' AND ')}`
+    : `WHERE ${keywordClause}`;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, user_id, tracking_number, origin, destination, weight, status, estimated_delivery, created_at
+     FROM parcels
+     ${whereSql}
+     ORDER BY created_at DESC`,
+    [like, like, like, like, like, like, ...params]
+  );
+  return rows as any[];
 };
 
 export const updateParcelStatus = async (parcelId: number, status: string): Promise<boolean> => {
@@ -349,6 +483,22 @@ export const getAdminsPaged = async (page: number, limit: number) => {
     },
     getAdminsCount
   );
+};
+
+export const searchAdmins = async (keyword: string): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, username, email, role, status, last_login, created_at, updated_at
+     FROM admin_users
+     WHERE CAST(id AS CHAR) LIKE ?
+       OR username LIKE ?
+       OR email LIKE ?
+       OR role LIKE ?
+       OR status LIKE ?
+     ORDER BY created_at DESC`,
+    [like, like, like, like, like]
+  );
+  return rows as any[];
 };
 
 export const createAdmin = async (payload: { username: string; password: string; email: string; role: string }) => {

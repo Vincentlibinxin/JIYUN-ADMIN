@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Home, Users, User, ShoppingCart, MessageCircle, Package, ClipboardList, Shield } from 'lucide-react';
+import FixedTableToolbar from '../components/FixedTableToolbar';
 import Pagination from '../components/Pagination';
+import TableSearchBar from '../components/TableSearchBar';
 import { adminFetch } from '../lib/api';
 import { useAuth } from '../lib/auth';
 
@@ -61,6 +63,12 @@ interface Stats {
   totalParcels: number;
 }
 
+type SortDirection = 'asc' | 'desc';
+type SortConfig<T extends string> = {
+  key: T;
+  direction: SortDirection;
+};
+
 export default function AdminDashboard() {
   const { user: adminUser, loading: authLoading, logout } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
@@ -73,6 +81,15 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats>({ totalUsers: 0, totalOrders: 0, totalParcels: 0 });
   const [searchQuery, setSearchQuery] = useState('');
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
+  const [orderStartDate, setOrderStartDate] = useState('');
+  const [orderEndDate, setOrderEndDate] = useState('');
+  const [smsSearchQuery, setSmsSearchQuery] = useState('');
+  const [smsStartDate, setSmsStartDate] = useState('');
+  const [smsEndDate, setSmsEndDate] = useState('');
+  const [parcelSearchQuery, setParcelSearchQuery] = useState('');
+  const [parcelStartDate, setParcelStartDate] = useState('');
+  const [parcelEndDate, setParcelEndDate] = useState('');
+  const [adminSearchQuery, setAdminSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [smsLoading, setSmsLoading] = useState(false);
@@ -98,7 +115,11 @@ export default function AdminDashboard() {
   const [adminPageSize, setAdminPageSize] = useState(50);
   const [adminTotalPages, setAdminTotalPages] = useState(1);
   const [adminTotalItems, setAdminTotalItems] = useState(0);
-  const [newAdmin, setNewAdmin] = useState({ username: '', password: '', email: '', role: 'admin' });
+  const [userSort, setUserSort] = useState<SortConfig<'id' | 'created_at' | 'updated_at'>>({ key: 'created_at', direction: 'desc' });
+  const [orderSort, setOrderSort] = useState<SortConfig<'id' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
+  const [smsSort, setSmsSort] = useState<SortConfig<'id' | 'verified' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
+  const [parcelSort, setParcelSort] = useState<SortConfig<'id' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
+  const [adminSort, setAdminSort] = useState<SortConfig<'id' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
 
   const ensureAuthorized = (response: Response): boolean => {
     if (response.status === 401) {
@@ -151,10 +172,29 @@ export default function AdminDashboard() {
     fetchUsers(1, newSize);
   };
 
-  const fetchOrders = async (page: number = 1, size: number = orderPageSize) => {
+  const appendDateRangeParams = (params: URLSearchParams, startDate: string, endDate: string) => {
+    if (startDate) {
+      params.set('startDate', startDate);
+    }
+    if (endDate) {
+      params.set('endDate', endDate);
+    }
+  };
+
+  const fetchOrders = async (
+    page: number = 1,
+    size: number = orderPageSize,
+    startDate: string = orderStartDate,
+    endDate: string = orderEndDate
+  ) => {
     try {
       setOrdersLoading(true);
-      const response = await adminFetch(`/admin/orders?page=${page}&limit=${size}`);
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(size),
+      });
+      appendDateRangeParams(params, startDate, endDate);
+      const response = await adminFetch(`/admin/orders?${params.toString()}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('fetch orders failed');
       const data = await response.json();
@@ -174,13 +214,23 @@ export default function AdminDashboard() {
   const handleOrderPageSizeChange = (newSize: number) => {
     setOrderPageSize(newSize);
     setOrderPage(1);
-    fetchOrders(1, newSize);
+    fetchOrders(1, newSize, orderStartDate, orderEndDate);
   };
 
-  const fetchSms = async (page: number = 1, size: number = smsPageSize) => {
+  const fetchSms = async (
+    page: number = 1,
+    size: number = smsPageSize,
+    startDate: string = smsStartDate,
+    endDate: string = smsEndDate
+  ) => {
     try {
       setSmsLoading(true);
-      const response = await adminFetch(`/admin/sms?page=${page}&limit=${size}`);
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(size),
+      });
+      appendDateRangeParams(params, startDate, endDate);
+      const response = await adminFetch(`/admin/sms?${params.toString()}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('fetch sms failed');
       const data = await response.json();
@@ -199,13 +249,23 @@ export default function AdminDashboard() {
   const handleSmsPageSizeChange = (newSize: number) => {
     setSmsPageSize(newSize);
     setSmsPage(1);
-    fetchSms(1, newSize);
+    fetchSms(1, newSize, smsStartDate, smsEndDate);
   };
 
-  const fetchParcels = async (page: number = 1, size: number = parcelPageSize) => {
+  const fetchParcels = async (
+    page: number = 1,
+    size: number = parcelPageSize,
+    startDate: string = parcelStartDate,
+    endDate: string = parcelEndDate
+  ) => {
     try {
       setParcelsLoading(true);
-      const response = await adminFetch(`/admin/parcels?page=${page}&limit=${size}`);
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(size),
+      });
+      appendDateRangeParams(params, startDate, endDate);
+      const response = await adminFetch(`/admin/parcels?${params.toString()}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('fetch parcels failed');
       const data = await response.json();
@@ -225,7 +285,7 @@ export default function AdminDashboard() {
   const handleParcelPageSizeChange = (newSize: number) => {
     setParcelPageSize(newSize);
     setParcelPage(1);
-    fetchParcels(1, newSize);
+    fetchParcels(1, newSize, parcelStartDate, parcelEndDate);
   };
 
   const fetchAdmins = async (page: number = 1, size: number = adminPageSize) => {
@@ -274,6 +334,144 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const searchOrders = async () => {
+    if (!orderSearchQuery.trim()) {
+      setOrderPage(1);
+      fetchOrders(1, orderPageSize, orderStartDate, orderEndDate);
+      return;
+    }
+
+    try {
+      setOrdersLoading(true);
+      setOrderPage(1);
+      const params = new URLSearchParams({
+        q: orderSearchQuery,
+      });
+      appendDateRangeParams(params, orderStartDate, orderEndDate);
+      const response = await adminFetch(`/admin/orders/search?${params.toString()}`);
+      if (!ensureAuthorized(response)) return;
+      if (!response.ok) throw new Error('search orders failed');
+      const data = await response.json();
+      setOrders(data.data || []);
+      setOrderTotalPages(1);
+      setOrderTotalItems(data.count || (data.data || []).length || 0);
+    } catch (err) {
+      setError('搜尋訂單失敗');
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
+
+  const resetOrderSearch = () => {
+    setOrderSearchQuery('');
+    setOrderStartDate('');
+    setOrderEndDate('');
+    setOrderPage(1);
+    fetchOrders(1, orderPageSize, '', '');
+  };
+
+  const searchSms = async () => {
+    if (!smsSearchQuery.trim()) {
+      setSmsPage(1);
+      fetchSms(1, smsPageSize, smsStartDate, smsEndDate);
+      return;
+    }
+
+    try {
+      setSmsLoading(true);
+      setSmsPage(1);
+      const params = new URLSearchParams({
+        q: smsSearchQuery,
+      });
+      appendDateRangeParams(params, smsStartDate, smsEndDate);
+      const response = await adminFetch(`/admin/sms/search?${params.toString()}`);
+      if (!ensureAuthorized(response)) return;
+      if (!response.ok) throw new Error('search sms failed');
+      const data = await response.json();
+      setSmsItems(data.data || []);
+      setSmsTotalPages(1);
+      setSmsTotalItems(data.count || (data.data || []).length || 0);
+    } catch (err) {
+      setError('搜尋簡訊紀錄失敗');
+    } finally {
+      setSmsLoading(false);
+    }
+  };
+
+  const resetSmsSearch = () => {
+    setSmsSearchQuery('');
+    setSmsStartDate('');
+    setSmsEndDate('');
+    setSmsPage(1);
+    fetchSms(1, smsPageSize, '', '');
+  };
+
+  const searchParcels = async () => {
+    if (!parcelSearchQuery.trim()) {
+      setParcelPage(1);
+      fetchParcels(1, parcelPageSize, parcelStartDate, parcelEndDate);
+      return;
+    }
+
+    try {
+      setParcelsLoading(true);
+      setParcelPage(1);
+      const params = new URLSearchParams({
+        q: parcelSearchQuery,
+      });
+      appendDateRangeParams(params, parcelStartDate, parcelEndDate);
+      const response = await adminFetch(`/admin/parcels/search?${params.toString()}`);
+      if (!ensureAuthorized(response)) return;
+      if (!response.ok) throw new Error('search parcels failed');
+      const data = await response.json();
+      setParcels(data.data || []);
+      setParcelTotalPages(1);
+      setParcelTotalItems(data.count || (data.data || []).length || 0);
+    } catch (err) {
+      setError('搜尋包裹失敗');
+    } finally {
+      setParcelsLoading(false);
+    }
+  };
+
+  const resetParcelSearch = () => {
+    setParcelSearchQuery('');
+    setParcelStartDate('');
+    setParcelEndDate('');
+    setParcelPage(1);
+    fetchParcels(1, parcelPageSize, '', '');
+  };
+
+  const searchAdmins = async () => {
+    if (!adminSearchQuery.trim()) {
+      setAdminPage(1);
+      fetchAdmins(1, adminPageSize);
+      return;
+    }
+
+    try {
+      setAdminsLoading(true);
+      setAdminPage(1);
+      const response = await adminFetch(`/admin/admins/search?q=${encodeURIComponent(adminSearchQuery)}`);
+      if (!ensureAuthorized(response)) return;
+      if (!response.ok) throw new Error('search admins failed');
+      const data = await response.json();
+      setAdmins(data.data || []);
+      setAdminTotalPages(1);
+      setAdminTotalItems(data.count || (data.data || []).length || 0);
+    } catch (err) {
+      setError('搜尋管理員失敗');
+    } finally {
+      setAdminsLoading(false);
+    }
+  };
+
+  const resetAdminSearch = () => {
+    setAdminSearchQuery('');
+    setAdminPage(1);
+    fetchAdmins(1, adminPageSize);
   };
 
   const deleteUser = async (id: number) => {
@@ -327,32 +525,6 @@ export default function AdminDashboard() {
       }
     } catch (err) {
       setError('更新包裹失敗');
-    }
-  };
-
-  const createAdminUser = async () => {
-    if (!newAdmin.username || !newAdmin.password || !newAdmin.email) {
-      setError('請完整填寫管理員資訊');
-      return;
-    }
-
-    try {
-      const response = await adminFetch('/admin/admins', {
-        method: 'POST',
-        body: JSON.stringify(newAdmin)
-      });
-
-      if (!ensureAuthorized(response)) return;
-
-      if (response.ok) {
-        setNewAdmin({ username: '', password: '', email: '', role: 'admin' });
-        fetchAdmins(1, adminPageSize);
-      } else {
-        const data = await response.json();
-        setError(data.error || '新增管理員失敗');
-      }
-    } catch (err) {
-      setError('新增管理員失敗');
     }
   };
 
@@ -415,16 +587,72 @@ export default function AdminDashboard() {
     return Number.isFinite(parsed) ? parsed : 0;
   };
 
-  const filteredOrders = orderSearchQuery.trim()
-    ? orders.filter(order => {
-        const query = orderSearchQuery.trim().toLowerCase();
-        return (
-          order.id.toString().includes(query) ||
-          order.user_id.toString().includes(query) ||
-          order.status.toLowerCase().includes(query)
-        );
-      })
-    : orders;
+  const getNextSort = <T extends string>(current: SortConfig<T>, key: T): SortConfig<T> => ({
+    key,
+    direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc',
+  });
+
+  const sortMark = (isActive: boolean, direction: SortDirection): string => {
+    if (!isActive) return '';
+    return direction === 'asc' ? ' ↑' : ' ↓';
+  };
+
+  const comparePrimitive = (a: string | number, b: string | number, direction: SortDirection): number => {
+    if (typeof a === 'number' && typeof b === 'number') {
+      return direction === 'asc' ? a - b : b - a;
+    }
+    const left = String(a).toLowerCase();
+    const right = String(b).toLowerCase();
+    if (left === right) return 0;
+    if (direction === 'asc') {
+      return left > right ? 1 : -1;
+    }
+    return left < right ? 1 : -1;
+  };
+
+  const sortBy = <T,>(items: T[], selector: (item: T) => string | number, direction: SortDirection): T[] => {
+    return [...items].sort((a, b) => comparePrimitive(selector(a), selector(b), direction));
+  };
+
+  const sortedUsers = useMemo(() => {
+    return sortBy(users, (item) => {
+      if (userSort.key === 'id') return item.id;
+      if (userSort.key === 'updated_at') return new Date(item.updated_at).getTime();
+      return new Date(item.created_at).getTime();
+    }, userSort.direction);
+  }, [users, userSort]);
+
+  const sortedOrders = useMemo(() => {
+    return sortBy(orders, (item) => {
+      if (orderSort.key === 'id') return item.id;
+      if (orderSort.key === 'status') return item.status;
+      return new Date(item.created_at).getTime();
+    }, orderSort.direction);
+  }, [orders, orderSort]);
+
+  const sortedSmsItems = useMemo(() => {
+    return sortBy(smsItems, (item) => {
+      if (smsSort.key === 'id') return item.id;
+      if (smsSort.key === 'verified') return item.verified;
+      return new Date(item.created_at).getTime();
+    }, smsSort.direction);
+  }, [smsItems, smsSort]);
+
+  const sortedParcels = useMemo(() => {
+    return sortBy(parcels, (item) => {
+      if (parcelSort.key === 'id') return item.id;
+      if (parcelSort.key === 'status') return item.status;
+      return new Date(item.created_at).getTime();
+    }, parcelSort.direction);
+  }, [parcels, parcelSort]);
+
+  const sortedAdmins = useMemo(() => {
+    return sortBy(admins, (item) => {
+      if (adminSort.key === 'id') return item.id;
+      if (adminSort.key === 'status') return item.status;
+      return new Date(item.created_at).getTime();
+    }, adminSort.direction);
+  }, [admins, adminSort]);
 
   return (
     <div className="min-h-screen bg-gray-100 text-sm">
@@ -638,52 +866,45 @@ export default function AdminDashboard() {
 
           {/* 會員管理頁面 */}
           {activeTab === 'users' && (
-            <div>
+            <div className="flex flex-col h-[calc(100vh-68px)]">
               {/* 搜尋欄 */}
-              <div className="fixed top-14 left-28 right-0 z-40 px-1.5 bg-gray-100/95 backdrop-blur-sm min-h-[60px] flex items-end pb-0.5">
-                <div className="w-full bg-white p-2.5 border border-gray-200">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && searchUsers()}
-                      placeholder="搜尋會員：帳號、手機或電子郵件..."
-                      className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    />
-                    <button
-                      onClick={searchUsers}
-                      className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded text-xs font-medium transition-colors"
-                    >
-                      搜尋
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSearchQuery('');
-                        fetchUsers();
-                      }}
-                      className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded text-xs font-medium transition-colors"
-                    >
-                      重設
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <FixedTableToolbar>
+                <TableSearchBar
+                  value={searchQuery}
+                  onChange={setSearchQuery}
+                  onSearch={searchUsers}
+                  onReset={() => {
+                    setSearchQuery('');
+                    fetchUsers();
+                  }}
+                  placeholder="搜尋會員：帳號、手機或電子郵件..."
+                />
+              </FixedTableToolbar>
 
               {/* 用戶表格 */}
-              <div className="bg-white border border-gray-200 overflow-hidden pb-0" style={{marginTop: '54px'}}>
-                <div className="max-h-[calc(100vh-183px)] overflow-y-auto">
-                  <table className="w-full">
-                  <thead className="sticky top-0 z-10 bg-gray-100 border-b border-gray-200">
+              <div className="flex-1 min-h-0 bg-gray-50 border border-gray-200 border-t-0 overflow-y-auto shadow-sm">                <table className="w-full whitespace-nowrap border-b border-gray-200">
+                  <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">ID</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
+                        <button type="button" onClick={() => setUserSort(prev => getNextSort(prev, 'id'))}>
+                          ID{sortMark(userSort.key === 'id', userSort.direction)}
+                        </button>
+                      </th>
                       <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">帳號</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">手機</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">電子郵件</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">姓名</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">地址</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">註冊日期</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">更新日期</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
+                        <button type="button" onClick={() => setUserSort(prev => getNextSort(prev, 'created_at'))}>
+                          註冊日期{sortMark(userSort.key === 'created_at', userSort.direction)}
+                        </button>
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
+                        <button type="button" onClick={() => setUserSort(prev => getNextSort(prev, 'updated_at'))}>
+                          更新日期{sortMark(userSort.key === 'updated_at', userSort.direction)}
+                        </button>
+                      </th>
                       <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">操作</th>
                     </tr>
                   </thead>
@@ -701,8 +922,8 @@ export default function AdminDashboard() {
                         </td>
                       </tr>
                     ) : (
-                      users.map(user => (
-                        <tr key={user.id} className="hover:bg-gray-50 transition-colors">
+                      sortedUsers.map(user => (
+                        <tr key={user.id} className="hover:bg-gray-100 transition-colors">
                           <td className="px-3 py-2.5 text-gray-700 font-medium text-sm">{user.id}</td>
                           <td className="px-3 py-2.5 text-gray-700 text-sm">{user.username}</td>
                           <td className="px-3 py-2.5 text-gray-700 text-sm">{user.phone || '-'}</td>
@@ -727,13 +948,11 @@ export default function AdminDashboard() {
                       ))
                     )}
                   </tbody>
-                  </table>
-                </div>
-              </div>
+                  </table>              </div>
 
               {/* 分頁控件 */}
               {users.length > 0 && (
-                <div className="fixed bottom-0 left-28 right-0 z-40 px-1.5 bg-gray-100/95 backdrop-blur-sm min-h-[54px] flex items-start">
+                <div className="shrink-0 pt-1.5 flex items-start">
                   <div className="w-full">
                     <Pagination
                       currentPage={currentPage}
@@ -752,37 +971,56 @@ export default function AdminDashboard() {
 
           {/* 訂單管理頁面 */}
           {activeTab === 'orders' && (
-            <div>
-              <div className="fixed top-14 left-28 right-0 z-40 px-1.5 bg-gray-100/95 backdrop-blur-sm min-h-[60px] flex items-end pb-0.5">
-                <div className="w-full bg-white p-2.5 border border-gray-200">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={orderSearchQuery}
-                      onChange={(e) => setOrderSearchQuery(e.target.value)}
-                      placeholder="搜尋訂單：訂單ID、會員ID或狀態..."
-                      className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    />
-                    <button
-                      onClick={() => setOrderSearchQuery('')}
-                      className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded text-xs font-medium transition-colors"
-                    >
-                      清除
-                    </button>
-                  </div>
-                </div>
-              </div>
+            <div className="flex flex-col h-[calc(100vh-68px)]">
+              <FixedTableToolbar>
+                <TableSearchBar
+                  value={orderSearchQuery}
+                  onChange={setOrderSearchQuery}
+                  onSearch={searchOrders}
+                  onReset={resetOrderSearch}
+                  placeholder="搜尋訂單：訂單ID、會員ID或狀態..."
+                  extraControls={
+                    <>
+                      <input
+                        type="date"
+                        value={orderStartDate}
+                        onChange={(e) => setOrderStartDate(e.target.value)}
+                        className="px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                        aria-label="訂單起始日期"
+                      />
+                      <span className="text-gray-500 text-xs">至</span>
+                      <input
+                        type="date"
+                        value={orderEndDate}
+                        onChange={(e) => setOrderEndDate(e.target.value)}
+                        className="px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                        aria-label="訂單結束日期"
+                      />
+                    </>
+                  }
+                />
+              </FixedTableToolbar>
 
-              <div className="bg-white border border-gray-200 overflow-hidden pb-0" style={{marginTop: '54px'}}>
-                <div className="max-h-[calc(100vh-183px)] overflow-y-auto">
-                  <table className="w-full">
-                  <thead className="sticky top-0 z-10 bg-gray-100 border-b border-gray-200">
+              <div className="flex-1 min-h-0 bg-gray-50 border border-gray-200 border-t-0 overflow-y-auto shadow-sm">                <table className="w-full whitespace-nowrap border-b border-gray-200">
+                  <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">訂單ID</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
+                        <button type="button" onClick={() => setOrderSort(prev => getNextSort(prev, 'id'))}>
+                          訂單ID{sortMark(orderSort.key === 'id', orderSort.direction)}
+                        </button>
+                      </th>
                       <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">會員ID</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">金額</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">狀態</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">建立日期</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
+                        <button type="button" onClick={() => setOrderSort(prev => getNextSort(prev, 'status'))}>
+                          狀態{sortMark(orderSort.key === 'status', orderSort.direction)}
+                        </button>
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
+                        <button type="button" onClick={() => setOrderSort(prev => getNextSort(prev, 'created_at'))}>
+                          建立日期{sortMark(orderSort.key === 'created_at', orderSort.direction)}
+                        </button>
+                      </th>
                       <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">操作</th>
                     </tr>
                   </thead>
@@ -793,15 +1031,15 @@ export default function AdminDashboard() {
                           載入中...
                         </td>
                       </tr>
-                    ) : filteredOrders.length === 0 ? (
+                    ) : orders.length === 0 ? (
                       <tr>
                         <td colSpan={6} className="px-3 py-2.5 text-center text-gray-500">
                           沒有訂單紀錄
                         </td>
                       </tr>
                     ) : (
-                      filteredOrders.map(order => (
-                        <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                      sortedOrders.map(order => (
+                        <tr key={order.id} className="hover:bg-gray-100 transition-colors">
                           <td className="px-3 py-2.5 text-gray-700 font-medium text-sm">{order.id}</td>
                           <td className="px-3 py-2.5 text-gray-700 text-sm">{order.user_id}</td>
                           <td className="px-3 py-2.5 text-gray-700 font-medium text-sm">
@@ -834,12 +1072,10 @@ export default function AdminDashboard() {
                       ))
                     )}
                   </tbody>
-                  </table>
-                </div>
-              </div>
+                  </table>              </div>
 
               {orders.length > 0 && (
-                <div className="fixed bottom-0 left-28 right-0 z-40 px-1.5 bg-gray-100/95 backdrop-blur-sm min-h-[54px] flex items-start">
+                <div className="shrink-0 pt-1.5 flex items-start">
                   <div className="w-full">
                     <Pagination
                       currentPage={orderPage}
@@ -858,30 +1094,57 @@ export default function AdminDashboard() {
 
           {/* 簡訊資訊頁面 */}
           {activeTab === 'sms' && (
-            <div>
-              <div className="fixed top-14 left-28 right-0 z-40 px-1.5 bg-gray-100/95 backdrop-blur-sm min-h-[60px] flex items-end pb-0.5">
-                <div className="w-full bg-white p-2.5 border border-gray-200 flex items-center justify-between">
-                  <p className="text-sm font-semibold text-gray-700">簡訊資訊</p>
-                  <button
-                    onClick={() => fetchSms(smsPage, smsPageSize)}
-                    className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded text-xs font-medium transition-colors"
-                  >
-                    重新整理
-                  </button>
-                </div>
-              </div>
+            <div className="flex flex-col h-[calc(100vh-68px)]">
+              <FixedTableToolbar>
+                <TableSearchBar
+                  value={smsSearchQuery}
+                  onChange={setSmsSearchQuery}
+                  onSearch={searchSms}
+                  onReset={resetSmsSearch}
+                  placeholder="搜尋簡訊：ID、手機、驗證碼或驗證狀態..."
+                  extraControls={
+                    <>
+                      <input
+                        type="date"
+                        value={smsStartDate}
+                        onChange={(e) => setSmsStartDate(e.target.value)}
+                        className="px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                        aria-label="簡訊起始日期"
+                      />
+                      <span className="text-gray-500 text-xs">至</span>
+                      <input
+                        type="date"
+                        value={smsEndDate}
+                        onChange={(e) => setSmsEndDate(e.target.value)}
+                        className="px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                        aria-label="簡訊結束日期"
+                      />
+                    </>
+                  }
+                />
+              </FixedTableToolbar>
 
-              <div className="bg-white border border-gray-200 overflow-hidden pb-0" style={{marginTop: '54px'}}>
-                <div className="max-h-[calc(100vh-183px)] overflow-y-auto">
-                  <table className="w-full">
-                    <thead className="sticky top-0 z-10 bg-gray-100 border-b border-gray-200">
+              <div className="flex-1 min-h-0 bg-gray-50 border border-gray-200 border-t-0 overflow-y-auto shadow-sm">                <table className="w-full whitespace-nowrap border-b border-gray-200">
+                    <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
                       <tr>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">ID</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
+                          <button type="button" onClick={() => setSmsSort(prev => getNextSort(prev, 'id'))}>
+                            ID{sortMark(smsSort.key === 'id', smsSort.direction)}
+                          </button>
+                        </th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">手機</th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">驗證碼</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">狀態</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
+                          <button type="button" onClick={() => setSmsSort(prev => getNextSort(prev, 'verified'))}>
+                            狀態{sortMark(smsSort.key === 'verified', smsSort.direction)}
+                          </button>
+                        </th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">到期時間</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">建立時間</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
+                          <button type="button" onClick={() => setSmsSort(prev => getNextSort(prev, 'created_at'))}>
+                            建立時間{sortMark(smsSort.key === 'created_at', smsSort.direction)}
+                          </button>
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
@@ -898,8 +1161,8 @@ export default function AdminDashboard() {
                           </td>
                         </tr>
                       ) : (
-                        smsItems.map(item => (
-                          <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                        sortedSmsItems.map(item => (
+                          <tr key={item.id} className="hover:bg-gray-100 transition-colors">
                             <td className="px-3 py-2.5 text-gray-700 font-medium text-sm">{item.id}</td>
                             <td className="px-3 py-2.5 text-gray-700 text-sm">{item.phone}</td>
                             <td className="px-3 py-2.5 text-gray-700 text-sm">{item.code}</td>
@@ -918,12 +1181,10 @@ export default function AdminDashboard() {
                         ))
                       )}
                     </tbody>
-                  </table>
-                </div>
-              </div>
+                  </table>              </div>
 
               {smsItems.length > 0 && (
-                <div className="fixed bottom-0 left-28 right-0 z-40 px-1.5 bg-gray-100/95 backdrop-blur-sm min-h-[54px] flex items-start">
+                <div className="shrink-0 pt-1.5 flex items-start">
                   <div className="w-full">
                     <Pagination
                       currentPage={smsPage}
@@ -942,33 +1203,60 @@ export default function AdminDashboard() {
 
           {/* 包裹管理頁面 */}
           {activeTab === 'parcels' && (
-            <div>
-              <div className="fixed top-14 left-28 right-0 z-40 px-1.5 bg-gray-100/95 backdrop-blur-sm min-h-[60px] flex items-end pb-0.5">
-                <div className="w-full bg-white p-2.5 border border-gray-200 flex items-center justify-between">
-                  <p className="text-sm font-semibold text-gray-700">包裹管理</p>
-                  <button
-                    onClick={() => fetchParcels(parcelPage, parcelPageSize)}
-                    className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded text-xs font-medium transition-colors"
-                  >
-                    重新整理
-                  </button>
-                </div>
-              </div>
+            <div className="flex flex-col h-[calc(100vh-68px)]">
+              <FixedTableToolbar>
+                <TableSearchBar
+                  value={parcelSearchQuery}
+                  onChange={setParcelSearchQuery}
+                  onSearch={searchParcels}
+                  onReset={resetParcelSearch}
+                  placeholder="搜尋包裹：包裹ID、會員ID、追蹤號、來源、目的地或狀態..."
+                  extraControls={
+                    <>
+                      <input
+                        type="date"
+                        value={parcelStartDate}
+                        onChange={(e) => setParcelStartDate(e.target.value)}
+                        className="px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                        aria-label="包裹起始日期"
+                      />
+                      <span className="text-gray-500 text-xs">至</span>
+                      <input
+                        type="date"
+                        value={parcelEndDate}
+                        onChange={(e) => setParcelEndDate(e.target.value)}
+                        className="px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                        aria-label="包裹結束日期"
+                      />
+                    </>
+                  }
+                />
+              </FixedTableToolbar>
 
-              <div className="bg-white border border-gray-200 overflow-hidden pb-0" style={{marginTop: '54px'}}>
-                <div className="max-h-[calc(100vh-183px)] overflow-y-auto">
-                  <table className="w-full">
-                    <thead className="sticky top-0 z-10 bg-gray-100 border-b border-gray-200">
+              <div className="flex-1 min-h-0 bg-gray-50 border border-gray-200 border-t-0 overflow-y-auto shadow-sm">                <table className="w-full whitespace-nowrap border-b border-gray-200">
+                    <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
                       <tr>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">包裹ID</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
+                          <button type="button" onClick={() => setParcelSort(prev => getNextSort(prev, 'id'))}>
+                            包裹ID{sortMark(parcelSort.key === 'id', parcelSort.direction)}
+                          </button>
+                        </th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">會員ID</th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">追蹤號</th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">來源</th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">目的地</th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">重量</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">狀態</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
+                          <button type="button" onClick={() => setParcelSort(prev => getNextSort(prev, 'status'))}>
+                            狀態{sortMark(parcelSort.key === 'status', parcelSort.direction)}
+                          </button>
+                        </th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">預計送達</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">建立時間</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
+                          <button type="button" onClick={() => setParcelSort(prev => getNextSort(prev, 'created_at'))}>
+                            建立時間{sortMark(parcelSort.key === 'created_at', parcelSort.direction)}
+                          </button>
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
@@ -985,8 +1273,8 @@ export default function AdminDashboard() {
                           </td>
                         </tr>
                       ) : (
-                        parcels.map(parcel => (
-                          <tr key={parcel.id} className="hover:bg-gray-50 transition-colors">
+                        sortedParcels.map(parcel => (
+                          <tr key={parcel.id} className="hover:bg-gray-100 transition-colors">
                             <td className="px-3 py-2.5 text-gray-700 font-medium text-sm">{parcel.id}</td>
                             <td className="px-3 py-2.5 text-gray-700 text-sm">{parcel.user_id}</td>
                             <td className="px-3 py-2.5 text-gray-700 text-xs">{parcel.tracking_number}</td>
@@ -1018,12 +1306,10 @@ export default function AdminDashboard() {
                         ))
                       )}
                     </tbody>
-                  </table>
-                </div>
-              </div>
+                  </table>              </div>
 
               {parcels.length > 0 && (
-                <div className="fixed bottom-0 left-28 right-0 z-40 px-1.5 bg-gray-100/95 backdrop-blur-sm min-h-[54px] flex items-start">
+                <div className="shrink-0 pt-1.5 flex items-start">
                   <div className="w-full">
                     <Pagination
                       currentPage={parcelPage}
@@ -1042,47 +1328,39 @@ export default function AdminDashboard() {
 
           {/* 管理員頁面 */}
           {activeTab === 'admins' && (
-            <div>
-              <div className="fixed top-14 left-28 right-0 z-40 px-1.5 bg-gray-100/95 backdrop-blur-sm min-h-[60px] flex items-end pb-0.5">
-                <div className="w-full bg-white p-2.5 border border-gray-200">
-                  <div className="flex flex-wrap items-end gap-2">
-                    <input
-                      type="text"
-                      value={newAdmin.username}
-                      onChange={(e) => setNewAdmin(prev => ({ ...prev, username: e.target.value }))}
-                      placeholder="管理員帳號"
-                      className="flex-1 min-w-[140px] px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    />
-                    <input
-                      type="password"
-                      value={newAdmin.password}
-                      onChange={(e) => setNewAdmin(prev => ({ ...prev, password: e.target.value }))}
-                      placeholder="密碼"
-                      className="flex-1 min-w-[140px] px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    />
-                    <input
-                      type="email"
-                      value={newAdmin.email}
-                      onChange={(e) => setNewAdmin(prev => ({ ...prev, email: e.target.value }))}
-                      placeholder="電子郵件"
-                      className="flex-1 min-w-[180px] px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
+            <div className="flex flex-col h-[calc(100vh-68px)]">
+              <FixedTableToolbar>
+                <TableSearchBar
+                  value={adminSearchQuery}
+                  onChange={setAdminSearchQuery}
+                  onSearch={searchAdmins}
+                  onReset={resetAdminSearch}
+                  placeholder="搜尋管理員：ID、帳號、電子郵件、角色或狀態..."
+                />
+              </FixedTableToolbar>
 
-              <div className="bg-white border border-gray-200 overflow-hidden pb-0" style={{marginTop: '54px'}}>
-                <div className="max-h-[calc(100vh-183px)] overflow-y-auto">
-                  <table className="w-full">
-                    <thead className="sticky top-0 z-10 bg-gray-100 border-b border-gray-200">
+              <div className="flex-1 min-h-0 bg-gray-50 border border-gray-200 border-t-0 overflow-y-auto shadow-sm">                <table className="w-full whitespace-nowrap border-b border-gray-200">
+                    <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
                       <tr>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">ID</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
+                          <button type="button" onClick={() => setAdminSort(prev => getNextSort(prev, 'id'))}>
+                            ID{sortMark(adminSort.key === 'id', adminSort.direction)}
+                          </button>
+                        </th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">帳號</th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">電子郵件</th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">角色</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">狀態</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
+                          <button type="button" onClick={() => setAdminSort(prev => getNextSort(prev, 'status'))}>
+                            狀態{sortMark(adminSort.key === 'status', adminSort.direction)}
+                          </button>
+                        </th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">上次登入</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">建立時間</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
+                          <button type="button" onClick={() => setAdminSort(prev => getNextSort(prev, 'created_at'))}>
+                            建立時間{sortMark(adminSort.key === 'created_at', adminSort.direction)}
+                          </button>
+                        </th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">操作</th>
                       </tr>
                     </thead>
@@ -1100,10 +1378,10 @@ export default function AdminDashboard() {
                           </td>
                         </tr>
                       ) : (
-                        admins.map(admin => {
+                        sortedAdmins.map(admin => {
                           const isSelf = adminUser?.id === admin.id;
                           return (
-                            <tr key={admin.id} className="hover:bg-gray-50 transition-colors">
+                            <tr key={admin.id} className="hover:bg-gray-100 transition-colors">
                               <td className="px-3 py-2.5 text-gray-700 font-medium text-sm">{admin.id}</td>
                               <td className="px-3 py-2.5 text-gray-700 text-sm">{admin.username}</td>
                               <td className="px-3 py-2.5 text-gray-700 text-xs">{admin.email}</td>
@@ -1139,12 +1417,10 @@ export default function AdminDashboard() {
                         })
                       )}
                     </tbody>
-                  </table>
-                </div>
-              </div>
+                  </table>              </div>
 
               {admins.length > 0 && (
-                <div className="fixed bottom-0 left-28 right-0 z-40 px-1.5 bg-gray-100/95 backdrop-blur-sm min-h-[54px] flex items-start">
+                <div className="shrink-0 pt-1.5 flex items-start">
                   <div className="w-full">
                     <Pagination
                       currentPage={adminPage}
@@ -1165,3 +1441,7 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
+
+
+

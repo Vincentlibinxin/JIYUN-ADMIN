@@ -12,6 +12,10 @@ import {
   getAdminsPaged,
   getOrdersPaged,
   getParcelsPaged,
+  searchAdmins,
+  searchOrders,
+  searchParcels,
+  searchSms,
   getSmsPaged,
   getUsersPaged,
   searchUsers,
@@ -435,7 +439,9 @@ router.delete('/users/:id', adminAuth, csrfGuard, async (req: AdminRequest, res:
 router.get('/orders', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
-  const result = await getOrdersPaged(page, limit);
+  const startDate = String(req.query.startDate || '').trim() || undefined;
+  const endDate = String(req.query.endDate || '').trim() || undefined;
+  const result = await getOrdersPaged(page, limit, startDate, endDate);
   res.json({
     data: result.data,
     pagination: {
@@ -445,6 +451,18 @@ router.get('/orders', adminAuth, async (req: AdminRequest, res: Response): Promi
       pages: result.pages,
     },
   });
+});
+
+router.get('/orders/search', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+  const keyword = String(req.query.q || '').trim();
+  const startDate = String(req.query.startDate || '').trim() || undefined;
+  const endDate = String(req.query.endDate || '').trim() || undefined;
+  if (!keyword) {
+    res.status(400).json({ error: '搜索关键词不能为空' });
+    return;
+  }
+  const data = await searchOrders(keyword, startDate, endDate);
+  res.json({ data, count: data.length });
 });
 
 router.patch('/orders/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
@@ -469,7 +487,9 @@ router.patch('/orders/:id', adminAuth, csrfGuard, async (req: AdminRequest, res:
 router.get('/sms', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
-  const result = await getSmsPaged(page, limit);
+  const startDate = String(req.query.startDate || '').trim() || undefined;
+  const endDate = String(req.query.endDate || '').trim() || undefined;
+  const result = await getSmsPaged(page, limit, startDate, endDate);
   res.json({
     data: result.data,
     pagination: {
@@ -481,10 +501,24 @@ router.get('/sms', adminAuth, async (req: AdminRequest, res: Response): Promise<
   });
 });
 
+router.get('/sms/search', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+  const keyword = String(req.query.q || '').trim();
+  const startDate = String(req.query.startDate || '').trim() || undefined;
+  const endDate = String(req.query.endDate || '').trim() || undefined;
+  if (!keyword) {
+    res.status(400).json({ error: '搜索关键词不能为空' });
+    return;
+  }
+  const data = await searchSms(keyword, startDate, endDate);
+  res.json({ data, count: data.length });
+});
+
 router.get('/parcels', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
-  const result = await getParcelsPaged(page, limit);
+  const startDate = String(req.query.startDate || '').trim() || undefined;
+  const endDate = String(req.query.endDate || '').trim() || undefined;
+  const result = await getParcelsPaged(page, limit, startDate, endDate);
   res.json({
     data: result.data,
     pagination: {
@@ -494,6 +528,18 @@ router.get('/parcels', adminAuth, async (req: AdminRequest, res: Response): Prom
       pages: result.pages,
     },
   });
+});
+
+router.get('/parcels/search', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+  const keyword = String(req.query.q || '').trim();
+  const startDate = String(req.query.startDate || '').trim() || undefined;
+  const endDate = String(req.query.endDate || '').trim() || undefined;
+  if (!keyword) {
+    res.status(400).json({ error: '搜索关键词不能为空' });
+    return;
+  }
+  const data = await searchParcels(keyword, startDate, endDate);
+  res.json({ data, count: data.length });
 });
 
 router.patch('/parcels/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
@@ -528,6 +574,16 @@ router.get('/admins', adminAuth, async (req: AdminRequest, res: Response): Promi
       pages: result.pages,
     },
   });
+});
+
+router.get('/admins/search', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+  const keyword = String(req.query.q || '').trim();
+  if (!keyword) {
+    res.status(400).json({ error: '搜索关键词不能为空' });
+    return;
+  }
+  const data = await searchAdmins(keyword);
+  res.json({ data, count: data.length });
 });
 
 router.post('/admins', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {

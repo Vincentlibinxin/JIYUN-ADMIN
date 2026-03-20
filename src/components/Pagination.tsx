@@ -83,7 +83,7 @@ export default function Pagination({
   const endRecord = Math.min(currentPage * pageSize, totalItems);
 
   return (
-    <div className="bg-white border border-gray-200 p-4">
+    <div className="bg-white border border-gray-200 px-4 py-2.5">
       <div className="flex flex-wrap items-center justify-between gap-4">
         {/* 左側：記錄信息 */}
         <div className="text-sm text-gray-600 flex items-center gap-6">
