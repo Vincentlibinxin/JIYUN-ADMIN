@@ -305,8 +305,8 @@ export const getOrdersPaged = async (page: number, limit: number, startDate?: st
      FROM orders
      ${whereSql}
      ORDER BY created_at DESC
-     LIMIT ? OFFSET ?`,
-    [...params, safeLimit, offset]
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
   );
 
   const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
@@ -362,8 +362,8 @@ export const getSmsPaged = async (page: number, limit: number, startDate?: strin
      FROM otp_codes
      ${whereSql}
      ORDER BY created_at DESC
-     LIMIT ? OFFSET ?`,
-    [...params, safeLimit, offset]
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
   );
 
   const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
@@ -416,8 +416,8 @@ export const getParcelsPaged = async (page: number, limit: number, startDate?: s
      FROM parcels
      ${whereSql}
      ORDER BY created_at DESC
-     LIMIT ? OFFSET ?`,
-    [...params, safeLimit, offset]
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
   );
 
   const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
