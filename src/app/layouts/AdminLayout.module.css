@@ -1,0 +1,107 @@
+.layout {
+  min-height: 100vh;
+}
+
+.sider {
+  background: linear-gradient(to bottom, #1e293b, #0f172a, #020617) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.sider::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.4;
+  background-image: linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 40px 40px;
+  -webkit-mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+  mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+  pointer-events: none;
+}
+
+.header {
+  padding: 0 24px;
+  height: 45px;
+  line-height: 45px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.trigger {
+  font-size: 18px;
+  line-height: 45px;
+  cursor: pointer;
+  transition: color 0.3s;
+}
+
+.trigger:hover {
+  color: #f58220;
+}
+
+.logo {
+  min-height: 40px;
+  margin: 8px 12px 4px 12px;
+  padding: 6px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  letter-spacing: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.sideMenu:global(.ant-menu) {
+  width: 100%;
+}
+
+.sideMenu:global(.ant-menu-inline) {
+  border-inline-end: 0;
+}
+
+.sideMenu:global(.ant-menu-inline .ant-menu-item),
+.sideMenu:global(.ant-menu-inline .ant-menu-submenu-title) {
+  margin-inline: 0;
+  width: 100%;
+  border-radius: 0;
+}
+
+.content {
+  margin: 24px 16px;
+  padding: 24px;
+  background: #fff;
+  border-radius: 8px;
+  min-height: 280px;
+  overflow: initial;
+}
+
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.username {
+  font-weight: 500;
+  color: #333;
+}
+
+.role {
+  font-size: 12px;
+  color: #888;
+}

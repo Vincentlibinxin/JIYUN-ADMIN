@@ -1,16 +1,20 @@
-import { useState, FormEvent } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Alert, Button, Form, Input, Typography, ConfigProvider, theme } from 'antd';
+import { UserOutlined, LockOutlined, LoginOutlined } from '@ant-design/icons';
 import { ApiRequestError } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { useI18n } from '../lib/i18n';
+import styles from './AdminLoginPage.module.css';
+
+const { Title, Text } = Typography;
 
 export default function AdminLoginPage() {
   const navigate = useNavigate();
   const { login } = useAuth();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const { t } = useI18n();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
 
   const formatRetryAfter = (seconds: number): string => {
     const safeSeconds = Math.max(0, Math.floor(seconds));
@@ -20,42 +24,35 @@ export default function AdminLoginPage() {
     return `${minutes} 分 ${remainSeconds} 秒`;
   };
 
-  const handleLogin = async (e: FormEvent) => {
-    e.preventDefault();
+  const handleLogin = async (values: any) => {
     setError('');
-
-    if (!username || !password) {
-      setError('用户名和密码不能为空');
-      return;
-    }
-
     setLoading(true);
     try {
-      await login(username, password);
+      await login(values.username, values.password);
       navigate('/dashboard');
     } catch (err: any) {
       if (err instanceof ApiRequestError) {
         if (err.status === 429) {
           const retryAfterSeconds = Number(err.payload?.retryAfterSeconds || 0);
           const waitText = retryAfterSeconds > 0 ? formatRetryAfter(retryAfterSeconds) : '稍后';
-          setError(`登录尝试过于频繁，请在 ${waitText} 后重试`);
+          setError(`${t('login.retryPrefix')}${waitText}${t('login.retrySuffix')}`);
           return;
         }
 
         if (err.status === 401) {
-          setError('用戶名或密碼錯誤');
+          setError(t('login.invalidCredentials'));
           return;
         }
 
-        setError(err.message || '登入失敗');
+        setError(err.message || t('login.failed'));
         return;
       }
 
       const message = String(err?.message || '').toLowerCase();
       if (message.includes('failed to fetch') || message.includes('network') || message.includes('load failed')) {
-        setError('無法連線後端服務，請檢查網路或稍後重試');
+        setError(t('login.networkError'));
       } else {
-        setError(err.message || '請求失敗');
+        setError(err.message || t('login.requestFailed'));
       }
     } finally {
       setLoading(false);
@@ -63,104 +60,131 @@ export default function AdminLoginPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-900 to-black font-display antialiased overflow-hidden text-slate-200 relative">
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute inset-0 bg-gradient-to-b from-[#1e293b] via-[#0f172a] to-[#020617]"></div>
-        <div className="absolute inset-0 opacity-40 bg-[size:40px_40px] bg-[linear-gradient(to_right,rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.02)_1px,transparent_1px)] [mask-image:radial-gradient(circle_at_center,black_40%,transparent_100%)]"></div>
-        
-        {/* Animated contours */}
-        <div className="absolute w-[150%] h-[150%] rounded-[40%] border border-white/5 top-[-25%] left-[-25%] animate-[spin_60s_linear_infinite]"></div>
-        <div className="absolute w-[140%] h-[140%] rounded-[40%] border border-white/5 top-[-20%] left-[-20%] animate-[spin_50s_linear_infinite_reverse]"></div>
-        
-        {/* Glowing dots */}
-        <div className="absolute w-1 h-1 bg-[#f58220] rounded-full shadow-[0_0_8px_2px_rgba(245,130,32,0.4)] top-[20%] left-[15%] animate-pulse"></div>
-        <div className="absolute w-1 h-1 bg-[#f58220] rounded-full shadow-[0_0_8px_2px_rgba(245,130,32,0.4)] top-[60%] right-[10%] animate-pulse delay-1000"></div>
-      </div>
-
-      <div className="relative z-10 w-full max-w-[430px] px-8 flex flex-col h-full justify-center">
-        <header className="flex flex-col items-center mb-8">
-          <div className="relative w-32 h-32 mb-4 bg-slate-800/40 backdrop-blur-md rounded-3xl border border-white/10 shadow-[0_0_40px_-10px_rgba(0,0,0,0.5)] flex items-center justify-center p-4 overflow-hidden">
-            <img src="/logo.png" alt="榕台海峡快运 LOGO" className="w-full h-full object-contain drop-shadow-lg" />
-          </div>
+    <ConfigProvider
+      theme={{
+        algorithm: theme.darkAlgorithm,
+        token: {
+          colorPrimary: '#f58220',
+          fontFamily: '"Space Grotesk", "Noto Sans TC", sans-serif',
+          borderRadius: 12,
+        },
+      }}
+    >
+      <div className={styles.container}>
+        <div className={styles.bgContainer}>
+          <div className={styles.bgGradient} />
+          <div className={styles.bgPattern} />
           
-          <div className="text-center">
-            <h1 className="text-2xl font-bold text-white mb-1 tracking-[0.2em] leading-tight drop-shadow-md">
-              業務管理系統
-            </h1>
-            <div className="flex items-center justify-center w-full px-2 mb-1 opacity-80">
-              <div className="h-[1px] w-6 bg-gradient-to-r from-transparent to-[#f58220]"></div>
-              <div className="w-1 h-1 bg-[#f58220]/80 rounded-full mx-1 shadow-[0_0_8px_rgba(245,130,32,0.8)]"></div>
-              <div className="h-[1px] w-8 bg-slate-700"></div>
-              <span className="mx-2 text-[10px] text-[#f58220] font-mono tracking-widest whitespace-nowrap">ADMIN PORTAL</span>
-              <div className="h-[1px] w-8 bg-slate-700"></div>
-              <div className="w-1 h-1 bg-[#f58220]/80 rounded-full mx-1 shadow-[0_0_8px_rgba(245,130,32,0.8)]"></div>
-              <div className="h-[1px] w-6 bg-gradient-to-l from-transparent to-[#f58220]"></div>
-            </div>
-            <p className="text-slate-400 text-[10px] uppercase tracking-[0.15em] font-semibold font-mono">
-              RONGTAI ADMINISTRATION SYSTEM
-            </p>
-          </div>
-        </header>
+          {/* Animated contours */}
+          <div className={styles.contour1} />
+          <div className={styles.contour2} />
+          
+          {/* Glowing dots */}
+          <div className={styles.dot1} />
+          <div className={styles.dot2} />
+        </div>
 
-        <main className="w-full">
-          <form onSubmit={handleLogin} className="space-y-4">
-            {error && (
-              <div className="bg-red-500/20 border border-red-500/50 text-red-300 px-4 py-2 rounded-xl text-sm">
-                {error}
-              </div>
-            )}
-            <div className="group flex items-center bg-white rounded-xl shadow-lg overflow-hidden border border-slate-200 focus-within:border-[#f58220] focus-within:ring-2 focus-within:ring-[#f58220]/20 transition-all duration-300 h-12">
-              <div className="w-12 h-full flex items-center justify-center bg-slate-50 border-r border-slate-100">
-                <span className="material-symbols-outlined text-slate-400 text-xl group-focus-within:text-[#f58220] transition-colors">admin_panel_settings</span>
-              </div>
-              <input 
-                className="flex-1 h-full px-4 text-slate-800 bg-white border-none focus:ring-0 placeholder:text-slate-400 text-sm tracking-wide outline-none" 
-                placeholder="管理員用戶名" 
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+        <div className={styles.loginBox}>
+          {/* Header */}
+          <div className={styles.header}>
+            <div className={styles.logoWrapper}>
+              <img 
+                src="/logo.png" 
+                alt="榕台海峡快运 LOGO" 
+                className={styles.logo}
               />
             </div>
-            
-            <div className="group flex items-center bg-white rounded-xl shadow-lg overflow-hidden border border-slate-200 focus-within:border-[#f58220] focus-within:ring-2 focus-within:ring-[#f58220]/20 transition-all duration-300 h-12">
-              <div className="w-12 h-full flex items-center justify-center bg-slate-50 border-r border-slate-100">
-                <span className="material-symbols-outlined text-slate-400 text-xl group-focus-within:text-[#f58220] transition-colors">lock</span>
-              </div>
-              <input 
-                className="flex-1 h-full px-4 text-slate-800 bg-white border-none focus:ring-0 placeholder:text-slate-400 text-sm tracking-wide outline-none" 
-                placeholder="管理員密碼" 
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="w-12 h-full flex items-center justify-center bg-white border-l border-slate-100 text-slate-400 hover:text-[#f58220] transition-colors"
-              >
-                <span className="material-symbols-outlined text-xl">
-                  {showPassword ? 'visibility_off' : 'visibility'}
+
+            <div style={{ textAlign: 'center' }}>
+              <Title level={3} className={styles.title}>
+                {t('app.systemTitle')}
+              </Title>
+              <div className={styles.divider}>
+                <div className={styles.dividerGradientLeft} />
+                <div className={styles.dividerDot} />
+                <div className={styles.dividerLine} />
+                <span className={styles.dividerText}>
+                  ADMIN PORTAL
                 </span>
-              </button>
+                <div className={styles.dividerLine} />
+                <div className={styles.dividerDot} />
+                <div className={styles.dividerGradientRight} />
+              </div>
+              <Text className={styles.subtitle}>
+                RONGTAI ADMINISTRATION SYSTEM
+              </Text>
             </div>
-
-            <button className="relative overflow-hidden w-full bg-gradient-to-r from-[#f9a34b] to-[#f58220] text-white font-bold h-12 rounded-xl shadow-[0_0_20px_rgba(245,130,32,0.3)] hover:shadow-[0_0_30px_rgba(245,130,32,0.5)] active:scale-[0.98] transition-all mt-6 text-base tracking-widest group disabled:opacity-50 disabled:cursor-not-allowed" type="submit" disabled={loading}>
-              <span className="relative z-10 flex items-center justify-center gap-2">
-                {loading ? '登入中...' : '管理員登入'}
-                {!loading && <span className="material-symbols-outlined text-lg group-hover:translate-x-1 transition-transform">login</span>}
-              </span>
-            </button>
-          </form>
-        </main>
-
-        <footer className="pb-6 text-center mt-auto relative z-10 pt-8">
-          <div className="flex flex-col items-center space-y-2">
-            <p className="text-[10px] text-slate-600 uppercase tracking-widest font-mono">
-              © 2026 RONGTAI STRAIT EXPRESS
-            </p>
           </div>
-        </footer>
+
+          {/* Main Form */}
+          <Form
+            name="admin_login"
+            onFinish={handleLogin}
+            size="large"
+            style={{ width: '100%' }}
+          >
+            {error && (
+              <Form.Item>
+                <Alert
+                  message={error}
+                  type="error"
+                  showIcon
+                  style={{
+                    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                    borderColor: 'rgba(239, 68, 68, 0.5)',
+                    color: '#fca5a5',
+                    borderRadius: 12
+                  }}
+                />
+              </Form.Item>
+            )}
+
+            <Form.Item
+              name="username"
+              rules={[{ required: true, message: t('login.usernameRequired') }]}
+              style={{ marginBottom: 16 }}
+            >
+              <Input
+                prefix={<UserOutlined style={{ color: '#94a3b8', marginRight: 8, fontSize: 18 }} />}
+                placeholder={t('login.username')}
+                className={styles.input}
+              />
+            </Form.Item>
+
+            <Form.Item
+              name="password"
+              rules={[{ required: true, message: t('login.passwordRequired') }]}
+              style={{ marginBottom: 24 }}
+            >
+              <Input.Password
+                prefix={<LockOutlined style={{ color: '#94a3b8', marginRight: 8, fontSize: 18 }} />}
+                placeholder={t('login.password')}
+                className={styles.input}
+              />
+            </Form.Item>
+
+            <Form.Item style={{ marginBottom: 0 }}>
+              <Button
+                type="primary"
+                htmlType="submit"
+                loading={loading}
+                block
+                icon={!loading && <LoginOutlined />}
+                className={styles.loginBtn}
+              >
+                {!loading && t('login.submit')}
+              </Button>
+            </Form.Item>
+          </Form>
+
+          {/* Footer */}
+          <div className={styles.footer}>
+            <Text className={styles.footerText}>
+              © 2026 RONGTAI STRAIT EXPRESS
+            </Text>
+          </div>
+        </div>
       </div>
-    </div>
+    </ConfigProvider>
   );
 }

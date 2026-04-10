@@ -4,6 +4,7 @@
   "version": "0.2.1",
   "type": "module",
   "scripts": {
+    "postinstall": "patch-package",
     "dev": "vite --port=3002 --host=127.0.0.1",
     "api": "tsx --tsconfig server/tsconfig.json server/index.ts",
     "api:dev": "tsx watch --tsconfig server/tsconfig.json server/index.ts",
@@ -14,8 +15,11 @@
     "start:public": "concurrently \"npm run api\" \"npm run preview\""
   },
   "dependencies": {
+    "@ant-design/icons": "^6.1.1",
+    "antd": "^6.3.5",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
+    "dayjs": "^1.11.20",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
@@ -31,8 +35,11 @@
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.14.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.0.4",
     "concurrently": "^9.2.1",
+    "patch-package": "^8.0.1",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",

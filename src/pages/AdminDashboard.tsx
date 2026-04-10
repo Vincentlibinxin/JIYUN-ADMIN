@@ -1,3 +1,4 @@
+import AdminLayout from '../app/layouts/AdminLayout';
 import { useState, useEffect, useMemo } from 'react';
 import { Home, Users, User, ShoppingCart, MessageCircle, Package, ClipboardList, Shield } from 'lucide-react';
 import FixedTableToolbar from '../components/FixedTableToolbar';
@@ -5,6 +6,8 @@ import Pagination from '../components/Pagination';
 import TableSearchBar from '../components/TableSearchBar';
 import { adminFetch } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import OverviewTab from './dashboard/OverviewTab';
+import UsersTab from './dashboard/UsersTab';
 
 interface User {
   id: number;
@@ -115,7 +118,7 @@ export default function AdminDashboard() {
   const [adminPageSize, setAdminPageSize] = useState(50);
   const [adminTotalPages, setAdminTotalPages] = useState(1);
   const [adminTotalItems, setAdminTotalItems] = useState(0);
-  const [userSort, setUserSort] = useState<SortConfig<'id' | 'created_at' | 'updated_at'>>({ key: 'created_at', direction: 'desc' });
+  const [userSort, setUserSort] = useState<SortConfig<'id' | 'username' | 'phone' | 'email' | 'real_name' | 'address' | 'created_at' | 'updated_at'>>({ key: 'created_at', direction: 'desc' });
   const [orderSort, setOrderSort] = useState<SortConfig<'id' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [smsSort, setSmsSort] = useState<SortConfig<'id' | 'verified' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [parcelSort, setParcelSort] = useState<SortConfig<'id' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
@@ -617,6 +620,11 @@ export default function AdminDashboard() {
   const sortedUsers = useMemo(() => {
     return sortBy(users, (item) => {
       if (userSort.key === 'id') return item.id;
+      if (userSort.key === 'username') return item.username;
+      if (userSort.key === 'phone') return item.phone ?? '';
+      if (userSort.key === 'email') return item.email ?? '';
+      if (userSort.key === 'real_name') return item.real_name ?? '';
+      if (userSort.key === 'address') return item.address ?? '';
       if (userSort.key === 'updated_at') return new Date(item.updated_at).getTime();
       return new Date(item.created_at).getTime();
     }, userSort.direction);
@@ -655,121 +663,7 @@ export default function AdminDashboard() {
   }, [admins, adminSort]);
 
   return (
-    <div className="min-h-screen bg-gray-100 text-sm">
-      {/* 頂部導航欄 */}
-      <header className="fixed top-0 left-0 right-0 z-50 overflow-hidden h-14 bg-gradient-to-b from-[#1e293b] via-[#0f172a] to-[#020617] text-white shadow-sm border-b border-white/10">
-         <div className="absolute inset-0 opacity-40 bg-[size:40px_40px] bg-[linear-gradient(to_right,rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.02)_1px,transparent_1px)]"></div>
-         <div className="absolute w-[150%] h-[150%] rounded-[40%] border border-white/5 top-[-25%] left-[-25%] animate-[spin_60s_linear_infinite] pointer-events-none"></div>
-
-        <div className="relative max-w-full px-3 h-full flex justify-between items-center z-10">
-          <div className="flex items-center gap-4">
-            <div>
-              <h1 className="text-lg font-bold text-white tracking-wide drop-shadow-md">物流管理系統</h1>
-              <p className="text-slate-400 text-xs tracking-wider">RongTai</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="text-right">
-              <p className="text-slate-200 text-sm font-medium">{adminUser?.username}</p>
-              <p className="text-slate-500 text-xs">管理員</p>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="px-3 py-1 bg-red-600/80 hover:bg-red-500 text-white rounded text-xs font-medium transition-colors backdrop-blur-sm border border-red-500/30"
-            >
-              登出
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <div className="flex pt-14">
-        {/* 側邊導航欄 */}
-        <aside className="fixed top-14 left-0 bottom-0 w-28 bg-[#FCFCFC] border-r border-gray-200 overflow-y-auto">
-          <nav className="py-3 space-y-0.5">
-            <button
-              onClick={() => { setActiveMenu('overview'); setActiveTab('overview'); }}
-              className={`w-full text-left px-3 py-2 text-sm font-medium transition-colors ${
-                activeMenu === 'overview'
-                  ? 'bg-blue-50 text-blue-600 border-l-4 border-blue-600'
-                  : 'text-gray-700 hover:bg-gray-50 border-l-4 border-transparent'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Home className={`w-4 h-4 ${activeMenu === 'overview' ? 'text-blue-600' : 'text-gray-500'}`} aria-hidden="true" />
-                <span>首頁</span>
-              </div>
-            </button>
-            <button
-              onClick={() => { setActiveMenu('users'); setActiveTab('users'); }}
-              className={`w-full text-left px-3 py-2 text-sm font-medium transition-colors ${
-                activeMenu === 'users'
-                  ? 'bg-blue-50 text-blue-600 border-l-4 border-blue-600'
-                  : 'text-gray-700 hover:bg-gray-50 border-l-4 border-transparent'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Users className={`w-4 h-4 ${activeMenu === 'users' ? 'text-blue-600' : 'text-gray-500'}`} aria-hidden="true" />
-                <span>會員管理</span>
-              </div>
-            </button>
-            <button
-              onClick={() => { setActiveMenu('orders'); setActiveTab('orders'); }}
-              className={`w-full text-left px-3 py-2 text-sm font-medium transition-colors ${
-                activeMenu === 'orders'
-                  ? 'bg-blue-50 text-blue-600 border-l-4 border-blue-600'
-                  : 'text-gray-700 hover:bg-gray-50 border-l-4 border-transparent'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <ShoppingCart className={`w-4 h-4 ${activeMenu === 'orders' ? 'text-blue-600' : 'text-gray-500'}`} aria-hidden="true" />
-                <span>訂單管理</span>
-              </div>
-            </button>
-            <button
-              onClick={() => { setActiveMenu('sms'); setActiveTab('sms'); }}
-              className={`w-full text-left px-3 py-2 text-sm font-medium transition-colors ${
-                activeMenu === 'sms'
-                  ? 'bg-blue-50 text-blue-600 border-l-4 border-blue-600'
-                  : 'text-gray-700 hover:bg-gray-50 border-l-4 border-transparent'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <MessageCircle className={`w-4 h-4 ${activeMenu === 'sms' ? 'text-blue-600' : 'text-gray-500'}`} aria-hidden="true" />
-                <span>簡訊資訊</span>
-              </div>
-            </button>
-            <button
-              onClick={() => { setActiveMenu('parcels'); setActiveTab('parcels'); }}
-              className={`w-full text-left px-3 py-2 text-sm font-medium transition-colors ${
-                activeMenu === 'parcels'
-                  ? 'bg-blue-50 text-blue-600 border-l-4 border-blue-600'
-                  : 'text-gray-700 hover:bg-gray-50 border-l-4 border-transparent'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Package className={`w-4 h-4 ${activeMenu === 'parcels' ? 'text-blue-600' : 'text-gray-500'}`} aria-hidden="true" />
-                <span>包裹管理</span>
-              </div>
-            </button>
-            <button
-              onClick={() => { setActiveMenu('admins'); setActiveTab('admins'); }}
-              className={`w-full text-left px-3 py-2 text-sm font-medium transition-colors ${
-                activeMenu === 'admins'
-                  ? 'bg-blue-50 text-blue-600 border-l-4 border-blue-600'
-                  : 'text-gray-700 hover:bg-gray-50 border-l-4 border-transparent'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Shield className={`w-4 h-4 ${activeMenu === 'admins' ? 'text-blue-600' : 'text-gray-500'}`} aria-hidden="true" />
-                <span>管理員</span>
-              </div>
-            </button>
-          </nav>
-        </aside>
-
-        {/* 主要內容區域 */}
-        <main className="flex-1 ml-28 min-h-[calc(100vh-56px)] overflow-y-auto bg-gray-100 p-1.5">
+    <AdminLayout activeMenu={activeMenu} onMenuClick={(key) => { setActiveMenu(key); setActiveTab(key); }}>
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded mb-4">
               {error}
@@ -778,195 +672,31 @@ export default function AdminDashboard() {
 
           {/* 概覽頁面 */}
           {activeTab === 'overview' && (
-            <div className="space-y-3 px-1.5">
-              {/* 統計卡片 */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="bg-white rounded p-3 shadow-sm border border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-gray-500 text-sm font-medium">會員總數</p>
-                      <p className="text-2xl font-bold text-gray-800 mt-0.5">{stats.totalUsers}</p>
-                      <p className="text-gray-400 text-xs mt-1.5">↑ 12% 較上週</p>
-                    </div>
-                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                      <Users className="w-5 h-5 text-blue-600" aria-hidden="true" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded p-3 shadow-sm border border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-gray-500 text-sm font-medium">訂單總數</p>
-                      <p className="text-2xl font-bold text-gray-800 mt-0.5">{stats.totalOrders}</p>
-                      <p className="text-gray-400 text-xs mt-1.5">↑ 8% 較上週</p>
-                    </div>
-                    <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                      <ClipboardList className="w-5 h-5 text-green-600" aria-hidden="true" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded p-3 shadow-sm border border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-gray-500 text-sm font-medium">包裹總數</p>
-                      <p className="text-2xl font-bold text-gray-800 mt-0.5">{stats.totalParcels}</p>
-                      <p className="text-gray-400 text-xs mt-1.5">↑ 5% 較上週</p>
-                    </div>
-                    <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-                      <Package className="w-5 h-5 text-purple-600" aria-hidden="true" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 系統資訊 */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="bg-white rounded p-3 shadow-sm border border-gray-200">
-                  <h3 className="text-sm font-bold text-gray-800 mb-2">系統狀態</h3>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between p-1.5 bg-gray-50 rounded">
-                      <span className="text-gray-700 font-medium">API 伺服器</span>
-                      <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">正常運作</span>
-                    </div>
-                    <div className="flex items-center justify-between p-1.5 bg-gray-50 rounded">
-                      <span className="text-gray-700 font-medium">資料庫連線</span>
-                      <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">正常運作</span>
-                    </div>
-                    <div className="flex items-center justify-between p-1.5 bg-gray-50 rounded">
-                      <span className="text-gray-700 font-medium">應用狀態</span>
-                      <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">運作中</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded p-3 shadow-sm border border-gray-200">
-                  <h3 className="text-sm font-bold text-gray-800 mb-2">快速概覽統計</h3>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-700">今日新增會員</span>
-                      <span className="font-bold text-blue-600">+{Math.floor(stats.totalUsers * 0.15)}</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div className="bg-blue-500 h-2 rounded-full" style={{ width: '45%' }}></div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-700">今日新增訂單</span>
-                      <span className="font-bold text-green-600">+{Math.floor(stats.totalOrders * 0.2)}</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div className="bg-green-500 h-2 rounded-full" style={{ width: '65%' }}></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <OverviewTab stats={stats} />
           )}
 
           {/* 會員管理頁面 */}
           {activeTab === 'users' && (
-            <div className="flex flex-col h-[calc(100vh-68px)]">
-              {/* 搜尋欄 */}
-              <FixedTableToolbar>
-                <TableSearchBar
-                  value={searchQuery}
-                  onChange={setSearchQuery}
-                  onSearch={searchUsers}
-                  onReset={() => {
-                    setSearchQuery('');
-                    fetchUsers();
-                  }}
-                  placeholder="搜尋會員：帳號、手機或電子郵件..."
-                />
-              </FixedTableToolbar>
-
-              {/* 用戶表格 */}
-              <div className="flex-1 min-h-0 bg-gray-50 border border-gray-200 border-t-0 overflow-y-auto shadow-sm">                <table className="w-full whitespace-nowrap border-b border-gray-200">
-                  <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
-                        <button type="button" onClick={() => setUserSort(prev => getNextSort(prev, 'id'))}>
-                          ID{sortMark(userSort.key === 'id', userSort.direction)}
-                        </button>
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">帳號</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">手機</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">電子郵件</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">姓名</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">地址</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
-                        <button type="button" onClick={() => setUserSort(prev => getNextSort(prev, 'created_at'))}>
-                          註冊日期{sortMark(userSort.key === 'created_at', userSort.direction)}
-                        </button>
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
-                        <button type="button" onClick={() => setUserSort(prev => getNextSort(prev, 'updated_at'))}>
-                          更新日期{sortMark(userSort.key === 'updated_at', userSort.direction)}
-                        </button>
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {loading ? (
-                      <tr>
-                        <td colSpan={9} className="px-3 py-2.5 text-center text-gray-500">
-                          載入中...
-                        </td>
-                      </tr>
-                    ) : users.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} className="px-3 py-2.5 text-center text-gray-500">
-                          沒有會員紀錄
-                        </td>
-                      </tr>
-                    ) : (
-                      sortedUsers.map(user => (
-                        <tr key={user.id} className="hover:bg-gray-100 transition-colors">
-                          <td className="px-3 py-2.5 text-gray-700 font-medium text-sm">{user.id}</td>
-                          <td className="px-3 py-2.5 text-gray-700 text-sm">{user.username}</td>
-                          <td className="px-3 py-2.5 text-gray-700 text-sm">{user.phone || '-'}</td>
-                          <td className="px-3 py-2.5 text-gray-700 text-xs">{user.email || '-'}</td>
-                          <td className="px-3 py-2.5 text-gray-700 text-sm">{user.real_name || '-'}</td>
-                          <td className="px-3 py-2.5 text-gray-700 text-xs">{user.address || '-'}</td>
-                          <td className="px-3 py-2.5 text-gray-500 text-xs">
-                            {new Date(user.created_at).toLocaleDateString('zh-TW')}
-                          </td>
-                          <td className="px-3 py-2.5 text-gray-500 text-xs">
-                            {new Date(user.updated_at).toLocaleDateString('zh-TW')}
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <button
-                              onClick={() => deleteUser(user.id)}
-                              className="px-2.5 py-1 bg-red-50 text-red-600 hover:bg-red-100 rounded text-xs font-medium transition-colors"
-                            >
-                              刪除
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                  </table>              </div>
-
-              {/* 分頁控件 */}
-              {users.length > 0 && (
-                <div className="shrink-0 pt-1.5 flex items-start">
-                  <div className="w-full">
-                    <Pagination
-                      currentPage={currentPage}
-                      totalPages={totalPages}
-                      totalItems={stats.totalUsers}
-                      pageSize={pageSize}
-                      pageSizeOptions={[10, 20, 30, 50]}
-                      onPageChange={fetchUsers}
-                      onPageSizeChange={handlePageSizeChange}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
+            <UsersTab
+              users={sortedUsers}
+              loading={loading}
+              searchQuery={searchQuery}
+              onSearchQueryChange={setSearchQuery}
+              onSearch={searchUsers}
+              onReset={() => {
+                setSearchQuery('');
+                fetchUsers(1, pageSize);
+              }}
+              onDelete={deleteUser}
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalItems={stats.totalUsers}
+              onPageChange={fetchUsers}
+              onPageSizeChange={handlePageSizeChange}
+              sortKey={userSort.key}
+              sortDirection={userSort.direction}
+              onSortChange={(key, direction) => setUserSort({ key, direction })}
+            />
           )}
 
           {/* 訂單管理頁面 */}
@@ -1436,9 +1166,7 @@ export default function AdminDashboard() {
               )}
             </div>
           )}
-        </main>
-      </div>
-    </div>
+    </AdminLayout>
   );
 }
 
