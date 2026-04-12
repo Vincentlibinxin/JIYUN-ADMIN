@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layout, Menu, Dropdown, ConfigProvider } from 'antd';
+import { Layout, Menu, Dropdown, ConfigProvider, Breadcrumb, Button, Tooltip } from 'antd';
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -12,6 +12,7 @@ import {
   CodeSandboxOutlined,
   SafetyCertificateOutlined,
   GlobalOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { useAuth } from '../../lib/auth';
@@ -24,9 +25,10 @@ interface AdminLayoutProps {
   children: React.ReactNode;
   activeMenu: string;
   onMenuClick: (key: string) => void;
+  onRefresh?: () => void;
 }
 
-export default function AdminLayout({ children, activeMenu, onMenuClick }: AdminLayoutProps) {
+export default function AdminLayout({ children, activeMenu, onMenuClick, onRefresh }: AdminLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const { user: adminUser, logout } = useAuth();
   const { lang, setLang, t } = useI18n();
@@ -142,9 +144,21 @@ export default function AdminLayout({ children, activeMenu, onMenuClick }: Admin
               className: styles.trigger,
               onClick: () => setCollapsed(!collapsed),
             })}
-            <span style={{ fontSize: 16, fontWeight: 600, color: '#333' }}>
-              {t('app.systemTitle')}
-            </span>
+            <Breadcrumb
+              style={{ display: 'inline-block', lineHeight: '45px', marginLeft: 16 }}
+              items={[
+                { title: menuItems.find(item => item.key === activeMenu)?.label || activeMenu }
+              ]}
+            />
+            <Tooltip title="刷新">
+              <Button
+                type="text"
+                size="small"
+                icon={<ReloadOutlined />}
+                onClick={() => onRefresh?.()}
+                style={{ marginLeft: 8, verticalAlign: 'middle' }}
+              />
+            </Tooltip>
           </div>
 
           <Dropdown menu={{ items: userDropdownItems }} placement="bottomRight" arrow>

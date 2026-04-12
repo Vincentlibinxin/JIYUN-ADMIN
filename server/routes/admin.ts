@@ -5,6 +5,9 @@ import jwt from 'jsonwebtoken';
 import {
   createAdmin,
   deleteAdmin,
+  deleteOrder,
+  deleteParcel,
+  deleteSms,
   getAdminAuditLogsPaged,
   getAdminById,
   deleteUser,
@@ -18,7 +21,7 @@ import {
   searchSms,
   getSmsPaged,
   getUsersPaged,
-  searchUsers,
+  searchUsersPaged,
   logAdminAudit,
   updateAdminLastLogin,
   updateAdminStatus,
@@ -28,6 +31,16 @@ import {
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || '';
+
+const parseJsonQuery = <T>(raw: unknown): T | undefined => {
+  if (!raw || typeof raw !== 'string') return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed !== null ? parsed as T : undefined;
+  } catch {
+    return undefined;
+  }
+};
 const SESSION_COOKIE_NAME = 'admin_session';
 const CSRF_COOKIE_NAME = 'admin_csrf';
 const COOKIE_SECURE = process.env.COOKIE_SECURE === '1';
@@ -405,7 +418,11 @@ router.get('/audit-logs', adminAuth, requireSuperAdmin, async (req: AdminRequest
 router.get('/users', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
-  const result = await getUsersPaged(page, limit);
+  const sortKey = String(req.query.sortKey || '').trim() || undefined;
+  const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
+  const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
+  const result = await getUsersPaged(page, limit, sortKey, sortOrder, columnFilters, dateFilters);
   res.json({
     data: result.data,
     pagination: {
@@ -419,12 +436,25 @@ router.get('/users', adminAuth, async (req: AdminRequest, res: Response): Promis
 
 router.get('/users/search', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
   const keyword = String(req.query.q || '').trim();
+  const page = Number(req.query.page || 1);
+  const limit = Number(req.query.limit || 10);
+  const sortKey = String(req.query.sortKey || '').trim() || undefined;
+  const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
   if (!keyword) {
     res.status(400).json({ error: '搜索关键词不能为空' });
     return;
   }
-  const data = await searchUsers(keyword);
-  res.json({ data, count: data.length });
+  const result = await searchUsersPaged(keyword, page, limit, sortKey, sortOrder);
+  res.json({
+    data: result.data,
+    count: result.total,
+    pagination: {
+      page,
+      limit,
+      total: result.total,
+      pages: result.pages,
+    },
+  });
 });
 
 router.delete('/users/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
@@ -441,7 +471,11 @@ router.get('/orders', adminAuth, async (req: AdminRequest, res: Response): Promi
   const limit = Number(req.query.limit || 10);
   const startDate = String(req.query.startDate || '').trim() || undefined;
   const endDate = String(req.query.endDate || '').trim() || undefined;
-  const result = await getOrdersPaged(page, limit, startDate, endDate);
+  const sortKey = String(req.query.sortKey || '').trim() || undefined;
+  const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
+  const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
+  const result = await getOrdersPaged(page, limit, startDate, endDate, sortKey, sortOrder, columnFilters, dateFilters);
   res.json({
     data: result.data,
     pagination: {
@@ -484,12 +518,25 @@ router.patch('/orders/:id', adminAuth, csrfGuard, async (req: AdminRequest, res:
   res.json({ message: '订单状态已更新', orderId, status });
 });
 
+router.delete('/orders/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+  const ok = await deleteOrder(Number(req.params.id));
+  if (!ok) {
+    res.status(404).json({ error: '订单不存在' });
+    return;
+  }
+  res.json({ message: '订单已删除' });
+});
+
 router.get('/sms', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
   const startDate = String(req.query.startDate || '').trim() || undefined;
   const endDate = String(req.query.endDate || '').trim() || undefined;
-  const result = await getSmsPaged(page, limit, startDate, endDate);
+  const sortKey = String(req.query.sortKey || '').trim() || undefined;
+  const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
+  const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
+  const result = await getSmsPaged(page, limit, startDate, endDate, sortKey, sortOrder, columnFilters, dateFilters);
   res.json({
     data: result.data,
     pagination: {
@@ -513,12 +560,25 @@ router.get('/sms/search', adminAuth, async (req: AdminRequest, res: Response): P
   res.json({ data, count: data.length });
 });
 
+router.delete('/sms/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+  const ok = await deleteSms(Number(req.params.id));
+  if (!ok) {
+    res.status(404).json({ error: '记录不存在' });
+    return;
+  }
+  res.json({ message: '记录已删除' });
+});
+
 router.get('/parcels', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
   const startDate = String(req.query.startDate || '').trim() || undefined;
   const endDate = String(req.query.endDate || '').trim() || undefined;
-  const result = await getParcelsPaged(page, limit, startDate, endDate);
+  const sortKey = String(req.query.sortKey || '').trim() || undefined;
+  const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
+  const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
+  const result = await getParcelsPaged(page, limit, startDate, endDate, sortKey, sortOrder, columnFilters, dateFilters);
   res.json({
     data: result.data,
     pagination: {
@@ -561,10 +621,23 @@ router.patch('/parcels/:id', adminAuth, csrfGuard, async (req: AdminRequest, res
   res.json({ message: '包裹状态已更新', parcelId, status });
 });
 
+router.delete('/parcels/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+  const ok = await deleteParcel(Number(req.params.id));
+  if (!ok) {
+    res.status(404).json({ error: '包裹不存在' });
+    return;
+  }
+  res.json({ message: '包裹已删除' });
+});
+
 router.get('/admins', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
-  const result = await getAdminsPaged(page, limit);
+  const sortKey = String(req.query.sortKey || '').trim() || undefined;
+  const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
+  const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
+  const result = await getAdminsPaged(page, limit, sortKey, sortOrder, columnFilters, dateFilters);
   res.json({
     data: result.data,
     pagination: {

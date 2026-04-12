@@ -27,6 +27,18 @@ const toSafeInt = (value: number, fallback: number, min: number, max: number): n
   return Math.min(Math.max(normalized, min), max);
 };
 
+const toSafeOrderBy = (
+  sortKey: string | undefined,
+  sortOrder: string | undefined,
+  allowedColumns: Set<string>,
+  fallbackColumn: string
+): string => {
+  const key = String(sortKey || '').trim();
+  const normalizedKey = allowedColumns.has(key) ? key : fallbackColumn;
+  const normalizedOrder = String(sortOrder || '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  return `${normalizedKey} ${normalizedOrder}`;
+};
+
 const toPagedResult = async <T>(
   page: number,
   limit: number,
@@ -52,19 +64,63 @@ const normalizeDateOnly = (value?: string): string | null => {
   return trimmed;
 };
 
-const buildCreatedAtFilter = (startDate?: string, endDate?: string) => {
+const buildCreatedAtFilter = (startDate?: string, endDate?: string, colPrefix: string = '') => {
   const clauses: string[] = [];
   const params: unknown[] = [];
   const from = normalizeDateOnly(startDate);
   const to = normalizeDateOnly(endDate);
 
   if (from) {
-    clauses.push('created_at >= ?');
+    clauses.push(`${colPrefix}created_at >= ?`);
     params.push(`${from} 00:00:00`);
   }
   if (to) {
-    clauses.push('created_at <= ?');
+    clauses.push(`${colPrefix}created_at <= ?`);
     params.push(`${to} 23:59:59`);
+  }
+
+  return { clauses, params };
+};
+
+/**
+ * Build WHERE clauses for per-column text filters and date range filters.
+ * @param columnFilters  e.g. { username: "john", email: "gmail" }
+ * @param dateFilters    e.g. { created_at: ["2026-01-01","2026-12-31"] }
+ * @param allowedColumns set of column names that are safe to filter on
+ * @param colPrefix      optional table alias prefix, e.g. 'p.' for joined queries
+ */
+const buildColumnFilters = (
+  columnFilters: Record<string, string> | undefined,
+  dateFilters: Record<string, [string, string]> | undefined,
+  allowedColumns: Set<string>,
+  colPrefix: string = ''
+) => {
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+
+  if (columnFilters) {
+    for (const [col, value] of Object.entries(columnFilters)) {
+      const trimmed = String(value || '').trim();
+      if (!trimmed || !allowedColumns.has(col)) continue;
+      clauses.push(`CAST(${colPrefix}${col} AS CHAR) LIKE ?`);
+      params.push(`%${trimmed}%`);
+    }
+  }
+
+  if (dateFilters) {
+    for (const [col, range] of Object.entries(dateFilters)) {
+      if (!allowedColumns.has(col) || !Array.isArray(range) || range.length !== 2) continue;
+      const from = normalizeDateOnly(range[0]);
+      const to = normalizeDateOnly(range[1]);
+      if (from) {
+        clauses.push(`${colPrefix}${col} >= ?`);
+        params.push(`${from} 00:00:00`);
+      }
+      if (to) {
+        clauses.push(`${colPrefix}${col} <= ?`);
+        params.push(`${to} 23:59:59`);
+      }
+    }
   }
 
   return { clauses, params };
@@ -165,6 +221,11 @@ export const initDb = async (): Promise<void> => {
         origin VARCHAR(255) NOT NULL,
         destination VARCHAR(255) NOT NULL,
         weight DOUBLE,
+        length_cm DOUBLE,
+        width_cm DOUBLE,
+        height_cm DOUBLE,
+        volume DOUBLE,
+        images TEXT,
         status VARCHAR(64) DEFAULT 'pending',
         estimated_delivery DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -173,6 +234,27 @@ export const initDb = async (): Promise<void> => {
         INDEX idx_parcels_tracking (tracking_number)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    // Add new columns to parcels if they don't exist (for existing databases)
+    const [parcelCols] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'parcels'`
+    );
+    const existingCols = new Set((parcelCols as any[]).map((r: any) => r.COLUMN_NAME));
+    if (!existingCols.has('length_cm')) {
+      await connection.execute(`ALTER TABLE parcels ADD COLUMN length_cm DOUBLE AFTER weight`);
+    }
+    if (!existingCols.has('width_cm')) {
+      await connection.execute(`ALTER TABLE parcels ADD COLUMN width_cm DOUBLE AFTER length_cm`);
+    }
+    if (!existingCols.has('height_cm')) {
+      await connection.execute(`ALTER TABLE parcels ADD COLUMN height_cm DOUBLE AFTER width_cm`);
+    }
+    if (!existingCols.has('volume')) {
+      await connection.execute(`ALTER TABLE parcels ADD COLUMN volume DOUBLE AFTER height_cm`);
+    }
+    if (!existingCols.has('images')) {
+      await connection.execute(`ALTER TABLE parcels ADD COLUMN images TEXT AFTER volume`);
+    }
 
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS orders (
@@ -259,33 +341,73 @@ export const updateAdminLastLogin = async (adminId: number): Promise<void> => {
   await pool.execute('UPDATE admin_users SET last_login = NOW() WHERE id = ?', [adminId]);
 };
 
-export const getUsersPaged = async (page: number, limit: number) => {
+const USERS_SORT_COLUMNS = new Set(['id', 'username', 'phone', 'email', 'real_name', 'address', 'created_at', 'updated_at']);
+
+export const getUsersPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>
+) => {
+  const orderBy = toSafeOrderBy(sortKey, sortOrder, USERS_SORT_COLUMNS, 'created_at');
+  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, USERS_SORT_COLUMNS);
+  const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, username, phone, email, real_name, address, created_at, updated_at
+     FROM users
+     ${whereSql}
+     ORDER BY ${orderBy}
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
+  );
+
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count FROM users ${whereSql}`,
+    params
+  );
+
+  const total = Number(countRows?.[0]?.count || 0);
+  return {
+    data: rows as any[],
+    total,
+    pages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+};
+
+export const searchUsersPaged = async (keyword: string, page: number, limit: number, sortKey?: string, sortOrder?: string) => {
+  const like = `%${keyword}%`;
+  const orderBy = toSafeOrderBy(sortKey, sortOrder, USERS_SORT_COLUMNS, 'created_at');
   return toPagedResult(
     page,
     limit,
     async (safeLimit, offset) => {
-      const [rows] = await pool.query<mysql.RowDataPacket[]>(
+      const [rows] = await pool.execute<mysql.RowDataPacket[]>(
         `SELECT id, username, phone, email, real_name, address, created_at, updated_at
          FROM users
-         ORDER BY created_at DESC
-         LIMIT ${safeLimit} OFFSET ${offset}`
+         WHERE username LIKE ? OR phone LIKE ? OR email LIKE ? OR real_name LIKE ?
+         ORDER BY ${orderBy}
+         LIMIT ${safeLimit} OFFSET ${offset}`,
+        [like, like, like, like]
       );
       return rows as any[];
     },
-    getUsersCount
+    async () => {
+      const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+        `SELECT COUNT(*) as count
+         FROM users
+         WHERE username LIKE ? OR phone LIKE ? OR email LIKE ? OR real_name LIKE ?`,
+        [like, like, like, like]
+      );
+      return Number(countRows?.[0]?.count || 0);
+    }
   );
-};
-
-export const searchUsers = async (keyword: string): Promise<any[]> => {
-  const like = `%${keyword}%`;
-  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, username, phone, email, real_name, address, created_at, updated_at
-     FROM users
-     WHERE username LIKE ? OR phone LIKE ? OR email LIKE ? OR real_name LIKE ?
-     ORDER BY created_at DESC`,
-    [like, like, like, like]
-  );
-  return rows as any[];
 };
 
 export const deleteUser = async (userId: number): Promise<boolean> => {
@@ -293,27 +415,57 @@ export const deleteUser = async (userId: number): Promise<boolean> => {
   return result.affectedRows > 0;
 };
 
-export const getOrdersPaged = async (page: number, limit: number, startDate?: string, endDate?: string) => {
+export const deleteOrder = async (orderId: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM orders WHERE id = ?', [orderId]);
+  return result.affectedRows > 0;
+};
+
+export const deleteSms = async (smsId: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM sms_verifications WHERE id = ?', [smsId]);
+  return result.affectedRows > 0;
+};
+
+export const deleteParcel = async (parcelId: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM parcels WHERE id = ?', [parcelId]);
+  return result.affectedRows > 0;
+};
+
+const ORDERS_SORT_COLUMNS = new Set(['id', 'user_id', 'total_amount', 'status', 'created_at']);
+
+export const getOrdersPaged = async (
+  page: number,
+  limit: number,
+  startDate?: string,
+  endDate?: string,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>
+) => {
   const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
   const safeLimit = toSafeInt(limit, 10, 1, 500);
   const offset = (safePage - 1) * safeLimit;
-  const { clauses, params } = buildCreatedAtFilter(startDate, endDate);
-  const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const dateRange = buildCreatedAtFilter(startDate, endDate);
+  const colFilter = buildColumnFilters(columnFilters, dateFilters, ORDERS_SORT_COLUMNS);
+  const allClauses = [...dateRange.clauses, ...colFilter.clauses];
+  const allParams = [...dateRange.params, ...colFilter.params];
+  const whereSql = allClauses.length > 0 ? `WHERE ${allClauses.join(' AND ')}` : '';
+  const orderBy = toSafeOrderBy(sortKey, sortOrder, ORDERS_SORT_COLUMNS, 'created_at');
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT id, user_id, total_amount, currency, status, created_at
      FROM orders
      ${whereSql}
-     ORDER BY created_at DESC
+     ORDER BY ${orderBy}
      LIMIT ${safeLimit} OFFSET ${offset}`,
-    params
+    allParams
   );
 
   const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT COUNT(*) as count
      FROM orders
      ${whereSql}`,
-    params
+    allParams
   );
 
   const total = Number(countRows?.[0]?.count || 0);
@@ -350,27 +502,42 @@ export const updateOrderStatus = async (orderId: number, status: string): Promis
   return result.affectedRows > 0;
 };
 
-export const getSmsPaged = async (page: number, limit: number, startDate?: string, endDate?: string) => {
+const SMS_SORT_COLUMNS = new Set(['id', 'phone', 'code', 'verified', 'expires_at', 'created_at']);
+
+export const getSmsPaged = async (
+  page: number,
+  limit: number,
+  startDate?: string,
+  endDate?: string,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>
+) => {
   const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
   const safeLimit = toSafeInt(limit, 10, 1, 500);
   const offset = (safePage - 1) * safeLimit;
-  const { clauses, params } = buildCreatedAtFilter(startDate, endDate);
-  const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const dateRange = buildCreatedAtFilter(startDate, endDate);
+  const colFilter = buildColumnFilters(columnFilters, dateFilters, SMS_SORT_COLUMNS);
+  const allClauses = [...dateRange.clauses, ...colFilter.clauses];
+  const allParams = [...dateRange.params, ...colFilter.params];
+  const whereSql = allClauses.length > 0 ? `WHERE ${allClauses.join(' AND ')}` : '';
+  const orderBy = toSafeOrderBy(sortKey, sortOrder, SMS_SORT_COLUMNS, 'created_at');
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT id, phone, code, verified, created_at, expires_at
      FROM otp_codes
      ${whereSql}
-     ORDER BY created_at DESC
+     ORDER BY ${orderBy}
      LIMIT ${safeLimit} OFFSET ${offset}`,
-    params
+    allParams
   );
 
   const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT COUNT(*) as count
      FROM otp_codes
      ${whereSql}`,
-    params
+    allParams
   );
 
   const total = Number(countRows?.[0]?.count || 0);
@@ -404,27 +571,66 @@ export const searchSms = async (keyword: string, startDate?: string, endDate?: s
   return rows as any[];
 };
 
-export const getParcelsPaged = async (page: number, limit: number, startDate?: string, endDate?: string) => {
+const PARCELS_SORT_COLUMNS = new Set(['id', 'user_id', 'tracking_number', 'origin', 'destination', 'weight', 'length_cm', 'width_cm', 'height_cm', 'volume', 'status', 'estimated_delivery', 'created_at']);
+const PARCELS_USERNAME_COL = 'username';
+
+export const getParcelsPaged = async (
+  page: number,
+  limit: number,
+  startDate?: string,
+  endDate?: string,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>
+) => {
   const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
   const safeLimit = toSafeInt(limit, 10, 1, 500);
   const offset = (safePage - 1) * safeLimit;
-  const { clauses, params } = buildCreatedAtFilter(startDate, endDate);
-  const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+
+  // Extract username filter before passing to buildColumnFilters
+  const parcelColFilters = columnFilters ? { ...columnFilters } : undefined;
+  let usernameFilter: string | undefined;
+  if (parcelColFilters && parcelColFilters[PARCELS_USERNAME_COL]) {
+    usernameFilter = parcelColFilters[PARCELS_USERNAME_COL];
+    delete parcelColFilters[PARCELS_USERNAME_COL];
+  }
+
+  const dateRange = buildCreatedAtFilter(startDate, endDate, 'p.');
+  const colFilter = buildColumnFilters(parcelColFilters, dateFilters, PARCELS_SORT_COLUMNS, 'p.');
+  const allClauses = [...dateRange.clauses, ...colFilter.clauses];
+  const allParams = [...dateRange.params, ...colFilter.params];
+
+  if (usernameFilter) {
+    allClauses.push(`CAST(u.username AS CHAR) LIKE ?`);
+    allParams.push(`%${usernameFilter.trim()}%`);
+  }
+
+  const whereSql = allClauses.length > 0 ? `WHERE ${allClauses.join(' AND ')}` : '';
+  const safeSort = sortKey === PARCELS_USERNAME_COL ? 'u.username' : undefined;
+  const orderBy = safeSort
+    ? `${safeSort} ${sortOrder === 'asc' ? 'ASC' : 'DESC'}`
+    : `p.${toSafeOrderBy(sortKey, sortOrder, PARCELS_SORT_COLUMNS, 'created_at')}`;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, user_id, tracking_number, origin, destination, weight, status, estimated_delivery, created_at
-     FROM parcels
+    `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
+            p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images,
+            p.status, p.estimated_delivery, p.created_at,
+            u.username AS username
+     FROM parcels p
+     LEFT JOIN users u ON p.user_id = u.id
      ${whereSql}
-     ORDER BY created_at DESC
+     ORDER BY ${orderBy}
      LIMIT ${safeLimit} OFFSET ${offset}`,
-    params
+    allParams
   );
 
   const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT COUNT(*) as count
-     FROM parcels
+     FROM parcels p
+     LEFT JOIN users u ON p.user_id = u.id
      ${whereSql}`,
-    params
+    allParams
   );
 
   const total = Number(countRows?.[0]?.count || 0);
@@ -437,25 +643,30 @@ export const getParcelsPaged = async (page: number, limit: number, startDate?: s
 
 export const searchParcels = async (keyword: string, startDate?: string, endDate?: string): Promise<any[]> => {
   const like = `%${keyword}%`;
-  const { clauses, params } = buildCreatedAtFilter(startDate, endDate);
+  const { clauses, params } = buildCreatedAtFilter(startDate, endDate, 'p.');
   const keywordClause = `(
-    CAST(id AS CHAR) LIKE ?
-    OR CAST(user_id AS CHAR) LIKE ?
-    OR tracking_number LIKE ?
-    OR origin LIKE ?
-    OR destination LIKE ?
-    OR status LIKE ?
+    CAST(p.id AS CHAR) LIKE ?
+    OR CAST(p.user_id AS CHAR) LIKE ?
+    OR p.tracking_number LIKE ?
+    OR p.origin LIKE ?
+    OR p.destination LIKE ?
+    OR p.status LIKE ?
+    OR u.username LIKE ?
   )`;
   const whereSql = clauses.length > 0
     ? `WHERE ${keywordClause} AND ${clauses.join(' AND ')}`
     : `WHERE ${keywordClause}`;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, user_id, tracking_number, origin, destination, weight, status, estimated_delivery, created_at
-     FROM parcels
+    `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
+            p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images,
+            p.status, p.estimated_delivery, p.created_at,
+            u.username AS username
+     FROM parcels p
+     LEFT JOIN users u ON p.user_id = u.id
      ${whereSql}
-     ORDER BY created_at DESC`,
-    [like, like, like, like, like, like, ...params]
+     ORDER BY p.created_at DESC`,
+    [like, like, like, like, like, like, like, ...params]
   );
   return rows as any[];
 };
@@ -468,21 +679,44 @@ export const updateParcelStatus = async (parcelId: number, status: string): Prom
   return result.affectedRows > 0;
 };
 
-export const getAdminsPaged = async (page: number, limit: number) => {
-  return toPagedResult(
-    page,
-    limit,
-    async (safeLimit, offset) => {
-      const [rows] = await pool.query<mysql.RowDataPacket[]>(
-        `SELECT id, username, email, role, status, last_login, created_at, updated_at
-         FROM admin_users
-         ORDER BY created_at DESC
-         LIMIT ${safeLimit} OFFSET ${offset}`
-      );
-      return rows as any[];
-    },
-    getAdminsCount
+const ADMINS_SORT_COLUMNS = new Set(['id', 'username', 'email', 'role', 'status', 'last_login', 'created_at']);
+
+export const getAdminsPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>
+) => {
+  const orderBy = toSafeOrderBy(sortKey, sortOrder, ADMINS_SORT_COLUMNS, 'created_at');
+  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, ADMINS_SORT_COLUMNS);
+  const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, username, email, role, status, last_login, created_at, updated_at
+     FROM admin_users
+     ${whereSql}
+     ORDER BY ${orderBy}
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
   );
+
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count FROM admin_users ${whereSql}`,
+    params
+  );
+
+  const total = Number(countRows?.[0]?.count || 0);
+  return {
+    data: rows as any[],
+    total,
+    pages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
 };
 
 export const searchAdmins = async (keyword: string): Promise<any[]> => {

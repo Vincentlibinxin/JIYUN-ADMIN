@@ -1,50 +1,48 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Button, Card, Input, Pagination as AntPagination, Popconfirm, Space, Table, Tooltip, DatePicker, Checkbox } from 'antd';
-import { ReloadOutlined, DeleteOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons';
+﻿import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Button, Card, Checkbox, DatePicker, Input, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tooltip } from 'antd';
+import { EyeOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 
-interface User {
+interface Order {
   id: number;
-  username: string;
-  phone: string | null;
-  email: string | null;
-  real_name: string | null;
-  address: string | null;
+  user_id: number;
+  total_amount: number | string;
+  currency: string;
+  status: string;
   created_at: string;
-  updated_at: string;
 }
 
-type UserSortKey = 'id' | 'username' | 'phone' | 'email' | 'real_name' | 'address' | 'created_at' | 'updated_at';
+type OrderSortKey = 'id' | 'user_id' | 'total_amount' | 'status' | 'created_at';
 type SortDirection = 'asc' | 'desc';
 
-interface UsersTabProps {
-  users: User[];
+interface OrdersTabProps {
+  orders: Order[];
   loading: boolean;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
   onSearch: () => void;
   onReset: () => void;
-  onDelete: (id: number) => void;
   currentPage: number;
   pageSize: number;
   totalItems: number;
   onPageChange: (page: number, size: number) => void;
   onPageSizeChange: (size: number) => void;
-  sortKey: UserSortKey;
+  sortKey: OrderSortKey;
   sortDirection: SortDirection;
-  onSortChange: (key: UserSortKey, direction: SortDirection) => void;
+  onSortChange: (key: OrderSortKey, direction: SortDirection) => void;
+  onUpdateStatus: (orderId: number, status: string) => void;
+  onDelete: (id: number) => void;
   refreshKey?: number;
   onColumnFilterChange?: (columnFilters: Record<string, string>, dateFilters: Record<string, [string, string]>) => void;
 }
 
-export default function UsersTab({
-  users,
+export default function OrdersTab({
+  orders,
   loading,
   searchQuery,
   onSearchQueryChange,
   onSearch,
   onReset,
-  onDelete,
   currentPage,
   pageSize,
   totalItems,
@@ -53,13 +51,14 @@ export default function UsersTab({
   sortKey,
   sortDirection,
   onSortChange,
+  onUpdateStatus,
+  onDelete,
   refreshKey,
   onColumnFilterChange,
-}: UsersTabProps) {
+}: OrdersTabProps) {
   const tableHostRef = useRef<HTMLDivElement>(null);
   const [tableScrollY, setTableScrollY] = useState(240);
 
-  // 减去表头高度，避免表格内容区超高导致最后一行被覆盖 (双层表头大约是 86px)
   useLayoutEffect(() => {
     const updateTableHeight = () => {
       const nextHeight = tableHostRef.current?.clientHeight ?? 0;
@@ -89,7 +88,6 @@ export default function UsersTab({
   const [localColumnFilters, setLocalColumnFilters] = useState<Record<string, string>>({});
   const [dateFilters, setDateFilters] = useState<Record<string, [string, string] | null>>({});
   const [resetKey, setResetKey] = useState(0);
-  const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
 
   const cleanFiltersAndNotify = (newColFilters: Record<string, string>, newDateFilters: Record<string, [string, string] | null>) => {
     const cleanCf: Record<string, string> = {};
@@ -101,22 +99,6 @@ export default function UsersTab({
       if (v && v[0] && v[1]) cleanDf[k] = v;
     }
     onColumnFilterChange?.(cleanCf, cleanDf);
-  };
-
-  const handleSelectAll = (checked: boolean) => {
-    if (checked) {
-      setSelectedRowKeys(users.map(user => user.id));
-    } else {
-      setSelectedRowKeys([]);
-    }
-  };
-
-  const handleSelectRow = (id: number, checked: boolean) => {
-    if (checked) {
-      setSelectedRowKeys(prev => [...prev, id]);
-    } else {
-      setSelectedRowKeys(prev => prev.filter(key => key !== id));
-    }
   };
 
   const handleColumnSearch = (key: string, value: string) => {
@@ -151,7 +133,6 @@ export default function UsersTab({
     }
   }, [refreshKey]);
 
-  // 渲染表头下方的搜索输入框
   const renderSearchInput = (key: string, placeholder: string) => (
     <Input
       size="small"
@@ -159,37 +140,53 @@ export default function UsersTab({
       value={localColumnFilters[key] !== undefined ? localColumnFilters[key] : (columnFilters[key] || '')}
       onChange={(e) => {
         setLocalColumnFilters((prev) => ({ ...prev, [key]: e.target.value }));
-        if (!e.target.value) { // 允许一键清除（allowClear）立即生效
+        if (!e.target.value) {
           handleColumnSearch(key, '');
         }
       }}
       onPressEnter={(e) => handleColumnSearch(key, (e.target as HTMLInputElement).value)}
-      onClick={(e) => e.stopPropagation()} // 防止点击搜索框时触发排序
+      onClick={(e) => e.stopPropagation()}
       allowClear
     />
   );
 
-  // 渲染表头下方的日期范围选择框
   const renderDateRangeInput = (key: string) => (
     <div onClick={(e) => e.stopPropagation()}>
       <DatePicker.RangePicker
         size="small"
         style={{ width: '100%' }}
         onChange={(_, dateStrings) => handleDateSearch(key, dateStrings)}
-        // 利用全局重置自增量来刷新组件状态，解决首次选择时无故卸载重置输入框数据的问题
-        key={`date-picker-${key}-${resetKey}`} 
+        key={`date-picker-${key}-${resetKey}`}
         allowClear
       />
     </div>
   );
 
-  const allSelected = users.length > 0 && selectedRowKeys.length === users.length;
-  const indeterminate = selectedRowKeys.length > 0 && selectedRowKeys.length < users.length;
+  const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
+  const visibleRowIds = orders.map((item) => item.id);
+  const selectedVisibleCount = visibleRowIds.filter((id) => selectedRowKeys.includes(id)).length;
+  const allSelected = visibleRowIds.length > 0 && selectedVisibleCount === visibleRowIds.length;
+  const indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleRowIds.length;
 
-  const columns: ColumnsType<User> = [
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedRowKeys(visibleRowIds);
+      return;
+    }
+    setSelectedRowKeys([]);
+  };
+
+  const handleSelectRow = (id: number, checked: boolean) => {
+    if (checked) {
+      setSelectedRowKeys((prev) => (prev.includes(id) ? prev : [...prev, id]));
+      return;
+    }
+    setSelectedRowKeys((prev) => prev.filter((key) => key !== id));
+  };
+
+  const columns: ColumnsType<Order> = [
     {
       title: '序号',
-      dataIndex: 'index',
       key: 'index',
       width: 65,
       fixed: 'left',
@@ -209,7 +206,7 @@ export default function UsersTab({
           width: 65,
           fixed: 'left',
           align: 'left',
-          render: (text, record, index) => (
+          render: (_, record, index) => (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '8px' }}>
               <Checkbox
                 checked={selectedRowKeys.includes(record.id)}
@@ -219,94 +216,71 @@ export default function UsersTab({
               <span>{index + 1}</span>
             </div>
           ),
-        }
-      ]
+        },
+      ],
     },
     {
-      title: '用户名',
-      key: 'username',
-      width: 180,
+      title: '会员ID',
+      key: 'user_id',
+      width: 100,
       sorter: true,
-      sortOrder: sortKey === 'username' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
+      sortOrder: sortKey === 'user_id' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
       children: [
         {
-          title: renderSearchInput('username', '用户名'),
-          dataIndex: 'username',
-          key: 'username_child',
-          width: 180,
-          ellipsis: true,
-        }
-      ]
+          title: renderSearchInput('user_id', '会员ID'),
+          dataIndex: 'user_id',
+          key: 'user_id_child',
+          width: 100,
+        },
+      ],
     },
     {
-      title: '手机',
-      key: 'phone',
-      width: 140,
+      title: '金额',
+      key: 'total_amount',
+      width: 160,
       sorter: true,
-      sortOrder: sortKey === 'phone' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
+      sortOrder: sortKey === 'total_amount' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
       children: [
         {
-          title: renderSearchInput('phone', '手机'),
-          dataIndex: 'phone',
-          key: 'phone_child',
-          width: 140,
-          render: (value: string | null) => value || '-',
-        }
-      ]
+          title: renderSearchInput('total_amount', '金额'),
+          key: 'total_amount_child',
+          width: 160,
+          render: (_, record) => `${Number(record.total_amount || 0).toFixed(2)} ${record.currency}`,
+        },
+      ],
     },
     {
-      title: '电子邮件',
-      key: 'email',
-      width: 220,
+      title: '状态',
+      key: 'status',
+      width: 160,
       sorter: true,
-      sortOrder: sortKey === 'email' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
+      sortOrder: sortKey === 'status' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
       children: [
         {
-          title: renderSearchInput('email', '邮件'),
-          dataIndex: 'email',
-          key: 'email_child',
-          width: 220,
-          ellipsis: true,
-          render: (value: string | null) => value || '-',
-        }
-      ]
+          title: renderSearchInput('status', '状态'),
+          key: 'status_child',
+          width: 160,
+          render: (_, record) => (
+            <Select
+              size="small"
+              value={record.status}
+              style={{ width: '100%' }}
+              onChange={(value) => onUpdateStatus(record.id, value)}
+              onClick={(e) => e.stopPropagation()}
+              options={[
+                { label: '待处理', value: 'pending' },
+                { label: '处理中', value: 'processing' },
+                { label: '已出货', value: 'shipped' },
+                { label: '已送达', value: 'delivered' },
+                { label: '已取消', value: 'cancelled' },
+              ]}
+            />
+          ),
+        },
+      ],
     },
     {
-      title: '姓名',
-      key: 'real_name',
-      width: 140,
-      sorter: true,
-      sortOrder: sortKey === 'real_name' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
-      children: [
-        {
-          title: renderSearchInput('real_name', '姓名'),
-          dataIndex: 'real_name',
-          key: 'real_name_child',
-          width: 140,
-          ellipsis: true,
-          render: (value: string | null) => value || '-',
-        }
-      ]
-    },
-    {
-      title: '地址',
-      key: 'address',
-      width: 220,
-      sorter: true,
-      sortOrder: sortKey === 'address' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
-      children: [
-        {
-          title: renderSearchInput('address', '地址'),
-          dataIndex: 'address',
-          key: 'address_child',
-          width: 220,
-          ellipsis: true,
-          render: (value: string | null) => value || '-',
-        }
-      ]
-    },
-    {
-      title: '注册日期',
+      title: '创建日期',
       key: 'created_at',
       width: 180,
       sorter: true,
@@ -318,24 +292,8 @@ export default function UsersTab({
           key: 'created_at_child',
           width: 180,
           render: (value: string) => new Date(value).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
-        }
-      ]
-    },
-    {
-      title: '更新日期',
-      key: 'updated_at',
-      width: 180,
-      sorter: true,
-      sortOrder: sortKey === 'updated_at' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
-      children: [
-        {
-          title: renderDateRangeInput('updated_at'),
-          dataIndex: 'updated_at',
-          key: 'updated_at_child',
-          width: 180,
-          render: (value: string) => new Date(value).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
-        }
-      ]
+        },
+      ],
     },
     {
       title: '',
@@ -368,7 +326,7 @@ export default function UsersTab({
                 <Button size="small" type="text" icon={<EditOutlined />} />
               </Tooltip>
               <Popconfirm
-                title="确定删除该会员？"
+                title="确定删除该订单？"
                 okText="删除"
                 cancelText="取消"
                 onConfirm={() => onDelete(record.id)}
@@ -379,8 +337,8 @@ export default function UsersTab({
               </Popconfirm>
             </Space>
           ),
-        }
-      ]
+        },
+      ],
     },
   ];
 
@@ -399,7 +357,7 @@ export default function UsersTab({
               if (!val) onReset();
             }}
             onPressEnter={onSearch}
-            placeholder="搜索会员：账号、手机或电子邮箱"
+            placeholder="搜索订单：订单ID、会员ID或状态"
             style={{ width: 320 }}
           />
           <Button type="primary" onClick={onSearch}>
@@ -409,12 +367,12 @@ export default function UsersTab({
       </div>
 
       <div ref={tableHostRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-        <Table<User>
+        <Table<Order>
           rowKey="id"
           rowClassName={(record) => selectedRowKeys.includes(record.id) ? 'row-selected' : ''}
           loading={loading}
           columns={columns}
-          dataSource={users}
+          dataSource={orders}
           pagination={false}
           size="small"
           sticky
@@ -422,16 +380,13 @@ export default function UsersTab({
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
           scroll={{ x: 'max-content', y: tableScrollY }}
-          locale={{ emptyText: '没有会员记录' }}
+          locale={{ emptyText: '没有订单记录' }}
           onChange={(_, __, sorter) => {
             if (Array.isArray(sorter)) {
               return;
             }
-            // 因为排序绑在带 children 的父表头上，它的 dataIndex 是空的，我们通过 columnKey（即配置的 key）来获取字段名
-            const field = (sorter.field || sorter.columnKey) as UserSortKey | undefined;
+            const field = (sorter.field || sorter.columnKey) as OrderSortKey | undefined;
             const order = sorter.order;
-            // 如果 order 为空说明原本会变成不排序，这里我们可以强制转回升序
-            // 不过在配置了 sortDirections={['ascend', 'descend', 'ascend']} 之后它就不会为空了
             if (!field || !order) {
               return;
             }

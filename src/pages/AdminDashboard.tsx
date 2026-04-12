@@ -1,13 +1,14 @@
-import AdminLayout from '../app/layouts/AdminLayout';
-import { useState, useEffect, useMemo } from 'react';
+﻿import AdminLayout from '../app/layouts/AdminLayout';
+import { useState, useEffect } from 'react';
 import { Home, Users, User, ShoppingCart, MessageCircle, Package, ClipboardList, Shield } from 'lucide-react';
-import FixedTableToolbar from '../components/FixedTableToolbar';
-import Pagination from '../components/Pagination';
-import TableSearchBar from '../components/TableSearchBar';
 import { adminFetch } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import OverviewTab from './dashboard/OverviewTab';
 import UsersTab from './dashboard/UsersTab';
+import OrdersTab from './dashboard/OrdersTab';
+import SmsTab from './dashboard/SmsTab';
+import ParcelsTab from './dashboard/ParcelsTab';
+import AdminsTab from './dashboard/AdminsTab';
 
 interface User {
   id: number;
@@ -36,9 +37,15 @@ interface Parcel {
   origin: string;
   destination: string;
   weight: number | null;
+  length_cm: number | null;
+  width_cm: number | null;
+  height_cm: number | null;
+  volume: number | null;
+  images: string | null;
   status: string;
   estimated_delivery: string | null;
   created_at: string;
+  username: string | null;
 }
 
 interface SmsInfo {
@@ -102,6 +109,7 @@ export default function AdminDashboard() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [totalPages, setTotalPages] = useState(1);
+  const [userTotalItems, setUserTotalItems] = useState(0);
   const [orderPage, setOrderPage] = useState(1);
   const [orderPageSize, setOrderPageSize] = useState(50);
   const [orderTotalPages, setOrderTotalPages] = useState(1);
@@ -119,10 +127,22 @@ export default function AdminDashboard() {
   const [adminTotalPages, setAdminTotalPages] = useState(1);
   const [adminTotalItems, setAdminTotalItems] = useState(0);
   const [userSort, setUserSort] = useState<SortConfig<'id' | 'username' | 'phone' | 'email' | 'real_name' | 'address' | 'created_at' | 'updated_at'>>({ key: 'created_at', direction: 'desc' });
-  const [orderSort, setOrderSort] = useState<SortConfig<'id' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
-  const [smsSort, setSmsSort] = useState<SortConfig<'id' | 'verified' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
-  const [parcelSort, setParcelSort] = useState<SortConfig<'id' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
-  const [adminSort, setAdminSort] = useState<SortConfig<'id' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
+  const [orderSort, setOrderSort] = useState<SortConfig<'id' | 'user_id' | 'total_amount' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
+  const [smsSort, setSmsSort] = useState<SortConfig<'id' | 'phone' | 'code' | 'verified' | 'expires_at' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
+  const [parcelSort, setParcelSort] = useState<SortConfig<'id' | 'user_id' | 'tracking_number' | 'origin' | 'destination' | 'weight' | 'length_cm' | 'width_cm' | 'height_cm' | 'volume' | 'status' | 'estimated_delivery' | 'created_at' | 'username'>>({ key: 'created_at', direction: 'desc' });
+  const [adminSort, setAdminSort] = useState<SortConfig<'id' | 'username' | 'email' | 'role' | 'status' | 'last_login' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const [userColumnFilters, setUserColumnFilters] = useState<Record<string, string>>({});
+  const [userDateFilters, setUserDateFilters] = useState<Record<string, [string, string]>>({});
+  const [orderColumnFilters, setOrderColumnFilters] = useState<Record<string, string>>({});
+  const [orderDateFilters, setOrderDateFilters] = useState<Record<string, [string, string]>>({});
+  const [smsColumnFilters, setSmsColumnFilters] = useState<Record<string, string>>({});
+  const [smsDateFilters, setSmsDateFilters] = useState<Record<string, [string, string]>>({});
+  const [parcelColumnFilters, setParcelColumnFilters] = useState<Record<string, string>>({});
+  const [parcelDateFilters, setParcelDateFilters] = useState<Record<string, [string, string]>>({});
+  const [adminColumnFilters, setAdminColumnFilters] = useState<Record<string, string>>({});
+  const [adminDateFilters, setAdminDateFilters] = useState<Record<string, [string, string]>>({});
 
   const ensureAuthorized = (response: Response): boolean => {
     if (response.status === 401) {
@@ -150,10 +170,29 @@ export default function AdminDashboard() {
     }
   }, [activeTab]);
 
-  const fetchUsers = async (page: number = 1, size: number = pageSize) => {
+  const fetchUsers = async (
+    page: number = 1,
+    size: number = pageSize,
+    sortKey?: string,
+    sortDir?: string,
+    colFilters?: Record<string, string>,
+    dtFilters?: Record<string, [string, string]>
+  ) => {
+    const sk = sortKey || userSort.key;
+    const sd = sortDir || userSort.direction;
+    const cf = colFilters !== undefined ? colFilters : userColumnFilters;
+    const df = dtFilters !== undefined ? dtFilters : userDateFilters;
     try {
       setLoading(true);
-      const response = await adminFetch(`/admin/users?page=${page}&limit=${size}`);
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(size),
+        sortKey: sk,
+        sortOrder: sd,
+      });
+      if (Object.keys(cf).length > 0) params.set('columnFilters', JSON.stringify(cf));
+      if (Object.keys(df).length > 0) params.set('dateFilters', JSON.stringify(df));
+      const response = await adminFetch(`/admin/users?${params.toString()}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('fetch users failed');
       const data = await response.json();
@@ -161,6 +200,7 @@ export default function AdminDashboard() {
       setCurrentPage(page);
       setPageSize(size);
       setTotalPages(data.pagination?.pages || 1);
+      setUserTotalItems(data.pagination?.total || 0);
       setStats(prev => ({ ...prev, totalUsers: data.pagination?.total || 0 }));
     } catch (err) {
       setError('讀取會員失敗');
@@ -170,9 +210,19 @@ export default function AdminDashboard() {
   };
 
   const handlePageSizeChange = (newSize: number) => {
-    setPageSize(newSize);
-    setCurrentPage(1);
-    fetchUsers(1, newSize);
+    if (searchQuery.trim()) {
+      searchUsers(1, newSize, searchQuery, userSort.key, userSort.direction);
+      return;
+    }
+    fetchUsers(1, newSize, userSort.key, userSort.direction);
+  };
+
+  const handleUsersPageChange = (page: number, size: number) => {
+    if (searchQuery.trim()) {
+      searchUsers(page, size, searchQuery, userSort.key, userSort.direction);
+      return;
+    }
+    fetchUsers(page, size, userSort.key, userSort.direction);
   };
 
   const appendDateRangeParams = (params: URLSearchParams, startDate: string, endDate: string) => {
@@ -188,15 +238,27 @@ export default function AdminDashboard() {
     page: number = 1,
     size: number = orderPageSize,
     startDate: string = orderStartDate,
-    endDate: string = orderEndDate
+    endDate: string = orderEndDate,
+    sortKey?: string,
+    sortDir?: string,
+    colFilters?: Record<string, string>,
+    dtFilters?: Record<string, [string, string]>
   ) => {
+    const sk = sortKey || orderSort.key;
+    const sd = sortDir || orderSort.direction;
+    const cf = colFilters !== undefined ? colFilters : orderColumnFilters;
+    const df = dtFilters !== undefined ? dtFilters : orderDateFilters;
     try {
       setOrdersLoading(true);
       const params = new URLSearchParams({
         page: String(page),
         limit: String(size),
+        sortKey: sk,
+        sortOrder: sd,
       });
       appendDateRangeParams(params, startDate, endDate);
+      if (Object.keys(cf).length > 0) params.set('columnFilters', JSON.stringify(cf));
+      if (Object.keys(df).length > 0) params.set('dateFilters', JSON.stringify(df));
       const response = await adminFetch(`/admin/orders?${params.toString()}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('fetch orders failed');
@@ -224,15 +286,27 @@ export default function AdminDashboard() {
     page: number = 1,
     size: number = smsPageSize,
     startDate: string = smsStartDate,
-    endDate: string = smsEndDate
+    endDate: string = smsEndDate,
+    sortKey?: string,
+    sortDir?: string,
+    colFilters?: Record<string, string>,
+    dtFilters?: Record<string, [string, string]>
   ) => {
+    const sk = sortKey || smsSort.key;
+    const sd = sortDir || smsSort.direction;
+    const cf = colFilters !== undefined ? colFilters : smsColumnFilters;
+    const df = dtFilters !== undefined ? dtFilters : smsDateFilters;
     try {
       setSmsLoading(true);
       const params = new URLSearchParams({
         page: String(page),
         limit: String(size),
+        sortKey: sk,
+        sortOrder: sd,
       });
       appendDateRangeParams(params, startDate, endDate);
+      if (Object.keys(cf).length > 0) params.set('columnFilters', JSON.stringify(cf));
+      if (Object.keys(df).length > 0) params.set('dateFilters', JSON.stringify(df));
       const response = await adminFetch(`/admin/sms?${params.toString()}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('fetch sms failed');
@@ -259,15 +333,27 @@ export default function AdminDashboard() {
     page: number = 1,
     size: number = parcelPageSize,
     startDate: string = parcelStartDate,
-    endDate: string = parcelEndDate
+    endDate: string = parcelEndDate,
+    sortKey?: string,
+    sortDir?: string,
+    colFilters?: Record<string, string>,
+    dtFilters?: Record<string, [string, string]>
   ) => {
+    const sk = sortKey || parcelSort.key;
+    const sd = sortDir || parcelSort.direction;
+    const cf = colFilters !== undefined ? colFilters : parcelColumnFilters;
+    const df = dtFilters !== undefined ? dtFilters : parcelDateFilters;
     try {
       setParcelsLoading(true);
       const params = new URLSearchParams({
         page: String(page),
         limit: String(size),
+        sortKey: sk,
+        sortOrder: sd,
       });
       appendDateRangeParams(params, startDate, endDate);
+      if (Object.keys(cf).length > 0) params.set('columnFilters', JSON.stringify(cf));
+      if (Object.keys(df).length > 0) params.set('dateFilters', JSON.stringify(df));
       const response = await adminFetch(`/admin/parcels?${params.toString()}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('fetch parcels failed');
@@ -291,10 +377,29 @@ export default function AdminDashboard() {
     fetchParcels(1, newSize, parcelStartDate, parcelEndDate);
   };
 
-  const fetchAdmins = async (page: number = 1, size: number = adminPageSize) => {
+  const fetchAdmins = async (
+    page: number = 1,
+    size: number = adminPageSize,
+    sortKey?: string,
+    sortDir?: string,
+    colFilters?: Record<string, string>,
+    dtFilters?: Record<string, [string, string]>
+  ) => {
+    const sk = sortKey || adminSort.key;
+    const sd = sortDir || adminSort.direction;
+    const cf = colFilters !== undefined ? colFilters : adminColumnFilters;
+    const df = dtFilters !== undefined ? dtFilters : adminDateFilters;
     try {
       setAdminsLoading(true);
-      const response = await adminFetch(`/admin/admins?page=${page}&limit=${size}`);
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(size),
+        sortKey: sk,
+        sortOrder: sd,
+      });
+      if (Object.keys(cf).length > 0) params.set('columnFilters', JSON.stringify(cf));
+      if (Object.keys(df).length > 0) params.set('dateFilters', JSON.stringify(df));
+      const response = await adminFetch(`/admin/admins?${params.toString()}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('fetch admins failed');
       const data = await response.json();
@@ -316,22 +421,34 @@ export default function AdminDashboard() {
     fetchAdmins(1, newSize);
   };
 
-  const searchUsers = async () => {
-    if (!searchQuery.trim()) {
-      setCurrentPage(1);
-      fetchUsers(1);
+  const searchUsers = async (
+    page: number = 1,
+    size: number = pageSize,
+    keyword: string = searchQuery,
+    sortKey?: string,
+    sortDir?: string
+  ) => {
+    const sk = sortKey || userSort.key;
+    const sd = sortDir || userSort.direction;
+    const trimmedKeyword = keyword.trim();
+    if (!trimmedKeyword) {
+      fetchUsers(page, size, sk, sd);
       return;
     }
 
     try {
       setLoading(true);
-      setCurrentPage(1);
-      const response = await adminFetch(`/admin/users/search?q=${encodeURIComponent(searchQuery)}`);
+      const response = await adminFetch(
+        `/admin/users/search?q=${encodeURIComponent(trimmedKeyword)}&page=${page}&limit=${size}&sortKey=${sk}&sortOrder=${sd}`
+      );
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('search users failed');
       const data = await response.json();
       setUsers(data.data || []);
-      setTotalPages(1);
+      setCurrentPage(page);
+      setPageSize(size);
+      setTotalPages(data.pagination?.pages || 1);
+      setUserTotalItems(data.pagination?.total || data.count || 0);
     } catch (err) {
       setError('搜尋失敗');
     } finally {
@@ -497,6 +614,42 @@ export default function AdminDashboard() {
     }
   };
 
+  const deleteOrder = async (id: number) => {
+    try {
+      const response = await adminFetch(`/admin/orders/${id}`, { method: 'DELETE' });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) {
+        fetchOrders(orderPage);
+      } else {
+        setError('删除订单失败');
+      }
+    } catch { setError('删除失败'); }
+  };
+
+  const deleteSmsRecord = async (id: number) => {
+    try {
+      const response = await adminFetch(`/admin/sms/${id}`, { method: 'DELETE' });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) {
+        fetchSms(smsPage);
+      } else {
+        setError('删除记录失败');
+      }
+    } catch { setError('删除失败'); }
+  };
+
+  const deleteParcel = async (id: number) => {
+    try {
+      const response = await adminFetch(`/admin/parcels/${id}`, { method: 'DELETE' });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) {
+        fetchParcels(parcelPage);
+      } else {
+        setError('删除包裹失败');
+      }
+    } catch { setError('删除失败'); }
+  };
+
   const updateOrderStatus = async (orderId: number, newStatus: string) => {
     try {
       const response = await adminFetch(`/admin/orders/${orderId}`, {
@@ -572,98 +725,70 @@ export default function AdminDashboard() {
     await logout();
   };
 
-  const statusColors: { [key: string]: string } = {
-    'pending': 'bg-yellow-100 text-yellow-800',
-    'processing': 'bg-blue-100 text-blue-800',
-    'shipped': 'bg-purple-100 text-purple-800',
-    'delivered': 'bg-green-100 text-green-800',
-    'cancelled': 'bg-red-100 text-red-800',
-    'arrived': 'bg-indigo-100 text-indigo-800',
-    'shipping': 'bg-teal-100 text-teal-800',
-    'completed': 'bg-green-100 text-green-800',
-    'active': 'bg-green-100 text-green-800',
-    'disabled': 'bg-gray-200 text-gray-700'
-  };
-
-  const toAmount = (value: number | string): number => {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  };
-
-  const getNextSort = <T extends string>(current: SortConfig<T>, key: T): SortConfig<T> => ({
-    key,
-    direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc',
-  });
-
-  const sortMark = (isActive: boolean, direction: SortDirection): string => {
-    if (!isActive) return '';
-    return direction === 'asc' ? ' ↑' : ' ↓';
-  };
-
-  const comparePrimitive = (a: string | number, b: string | number, direction: SortDirection): number => {
-    if (typeof a === 'number' && typeof b === 'number') {
-      return direction === 'asc' ? a - b : b - a;
+  const handleRefresh = () => {
+    setRefreshKey(k => k + 1);
+    switch (activeTab) {
+      case 'overview':
+        fetchUsers();
+        fetchOrders();
+        fetchParcels();
+        break;
+      case 'users':
+        setSearchQuery('');
+        setUserSort({ key: 'created_at', direction: 'desc' });
+        setCurrentPage(1);
+        setPageSize(50);
+        setUserColumnFilters({});
+        setUserDateFilters({});
+        fetchUsers(1, 50, 'created_at', 'desc', {}, {});
+        break;
+      case 'orders':
+        setOrderSearchQuery('');
+        setOrderStartDate('');
+        setOrderEndDate('');
+        setOrderSort({ key: 'created_at', direction: 'desc' });
+        setOrderPage(1);
+        setOrderPageSize(50);
+        setOrderColumnFilters({});
+        setOrderDateFilters({});
+        fetchOrders(1, 50, '', '', 'created_at', 'desc', {}, {});
+        break;
+      case 'sms':
+        setSmsSearchQuery('');
+        setSmsStartDate('');
+        setSmsEndDate('');
+        setSmsSort({ key: 'created_at', direction: 'desc' });
+        setSmsPage(1);
+        setSmsPageSize(50);
+        setSmsColumnFilters({});
+        setSmsDateFilters({});
+        fetchSms(1, 50, '', '', 'created_at', 'desc', {}, {});
+        break;
+      case 'parcels':
+        setParcelSearchQuery('');
+        setParcelStartDate('');
+        setParcelEndDate('');
+        setParcelSort({ key: 'created_at', direction: 'desc' });
+        setParcelPage(1);
+        setParcelPageSize(50);
+        setParcelColumnFilters({});
+        setParcelDateFilters({});
+        fetchParcels(1, 50, '', '', 'created_at', 'desc', {}, {});
+        break;
+      case 'admins':
+        setAdminSearchQuery('');
+        setAdminSort({ key: 'created_at', direction: 'desc' });
+        setAdminPage(1);
+        setAdminPageSize(50);
+        setAdminColumnFilters({});
+        setAdminDateFilters({});
+        fetchAdmins(1, 50, 'created_at', 'desc', {}, {});
+        break;
     }
-    const left = String(a).toLowerCase();
-    const right = String(b).toLowerCase();
-    if (left === right) return 0;
-    if (direction === 'asc') {
-      return left > right ? 1 : -1;
-    }
-    return left < right ? 1 : -1;
   };
-
-  const sortBy = <T,>(items: T[], selector: (item: T) => string | number, direction: SortDirection): T[] => {
-    return [...items].sort((a, b) => comparePrimitive(selector(a), selector(b), direction));
-  };
-
-  const sortedUsers = useMemo(() => {
-    return sortBy(users, (item) => {
-      if (userSort.key === 'id') return item.id;
-      if (userSort.key === 'username') return item.username;
-      if (userSort.key === 'phone') return item.phone ?? '';
-      if (userSort.key === 'email') return item.email ?? '';
-      if (userSort.key === 'real_name') return item.real_name ?? '';
-      if (userSort.key === 'address') return item.address ?? '';
-      if (userSort.key === 'updated_at') return new Date(item.updated_at).getTime();
-      return new Date(item.created_at).getTime();
-    }, userSort.direction);
-  }, [users, userSort]);
-
-  const sortedOrders = useMemo(() => {
-    return sortBy(orders, (item) => {
-      if (orderSort.key === 'id') return item.id;
-      if (orderSort.key === 'status') return item.status;
-      return new Date(item.created_at).getTime();
-    }, orderSort.direction);
-  }, [orders, orderSort]);
-
-  const sortedSmsItems = useMemo(() => {
-    return sortBy(smsItems, (item) => {
-      if (smsSort.key === 'id') return item.id;
-      if (smsSort.key === 'verified') return item.verified;
-      return new Date(item.created_at).getTime();
-    }, smsSort.direction);
-  }, [smsItems, smsSort]);
-
-  const sortedParcels = useMemo(() => {
-    return sortBy(parcels, (item) => {
-      if (parcelSort.key === 'id') return item.id;
-      if (parcelSort.key === 'status') return item.status;
-      return new Date(item.created_at).getTime();
-    }, parcelSort.direction);
-  }, [parcels, parcelSort]);
-
-  const sortedAdmins = useMemo(() => {
-    return sortBy(admins, (item) => {
-      if (adminSort.key === 'id') return item.id;
-      if (adminSort.key === 'status') return item.status;
-      return new Date(item.created_at).getTime();
-    }, adminSort.direction);
-  }, [admins, adminSort]);
 
   return (
-    <AdminLayout activeMenu={activeMenu} onMenuClick={(key) => { setActiveMenu(key); setActiveTab(key); }}>
+    <AdminLayout activeMenu={activeMenu} onMenuClick={(key) => { setActiveMenu(key); setActiveTab(key); }} onRefresh={handleRefresh}>
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded mb-4">
               {error}
@@ -678,493 +803,164 @@ export default function AdminDashboard() {
           {/* 會員管理頁面 */}
           {activeTab === 'users' && (
             <UsersTab
-              users={sortedUsers}
+              users={users}
               loading={loading}
               searchQuery={searchQuery}
               onSearchQueryChange={setSearchQuery}
-              onSearch={searchUsers}
+              onSearch={() => searchUsers(1, pageSize, searchQuery)}
               onReset={() => {
                 setSearchQuery('');
-                fetchUsers(1, pageSize);
+                setUserColumnFilters({});
+                setUserDateFilters({});
+                fetchUsers(1, pageSize, undefined, undefined, {}, {});
               }}
               onDelete={deleteUser}
               currentPage={currentPage}
               pageSize={pageSize}
-              totalItems={stats.totalUsers}
-              onPageChange={fetchUsers}
+              totalItems={userTotalItems}
+              onPageChange={handleUsersPageChange}
               onPageSizeChange={handlePageSizeChange}
               sortKey={userSort.key}
               sortDirection={userSort.direction}
-              onSortChange={(key, direction) => setUserSort({ key, direction })}
+              onSortChange={(key, direction) => {
+                setUserSort({ key, direction });
+                if (searchQuery.trim()) {
+                  searchUsers(currentPage, pageSize, searchQuery, key, direction);
+                } else {
+                  fetchUsers(currentPage, pageSize, key, direction);
+                }
+              }}
+              refreshKey={refreshKey}
+              onColumnFilterChange={(cf, df) => {
+                setUserColumnFilters(cf);
+                setUserDateFilters(df);
+                fetchUsers(1, pageSize, userSort.key, userSort.direction, cf, df);
+              }}
             />
           )}
 
           {/* 訂單管理頁面 */}
           {activeTab === 'orders' && (
-            <div className="flex flex-col h-[calc(100vh-68px)]">
-              <FixedTableToolbar>
-                <TableSearchBar
-                  value={orderSearchQuery}
-                  onChange={setOrderSearchQuery}
-                  onSearch={searchOrders}
-                  onReset={resetOrderSearch}
-                  placeholder="搜尋訂單：訂單ID、會員ID或狀態..."
-                  extraControls={
-                    <>
-                      <input
-                        type="date"
-                        value={orderStartDate}
-                        onChange={(e) => setOrderStartDate(e.target.value)}
-                        className="px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                        aria-label="訂單起始日期"
-                      />
-                      <span className="text-gray-500 text-xs">至</span>
-                      <input
-                        type="date"
-                        value={orderEndDate}
-                        onChange={(e) => setOrderEndDate(e.target.value)}
-                        className="px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                        aria-label="訂單結束日期"
-                      />
-                    </>
-                  }
-                />
-              </FixedTableToolbar>
-
-              <div className="flex-1 min-h-0 bg-gray-50 border border-gray-200 border-t-0 overflow-y-auto shadow-sm">                <table className="w-full whitespace-nowrap border-b border-gray-200">
-                  <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
-                        <button type="button" onClick={() => setOrderSort(prev => getNextSort(prev, 'id'))}>
-                          訂單ID{sortMark(orderSort.key === 'id', orderSort.direction)}
-                        </button>
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">會員ID</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">金額</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
-                        <button type="button" onClick={() => setOrderSort(prev => getNextSort(prev, 'status'))}>
-                          狀態{sortMark(orderSort.key === 'status', orderSort.direction)}
-                        </button>
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
-                        <button type="button" onClick={() => setOrderSort(prev => getNextSort(prev, 'created_at'))}>
-                          建立日期{sortMark(orderSort.key === 'created_at', orderSort.direction)}
-                        </button>
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {ordersLoading ? (
-                      <tr>
-                        <td colSpan={6} className="px-3 py-2.5 text-center text-gray-500">
-                          載入中...
-                        </td>
-                      </tr>
-                    ) : orders.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="px-3 py-2.5 text-center text-gray-500">
-                          沒有訂單紀錄
-                        </td>
-                      </tr>
-                    ) : (
-                      sortedOrders.map(order => (
-                        <tr key={order.id} className="hover:bg-gray-100 transition-colors">
-                          <td className="px-3 py-2.5 text-gray-700 font-medium text-sm">{order.id}</td>
-                          <td className="px-3 py-2.5 text-gray-700 text-sm">{order.user_id}</td>
-                          <td className="px-3 py-2.5 text-gray-700 font-medium text-sm">
-                            ${toAmount(order.total_amount).toFixed(2)} {order.currency}
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <select
-                              value={order.status}
-                              onChange={(e) => updateOrderStatus(order.id, e.target.value)}
-                              className={`px-2.5 py-1 rounded text-xs font-medium border-0 focus:ring-2 focus:ring-blue-400 outline-none cursor-pointer ${
-                                statusColors[order.status] || 'bg-gray-100 text-gray-800'
-                              }`}
-                            >
-                              <option value="pending">待處理</option>
-                              <option value="processing">處理中</option>
-                              <option value="shipped">已出貨</option>
-                              <option value="delivered">已送達</option>
-                              <option value="cancelled">已取消</option>
-                            </select>
-                          </td>
-                          <td className="px-3 py-2.5 text-gray-500 text-xs">
-                            {new Date(order.created_at).toLocaleDateString('zh-TW')}
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <button className="px-2.5 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded text-xs font-medium transition-colors">
-                              詳細
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                  </table>              </div>
-
-              {orders.length > 0 && (
-                <div className="shrink-0 pt-1.5 flex items-start">
-                  <div className="w-full">
-                    <Pagination
-                      currentPage={orderPage}
-                      totalPages={orderTotalPages}
-                      totalItems={orderTotalItems}
-                      pageSize={orderPageSize}
-                      pageSizeOptions={[10, 20, 30, 50]}
-                      onPageChange={fetchOrders}
-                      onPageSizeChange={handleOrderPageSizeChange}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
+            <OrdersTab
+              orders={orders}
+              loading={ordersLoading}
+              searchQuery={orderSearchQuery}
+              onSearchQueryChange={setOrderSearchQuery}
+              onSearch={searchOrders}
+              onReset={resetOrderSearch}
+              currentPage={orderPage}
+              pageSize={orderPageSize}
+              totalItems={orderTotalItems}
+              onPageChange={fetchOrders}
+              onPageSizeChange={handleOrderPageSizeChange}
+              sortKey={orderSort.key}
+              sortDirection={orderSort.direction}
+              onSortChange={(key, direction) => {
+                setOrderSort({ key, direction });
+                fetchOrders(orderPage, orderPageSize, orderStartDate, orderEndDate, key, direction);
+              }}
+              onUpdateStatus={updateOrderStatus}
+              onDelete={deleteOrder}
+              refreshKey={refreshKey}
+              onColumnFilterChange={(cf, df) => {
+                setOrderColumnFilters(cf);
+                setOrderDateFilters(df);
+                fetchOrders(1, orderPageSize, orderStartDate, orderEndDate, orderSort.key, orderSort.direction, cf, df);
+              }}
+            />
           )}
 
           {/* 簡訊資訊頁面 */}
           {activeTab === 'sms' && (
-            <div className="flex flex-col h-[calc(100vh-68px)]">
-              <FixedTableToolbar>
-                <TableSearchBar
-                  value={smsSearchQuery}
-                  onChange={setSmsSearchQuery}
-                  onSearch={searchSms}
-                  onReset={resetSmsSearch}
-                  placeholder="搜尋簡訊：ID、手機、驗證碼或驗證狀態..."
-                  extraControls={
-                    <>
-                      <input
-                        type="date"
-                        value={smsStartDate}
-                        onChange={(e) => setSmsStartDate(e.target.value)}
-                        className="px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                        aria-label="簡訊起始日期"
-                      />
-                      <span className="text-gray-500 text-xs">至</span>
-                      <input
-                        type="date"
-                        value={smsEndDate}
-                        onChange={(e) => setSmsEndDate(e.target.value)}
-                        className="px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                        aria-label="簡訊結束日期"
-                      />
-                    </>
-                  }
-                />
-              </FixedTableToolbar>
-
-              <div className="flex-1 min-h-0 bg-gray-50 border border-gray-200 border-t-0 overflow-y-auto shadow-sm">                <table className="w-full whitespace-nowrap border-b border-gray-200">
-                    <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
-                      <tr>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
-                          <button type="button" onClick={() => setSmsSort(prev => getNextSort(prev, 'id'))}>
-                            ID{sortMark(smsSort.key === 'id', smsSort.direction)}
-                          </button>
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">手機</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">驗證碼</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
-                          <button type="button" onClick={() => setSmsSort(prev => getNextSort(prev, 'verified'))}>
-                            狀態{sortMark(smsSort.key === 'verified', smsSort.direction)}
-                          </button>
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">到期時間</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
-                          <button type="button" onClick={() => setSmsSort(prev => getNextSort(prev, 'created_at'))}>
-                            建立時間{sortMark(smsSort.key === 'created_at', smsSort.direction)}
-                          </button>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {smsLoading ? (
-                        <tr>
-                          <td colSpan={6} className="px-3 py-2.5 text-center text-gray-500">
-                            載入中...
-                          </td>
-                        </tr>
-                      ) : smsItems.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="px-3 py-2.5 text-center text-gray-500">
-                            沒有簡訊紀錄
-                          </td>
-                        </tr>
-                      ) : (
-                        sortedSmsItems.map(item => (
-                          <tr key={item.id} className="hover:bg-gray-100 transition-colors">
-                            <td className="px-3 py-2.5 text-gray-700 font-medium text-sm">{item.id}</td>
-                            <td className="px-3 py-2.5 text-gray-700 text-sm">{item.phone}</td>
-                            <td className="px-3 py-2.5 text-gray-700 text-sm">{item.code}</td>
-                            <td className="px-3 py-2.5">
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${item.verified ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                                {item.verified ? '已驗證' : '未驗證'}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2.5 text-gray-500 text-xs">
-                              {new Date(item.expires_at).toLocaleString('zh-TW')}
-                            </td>
-                            <td className="px-3 py-2.5 text-gray-500 text-xs">
-                              {new Date(item.created_at).toLocaleString('zh-TW')}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>              </div>
-
-              {smsItems.length > 0 && (
-                <div className="shrink-0 pt-1.5 flex items-start">
-                  <div className="w-full">
-                    <Pagination
-                      currentPage={smsPage}
-                      totalPages={smsTotalPages}
-                      totalItems={smsTotalItems}
-                      pageSize={smsPageSize}
-                      pageSizeOptions={[10, 20, 30, 50]}
-                      onPageChange={fetchSms}
-                      onPageSizeChange={handleSmsPageSizeChange}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
+            <SmsTab
+              smsItems={smsItems}
+              loading={smsLoading}
+              searchQuery={smsSearchQuery}
+              onSearchQueryChange={setSmsSearchQuery}
+              onSearch={searchSms}
+              onReset={resetSmsSearch}
+              currentPage={smsPage}
+              pageSize={smsPageSize}
+              totalItems={smsTotalItems}
+              onPageChange={fetchSms}
+              onPageSizeChange={handleSmsPageSizeChange}
+              sortKey={smsSort.key}
+              sortDirection={smsSort.direction}
+              onSortChange={(key, direction) => {
+                setSmsSort({ key, direction });
+                fetchSms(smsPage, smsPageSize, smsStartDate, smsEndDate, key, direction);
+              }}
+              onDelete={deleteSmsRecord}
+              refreshKey={refreshKey}
+              onColumnFilterChange={(cf, df) => {
+                setSmsColumnFilters(cf);
+                setSmsDateFilters(df);
+                fetchSms(1, smsPageSize, smsStartDate, smsEndDate, smsSort.key, smsSort.direction, cf, df);
+              }}
+            />
           )}
 
           {/* 包裹管理頁面 */}
           {activeTab === 'parcels' && (
-            <div className="flex flex-col h-[calc(100vh-68px)]">
-              <FixedTableToolbar>
-                <TableSearchBar
-                  value={parcelSearchQuery}
-                  onChange={setParcelSearchQuery}
-                  onSearch={searchParcels}
-                  onReset={resetParcelSearch}
-                  placeholder="搜尋包裹：包裹ID、會員ID、追蹤號、來源、目的地或狀態..."
-                  extraControls={
-                    <>
-                      <input
-                        type="date"
-                        value={parcelStartDate}
-                        onChange={(e) => setParcelStartDate(e.target.value)}
-                        className="px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                        aria-label="包裹起始日期"
-                      />
-                      <span className="text-gray-500 text-xs">至</span>
-                      <input
-                        type="date"
-                        value={parcelEndDate}
-                        onChange={(e) => setParcelEndDate(e.target.value)}
-                        className="px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                        aria-label="包裹結束日期"
-                      />
-                    </>
-                  }
-                />
-              </FixedTableToolbar>
-
-              <div className="flex-1 min-h-0 bg-gray-50 border border-gray-200 border-t-0 overflow-y-auto shadow-sm">                <table className="w-full whitespace-nowrap border-b border-gray-200">
-                    <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
-                      <tr>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
-                          <button type="button" onClick={() => setParcelSort(prev => getNextSort(prev, 'id'))}>
-                            包裹ID{sortMark(parcelSort.key === 'id', parcelSort.direction)}
-                          </button>
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">會員ID</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">追蹤號</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">來源</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">目的地</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">重量</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
-                          <button type="button" onClick={() => setParcelSort(prev => getNextSort(prev, 'status'))}>
-                            狀態{sortMark(parcelSort.key === 'status', parcelSort.direction)}
-                          </button>
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">預計送達</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
-                          <button type="button" onClick={() => setParcelSort(prev => getNextSort(prev, 'created_at'))}>
-                            建立時間{sortMark(parcelSort.key === 'created_at', parcelSort.direction)}
-                          </button>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {parcelsLoading ? (
-                        <tr>
-                          <td colSpan={9} className="px-3 py-2.5 text-center text-gray-500">
-                            載入中...
-                          </td>
-                        </tr>
-                      ) : parcels.length === 0 ? (
-                        <tr>
-                          <td colSpan={9} className="px-3 py-2.5 text-center text-gray-500">
-                            沒有包裹紀錄
-                          </td>
-                        </tr>
-                      ) : (
-                        sortedParcels.map(parcel => (
-                          <tr key={parcel.id} className="hover:bg-gray-100 transition-colors">
-                            <td className="px-3 py-2.5 text-gray-700 font-medium text-sm">{parcel.id}</td>
-                            <td className="px-3 py-2.5 text-gray-700 text-sm">{parcel.user_id}</td>
-                            <td className="px-3 py-2.5 text-gray-700 text-xs">{parcel.tracking_number}</td>
-                            <td className="px-3 py-2.5 text-gray-700 text-sm">{parcel.origin}</td>
-                            <td className="px-3 py-2.5 text-gray-700 text-sm">{parcel.destination}</td>
-                            <td className="px-3 py-2.5 text-gray-700 text-sm">{parcel.weight ? `${parcel.weight}kg` : '-'}</td>
-                            <td className="px-3 py-2.5">
-                              <select
-                                value={parcel.status}
-                                onChange={(e) => updateParcelStatus(parcel.id, e.target.value)}
-                                className={`px-2.5 py-1 rounded text-xs font-medium border-0 focus:ring-2 focus:ring-blue-400 outline-none cursor-pointer ${
-                                  statusColors[parcel.status] || 'bg-gray-100 text-gray-800'
-                                }`}
-                              >
-                                <option value="pending">待入庫</option>
-                                <option value="arrived">已入庫</option>
-                                <option value="shipping">運輸中</option>
-                                <option value="completed">已簽收</option>
-                                <option value="cancelled">已取消</option>
-                              </select>
-                            </td>
-                            <td className="px-3 py-2.5 text-gray-500 text-xs">
-                              {parcel.estimated_delivery ? new Date(parcel.estimated_delivery).toLocaleDateString('zh-TW') : '-'}
-                            </td>
-                            <td className="px-3 py-2.5 text-gray-500 text-xs">
-                              {new Date(parcel.created_at).toLocaleDateString('zh-TW')}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>              </div>
-
-              {parcels.length > 0 && (
-                <div className="shrink-0 pt-1.5 flex items-start">
-                  <div className="w-full">
-                    <Pagination
-                      currentPage={parcelPage}
-                      totalPages={parcelTotalPages}
-                      totalItems={parcelTotalItems}
-                      pageSize={parcelPageSize}
-                      pageSizeOptions={[10, 20, 30, 50]}
-                      onPageChange={fetchParcels}
-                      onPageSizeChange={handleParcelPageSizeChange}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
+            <ParcelsTab
+              parcels={parcels}
+              loading={parcelsLoading}
+              searchQuery={parcelSearchQuery}
+              onSearchQueryChange={setParcelSearchQuery}
+              onSearch={searchParcels}
+              onReset={resetParcelSearch}
+              currentPage={parcelPage}
+              pageSize={parcelPageSize}
+              totalItems={parcelTotalItems}
+              onPageChange={fetchParcels}
+              onPageSizeChange={handleParcelPageSizeChange}
+              sortKey={parcelSort.key}
+              sortDirection={parcelSort.direction}
+              onSortChange={(key, direction) => {
+                setParcelSort({ key, direction });
+                fetchParcels(parcelPage, parcelPageSize, parcelStartDate, parcelEndDate, key, direction);
+              }}
+              onUpdateStatus={updateParcelStatus}
+              onDelete={deleteParcel}
+              refreshKey={refreshKey}
+              onColumnFilterChange={(cf, df) => {
+                setParcelColumnFilters(cf);
+                setParcelDateFilters(df);
+                fetchParcels(1, parcelPageSize, parcelStartDate, parcelEndDate, parcelSort.key, parcelSort.direction, cf, df);
+              }}
+            />
           )}
 
           {/* 管理員頁面 */}
           {activeTab === 'admins' && (
-            <div className="flex flex-col h-[calc(100vh-68px)]">
-              <FixedTableToolbar>
-                <TableSearchBar
-                  value={adminSearchQuery}
-                  onChange={setAdminSearchQuery}
-                  onSearch={searchAdmins}
-                  onReset={resetAdminSearch}
-                  placeholder="搜尋管理員：ID、帳號、電子郵件、角色或狀態..."
-                />
-              </FixedTableToolbar>
-
-              <div className="flex-1 min-h-0 bg-gray-50 border border-gray-200 border-t-0 overflow-y-auto shadow-sm">                <table className="w-full whitespace-nowrap border-b border-gray-200">
-                    <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
-                      <tr>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
-                          <button type="button" onClick={() => setAdminSort(prev => getNextSort(prev, 'id'))}>
-                            ID{sortMark(adminSort.key === 'id', adminSort.direction)}
-                          </button>
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">帳號</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">電子郵件</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">角色</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
-                          <button type="button" onClick={() => setAdminSort(prev => getNextSort(prev, 'status'))}>
-                            狀態{sortMark(adminSort.key === 'status', adminSort.direction)}
-                          </button>
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">上次登入</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">
-                          <button type="button" onClick={() => setAdminSort(prev => getNextSort(prev, 'created_at'))}>
-                            建立時間{sortMark(adminSort.key === 'created_at', adminSort.direction)}
-                          </button>
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">操作</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {adminsLoading ? (
-                        <tr>
-                          <td colSpan={8} className="px-3 py-2.5 text-center text-gray-500">
-                            載入中...
-                          </td>
-                        </tr>
-                      ) : admins.length === 0 ? (
-                        <tr>
-                          <td colSpan={8} className="px-3 py-2.5 text-center text-gray-500">
-                            沒有管理員紀錄
-                          </td>
-                        </tr>
-                      ) : (
-                        sortedAdmins.map(admin => {
-                          const isSelf = adminUser?.id === admin.id;
-                          return (
-                            <tr key={admin.id} className="hover:bg-gray-100 transition-colors">
-                              <td className="px-3 py-2.5 text-gray-700 font-medium text-sm">{admin.id}</td>
-                              <td className="px-3 py-2.5 text-gray-700 text-sm">{admin.username}</td>
-                              <td className="px-3 py-2.5 text-gray-700 text-xs">{admin.email}</td>
-                              <td className="px-3 py-2.5 text-gray-700 text-sm">{admin.role}</td>
-                              <td className="px-3 py-2.5">
-                                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[admin.status] || 'bg-gray-100 text-gray-800'}`}>
-                                  {admin.status}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2.5 text-gray-500 text-xs">
-                                {admin.last_login ? new Date(admin.last_login).toLocaleString('zh-TW') : '-'}
-                              </td>
-                              <td className="px-3 py-2.5 text-gray-500 text-xs">
-                                {new Date(admin.created_at).toLocaleDateString('zh-TW')}
-                              </td>
-                              <td className="px-3 py-2.5 space-x-2">
-                                <button
-                                  onClick={() => updateAdminAccountStatus(admin.id, admin.status === 'active' ? 'disabled' : 'active')}
-                                  className="px-2.5 py-1 bg-yellow-50 text-yellow-700 hover:bg-yellow-100 rounded text-xs font-medium transition-colors"
-                                >
-                                  {admin.status === 'active' ? '停用' : '啟用'}
-                                </button>
-                                <button
-                                  onClick={() => deleteAdminUser(admin.id)}
-                                  disabled={isSelf}
-                                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${isSelf ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
-                                >
-                                  刪除
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>              </div>
-
-              {admins.length > 0 && (
-                <div className="shrink-0 pt-1.5 flex items-start">
-                  <div className="w-full">
-                    <Pagination
-                      currentPage={adminPage}
-                      totalPages={adminTotalPages}
-                      totalItems={adminTotalItems}
-                      pageSize={adminPageSize}
-                      pageSizeOptions={[10, 20, 30, 50]}
-                      onPageChange={fetchAdmins}
-                      onPageSizeChange={handleAdminPageSizeChange}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
+            <AdminsTab
+              admins={admins}
+              loading={adminsLoading}
+              searchQuery={adminSearchQuery}
+              onSearchQueryChange={setAdminSearchQuery}
+              onSearch={searchAdmins}
+              onReset={resetAdminSearch}
+              currentPage={adminPage}
+              pageSize={adminPageSize}
+              totalItems={adminTotalItems}
+              onPageChange={fetchAdmins}
+              onPageSizeChange={handleAdminPageSizeChange}
+              sortKey={adminSort.key}
+              sortDirection={adminSort.direction}
+              onSortChange={(key, direction) => {
+                setAdminSort({ key, direction });
+                fetchAdmins(adminPage, adminPageSize, key, direction);
+              }}
+              onToggleStatus={updateAdminAccountStatus}
+              onDelete={deleteAdminUser}
+              currentAdminId={adminUser?.id}
+              refreshKey={refreshKey}
+              onColumnFilterChange={(cf, df) => {
+                setAdminColumnFilters(cf);
+                setAdminDateFilters(df);
+                fetchAdmins(1, adminPageSize, adminSort.key, adminSort.direction, cf, df);
+              }}
+            />
           )}
     </AdminLayout>
   );

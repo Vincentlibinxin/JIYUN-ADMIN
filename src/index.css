@@ -14,3 +14,78 @@
 main form details {
   display: none !important;
 }
+
+.ant-table-row.row-selected > td {
+  background: #e6f4ff !important;
+}
+
+/*
+ * Fix: Ant Design fixed columns use position:sticky. The browser may paint
+ * the sticky cell's content at its natural DOM position as a compositing
+ * artifact, causing action icons to "ghost" over other columns.
+ *
+ * Multi-layer fix:
+ * 1. overflow:hidden on every body cell — clips content to cell bounds
+ * 2. Opaque backgrounds on fixed cells — prevents see-through
+ * 3. z-index hierarchy — left-fixed above right-fixed above normal cells
+ * 4. backface-visibility:hidden — forces separate GPU compositing layers
+ */
+
+/* 1. Clip every table body cell so no content can render outside its bounds */
+.ant-table-tbody > tr > td {
+  overflow: hidden;
+}
+
+/* 2+3. Fixed cell stacking and opaque backgrounds */
+.ant-table-cell-fix-left {
+  z-index: 4 !important;
+  background-color: #fff;
+}
+
+.ant-table-cell-fix-right {
+  z-index: 2 !important;
+  background-color: #fff;
+}
+
+/* 4. Force GPU compositing layers on fixed cells to prevent render artifacts */
+.ant-table-cell-fix-left,
+.ant-table-cell-fix-right {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Normal body cells sit below fixed cells */
+.ant-table-tbody > tr > td:not(.ant-table-cell-fix-left):not(.ant-table-cell-fix-right) {
+  z-index: 1;
+  position: relative;
+}
+
+/* Opaque backgrounds for every state on fixed cells */
+.ant-table-tbody > tr > td.ant-table-cell-fix-left,
+.ant-table-tbody > tr > td.ant-table-cell-fix-right {
+  background-color: #fff;
+}
+
+.ant-table-tbody > tr.row-selected > td.ant-table-cell-fix-left,
+.ant-table-tbody > tr.row-selected > td.ant-table-cell-fix-right {
+  background-color: #e6f4ff;
+}
+
+.ant-table-tbody > tr:hover > td.ant-table-cell-fix-left,
+.ant-table-tbody > tr:hover > td.ant-table-cell-fix-right {
+  background-color: #fafafa;
+}
+
+.ant-table-tbody > tr.row-selected:hover > td.ant-table-cell-fix-left,
+.ant-table-tbody > tr.row-selected:hover > td.ant-table-cell-fix-right {
+  background-color: #e6f4ff;
+}
+
+/* Header fixed cells also need opaque backgrounds */
+.ant-table-thead > tr > th.ant-table-cell-fix-left,
+.ant-table-thead > tr > th.ant-table-cell-fix-right {
+  background-color: #fafafa;
+  z-index: 5 !important;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
