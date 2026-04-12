@@ -2,8 +2,15 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { Request, Response, Router } from 'express';
 import jwt from 'jsonwebtoken';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import {
   createAdmin,
+  createParcelInbound,
   deleteAdmin,
   deleteOrder,
   deleteParcel,
@@ -31,6 +38,43 @@ import {
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || '';
+
+// Auto-wrap async route handlers to prevent unhandled rejections from crashing the server
+const origRoute = router.route.bind(router);
+router.route = function patchedRoute(path: string) {
+  const route = origRoute(path);
+  for (const method of ['get', 'post', 'put', 'patch', 'delete'] as const) {
+    const orig = route[method].bind(route);
+    (route as any)[method] = function (...handlers: any[]) {
+      const wrapped = handlers.map((h: any) =>
+        typeof h === 'function' && h.constructor.name === 'AsyncFunction'
+          ? (req: Request, res: Response, next: any) =>
+              h(req, res, next).catch((err: any) => {
+                console.error('[API] route error:', err);
+                if (!res.headersSent) res.status(500).json({ error: '服务器内部错误' });
+              })
+          : h
+      );
+      return orig(...wrapped);
+    };
+  }
+  return route;
+};
+for (const method of ['get', 'post', 'put', 'patch', 'delete'] as const) {
+  const orig = (router as any)[method].bind(router);
+  (router as any)[method] = function (path: string, ...handlers: any[]) {
+    const wrapped = handlers.map((h: any) =>
+      typeof h === 'function' && h.constructor.name === 'AsyncFunction'
+        ? (req: Request, res: Response, next: any) =>
+            h(req, res, next).catch((err: any) => {
+              console.error('[API] route error:', err);
+              if (!res.headersSent) res.status(500).json({ error: '服务器内部错误' });
+            })
+        : h
+    );
+    return orig(path, ...wrapped);
+  };
+}
 
 const parseJsonQuery = <T>(raw: unknown): T | undefined => {
   if (!raw || typeof raw !== 'string') return undefined;
@@ -619,6 +663,64 @@ router.patch('/parcels/:id', adminAuth, csrfGuard, async (req: AdminRequest, res
     return;
   }
   res.json({ message: '包裹状态已更新', parcelId, status });
+});
+
+const uploadsDir = path.resolve(__dirname, '../../uploads/parcels');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const parcelUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadsDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+      cb(null, name);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (/^image\/(jpeg|png|gif|webp|bmp)$/i.test(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('仅支持 jpg/png/gif/webp/bmp 图片格式'));
+    }
+  },
+});
+
+router.post('/parcels/inbound', adminAuth, csrfGuard, parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
+  const { tracking_number, weight, length_cm, width_cm, height_cm } = req.body;
+  if (!tracking_number || typeof tracking_number !== 'string' || !tracking_number.trim()) {
+    res.status(400).json({ error: '包裹单号不能为空' });
+    return;
+  }
+  const w = Number(weight);
+  const l = Number(length_cm);
+  const wi = Number(width_cm);
+  const h = Number(height_cm);
+  if (isNaN(w) || w <= 0 || isNaN(l) || l <= 0 || isNaN(wi) || wi <= 0 || isNaN(h) || h <= 0) {
+    res.status(400).json({ error: '重量和尺寸必须为正数' });
+    return;
+  }
+  const volume = parseFloat((l * wi * h).toFixed(2));
+  const files = (req.files || []) as Express.Multer.File[];
+  const imageUrls = files.map(f => `/api/uploads/parcels/${f.filename}`).join(',');
+  try {
+    const insertId = await createParcelInbound({
+      tracking_number: tracking_number.trim(),
+      weight: w,
+      length_cm: l,
+      width_cm: wi,
+      height_cm: h,
+      volume,
+      images: imageUrls || undefined,
+    });
+    res.json({ message: '入库成功', parcelId: insertId });
+  } catch (err: any) {
+    console.error('[入库失败]', err);
+    res.status(500).json({ error: '入库失败，请稍后重试' });
+  }
 });
 
 router.delete('/parcels/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {

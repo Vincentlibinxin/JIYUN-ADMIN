@@ -679,6 +679,24 @@ export const updateParcelStatus = async (parcelId: number, status: string): Prom
   return result.affectedRows > 0;
 };
 
+export const createParcelInbound = async (payload: {
+  tracking_number: string;
+  weight: number;
+  length_cm: number;
+  width_cm: number;
+  height_cm: number;
+  volume: number;
+  images?: string;
+}): Promise<number> => {
+  const { tracking_number, weight, length_cm, width_cm, height_cm, volume, images } = payload;
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `INSERT INTO parcels (tracking_number, weight, length_cm, width_cm, height_cm, volume, images, origin, destination, status, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, '', '', 'arrived', NULL)`,
+    [tracking_number, weight, length_cm, width_cm, height_cm, volume, images || null]
+  );
+  return result.insertId;
+};
+
 const ADMINS_SORT_COLUMNS = new Set(['id', 'username', 'email', 'role', 'status', 'last_login', 'created_at']);
 
 export const getAdminsPaged = async (

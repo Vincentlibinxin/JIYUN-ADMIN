@@ -1,6 +1,7 @@
 ﻿import AdminLayout from '../app/layouts/AdminLayout';
 import { useState, useEffect } from 'react';
 import { Home, Users, User, ShoppingCart, MessageCircle, Package, ClipboardList, Shield } from 'lucide-react';
+import { Alert } from 'antd';
 import { adminFetch } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import OverviewTab from './dashboard/OverviewTab';
@@ -650,6 +651,28 @@ export default function AdminDashboard() {
     } catch { setError('删除失败'); }
   };
 
+  const inboundParcel = async (formData: FormData): Promise<boolean> => {
+    try {
+      const response = await adminFetch('/admin/parcels/inbound', {
+        method: 'POST',
+        headers: {},
+        body: formData,
+      });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchParcels(1, parcelPageSize);
+        return true;
+      } else {
+        const data = await response.json();
+        setError(data.error || '入库失败');
+        return false;
+      }
+    } catch {
+      setError('入库失败');
+      return false;
+    }
+  };
+
   const updateOrderStatus = async (orderId: number, newStatus: string) => {
     try {
       const response = await adminFetch(`/admin/orders/${orderId}`, {
@@ -790,9 +813,13 @@ export default function AdminDashboard() {
   return (
     <AdminLayout activeMenu={activeMenu} onMenuClick={(key) => { setActiveMenu(key); setActiveTab(key); }} onRefresh={handleRefresh}>
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded mb-4">
-              {error}
-            </div>
+            <Alert
+              message={error}
+              type="error"
+              closable
+              onClose={() => setError('')}
+              style={{ marginBottom: 12 }}
+            />
           )}
 
           {/* 概覽頁面 */}
@@ -922,6 +949,7 @@ export default function AdminDashboard() {
               }}
               onUpdateStatus={updateParcelStatus}
               onDelete={deleteParcel}
+              onInbound={inboundParcel}
               refreshKey={refreshKey}
               onColumnFilterChange={(cf, df) => {
                 setParcelColumnFilters(cf);

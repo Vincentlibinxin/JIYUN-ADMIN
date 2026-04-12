@@ -1,7 +1,8 @@
 ﻿import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Button, Card, Checkbox, DatePicker, Image, Input, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tooltip } from 'antd';
-import { ReloadOutlined, EyeOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Button, Card, Checkbox, DatePicker, Form, Image, Input, InputNumber, Modal, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tooltip, Upload } from 'antd';
+import { ReloadOutlined, EyeOutlined, EditOutlined, DeleteOutlined, InboxOutlined, PlusOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import type { UploadFile } from 'antd/es/upload/interface';
 
 interface Parcel {
   id: number;
@@ -41,6 +42,7 @@ interface ParcelsTabProps {
   onSortChange: (key: ParcelSortKey, direction: SortDirection) => void;
   onUpdateStatus: (parcelId: number, status: string) => void;
   onDelete: (id: number) => void;
+  onInbound: (formData: FormData) => Promise<boolean>;
   refreshKey?: number;
   onColumnFilterChange?: (columnFilters: Record<string, string>, dateFilters: Record<string, [string, string]>) => void;
 }
@@ -62,6 +64,7 @@ export default function ParcelsTab({
   onSortChange,
   onUpdateStatus,
   onDelete,
+  onInbound,
   refreshKey,
   onColumnFilterChange,
 }: ParcelsTabProps) {
@@ -97,6 +100,37 @@ export default function ParcelsTab({
   const [localColumnFilters, setLocalColumnFilters] = useState<Record<string, string>>({});
   const [dateFilters, setDateFilters] = useState<Record<string, [string, string] | null>>({});
   const [resetKey, setResetKey] = useState(0);
+
+  const [inboundOpen, setInboundOpen] = useState(false);
+  const [inboundLoading, setInboundLoading] = useState(false);
+  const [inboundForm] = Form.useForm();
+  const [fileList, setFileList] = useState<UploadFile[]>([]);
+
+  const handleInboundSubmit = async () => {
+    try {
+      const values = await inboundForm.validateFields();
+      setInboundLoading(true);
+      const fd = new FormData();
+      fd.append('tracking_number', values.tracking_number);
+      fd.append('weight', String(values.weight));
+      fd.append('length_cm', String(values.length_cm));
+      fd.append('width_cm', String(values.width_cm));
+      fd.append('height_cm', String(values.height_cm));
+      fileList.forEach(f => {
+        if (f.originFileObj) fd.append('files', f.originFileObj);
+      });
+      const ok = await onInbound(fd);
+      if (ok) {
+        setInboundOpen(false);
+        inboundForm.resetFields();
+        setFileList([]);
+      }
+    } catch {
+      // validation failed
+    } finally {
+      setInboundLoading(false);
+    }
+  };
 
   const cleanFiltersAndNotify = (newColFilters: Record<string, string>, newDateFilters: Record<string, [string, string] | null>) => {
     const cleanCf: Record<string, string> = {};
@@ -303,22 +337,18 @@ export default function ParcelsTab({
           width: 120,
           render: (_, record) => {
             if (!record.images) return '-';
-            try {
-              const urls: string[] = JSON.parse(record.images);
-              if (!Array.isArray(urls) || urls.length === 0) return '-';
-              return (
-                <Image.PreviewGroup>
-                  <Space size={4}>
-                    {urls.slice(0, 3).map((url, i) => (
-                      <Image key={i} src={url} width={32} height={32} style={{ objectFit: 'cover', borderRadius: 4 }} />
-                    ))}
-                    {urls.length > 3 && <span style={{ fontSize: 12, color: '#999' }}>+{urls.length - 3}</span>}
-                  </Space>
-                </Image.PreviewGroup>
-              );
-            } catch {
-              return '-';
-            }
+            const urls = record.images.split(',').map(s => s.trim()).filter(Boolean);
+            if (urls.length === 0) return '-';
+            return (
+              <Image.PreviewGroup items={urls.map(url => ({ src: url }))}>
+                <Space size={4}>
+                  {urls.slice(0, 3).map((url, i) => (
+                    <Image key={i} src={url} width={32} height={32} style={{ objectFit: 'cover', borderRadius: 4, cursor: 'pointer' }} preview={{ mask: false }} />
+                  ))}
+                  {urls.length > 3 && <span style={{ fontSize: 12, color: '#999' }}>+{urls.length - 3}</span>}
+                </Space>
+              </Image.PreviewGroup>
+            );
           },
         },
       ],
@@ -482,7 +512,7 @@ export default function ParcelsTab({
 
   return (
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Space wrap>
           <Input
             allowClear
@@ -500,7 +530,57 @@ export default function ParcelsTab({
             搜索
           </Button>
         </Space>
+        <Button type="primary" icon={<InboxOutlined />} onClick={() => setInboundOpen(true)}>
+          入库
+        </Button>
       </div>
+
+      <Modal
+        title="包裹入库"
+        open={inboundOpen}
+        onCancel={() => { setInboundOpen(false); inboundForm.resetFields(); setFileList([]); }}
+        onOk={handleInboundSubmit}
+        confirmLoading={inboundLoading}
+        okText="确认入库"
+        cancelText="取消"
+      >
+        <Form form={inboundForm} layout="vertical" autoComplete="off">
+          <Form.Item name="tracking_number" label="包裹单号" rules={[{ required: true, message: '请输入包裹单号' }]}>
+            <Input placeholder="请输入包裹单号" />
+          </Form.Item>
+          <Form.Item name="weight" label="重量 (kg)" rules={[{ required: true, message: '请输入重量' }]}>
+            <InputNumber min={0.01} step={0.01} precision={2} style={{ width: '100%' }} placeholder="请输入重量" />
+          </Form.Item>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Form.Item name="length_cm" label="长 (cm)" rules={[{ required: true, message: '请输入长' }]} style={{ flex: 1 }}>
+              <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="长" />
+            </Form.Item>
+            <Form.Item name="width_cm" label="宽 (cm)" rules={[{ required: true, message: '请输入宽' }]} style={{ flex: 1 }}>
+              <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="宽" />
+            </Form.Item>
+            <Form.Item name="height_cm" label="高 (cm)" rules={[{ required: true, message: '请输入高' }]} style={{ flex: 1 }}>
+              <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="高" />
+            </Form.Item>
+          </div>
+          <Form.Item label="图片 (可选)">
+            <Upload
+              listType="picture-card"
+              fileList={fileList}
+              onChange={({ fileList: fl }) => setFileList(fl)}
+              beforeUpload={() => false}
+              accept="image/*"
+              multiple
+            >
+              {fileList.length >= 10 ? null : (
+                <div>
+                  <PlusOutlined />
+                  <div style={{ marginTop: 8 }}>上传</div>
+                </div>
+              )}
+            </Upload>
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <div ref={tableHostRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <Table<Parcel>

@@ -1,6 +1,4 @@
-@import "tailwindcss";
-
-@theme {
+:root {
   --font-display: "Space Grotesk", "Noto Sans TC", sans-serif;
   --font-body: "Noto Sans TC", sans-serif;
 

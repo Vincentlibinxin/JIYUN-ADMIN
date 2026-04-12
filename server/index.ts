@@ -1,8 +1,12 @@
 import dotenv from 'dotenv';
 import cors from 'cors';
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import adminRoutes from './routes/admin';
 import { initDb } from './db';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 dotenv.config({ path: '.env.api' });
 dotenv.config();
@@ -31,14 +35,32 @@ app.use(
 
 app.use(express.json());
 
+app.use('/api/uploads', express.static(path.resolve(__dirname, '../uploads')));
+
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', service: 'jiyun-admin-api', timestamp: new Date().toISOString() });
 });
 
 app.use('/api/admin', adminRoutes);
 
+// Global error handler — catch unhandled errors in routes so the server doesn't crash
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[API] unhandled error:', err);
+  if (!res.headersSent) {
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'API route not found' });
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[API] uncaughtException:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[API] unhandledRejection:', reason);
 });
 
 const start = async (): Promise<void> => {
