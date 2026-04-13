@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Form, Input, Typography, ConfigProvider, theme } from 'antd';
-import { UserOutlined, LockOutlined, LoginOutlined } from '@ant-design/icons';
+import { UserOutlined, LockOutlined, LoginOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
 import { ApiRequestError } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
@@ -158,6 +158,10 @@ export default function AdminLoginPage() {
                 prefix={<LockOutlined style={{ color: '#94a3b8', marginRight: 8, fontSize: 18 }} />}
                 placeholder={t('login.password')}
                 className={styles.input}
+                iconRender={(visible) => visible
+                  ? <EyeOutlined style={{ color: '#64748b', fontSize: 16 }} />
+                  : <EyeInvisibleOutlined style={{ color: '#64748b', fontSize: 16 }} />
+                }
               />
             </Form.Item>
 

@@ -50,54 +50,54 @@ main form details {
   overflow: hidden;
 }
 
-/* 2+3. Fixed cell stacking and opaque backgrounds */
-.ant-table-cell-fix-left {
+/* 2+3. Fixed cell stacking and opaque backgrounds (antd v6: fix-start/fix-end) */
+.ant-table-cell-fix-start {
   z-index: 4 !important;
   background-color: #fff;
 }
 
-.ant-table-cell-fix-right {
+.ant-table-cell-fix-end {
   z-index: 2 !important;
   background-color: #fff;
 }
 
 /* 4. Force GPU compositing layers on fixed cells to prevent render artifacts */
-.ant-table-cell-fix-left,
-.ant-table-cell-fix-right {
+.ant-table-cell-fix-start,
+.ant-table-cell-fix-end {
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
 }
 
 /* Normal body cells sit below fixed cells */
-.ant-table-tbody > tr > td:not(.ant-table-cell-fix-left):not(.ant-table-cell-fix-right) {
+.ant-table-tbody > tr > td:not(.ant-table-cell-fix-start):not(.ant-table-cell-fix-end) {
   z-index: 1;
   position: relative;
 }
 
 /* Opaque backgrounds for every state on fixed cells */
-.ant-table-tbody > tr > td.ant-table-cell-fix-left,
-.ant-table-tbody > tr > td.ant-table-cell-fix-right {
+.ant-table-tbody > tr > td.ant-table-cell-fix-start,
+.ant-table-tbody > tr > td.ant-table-cell-fix-end {
   background-color: #fff;
 }
 
-.ant-table-tbody > tr.row-selected > td.ant-table-cell-fix-left,
-.ant-table-tbody > tr.row-selected > td.ant-table-cell-fix-right {
+.ant-table-tbody > tr.row-selected > td.ant-table-cell-fix-start,
+.ant-table-tbody > tr.row-selected > td.ant-table-cell-fix-end {
   background-color: #e6f4ff;
 }
 
-.ant-table-tbody > tr:hover > td.ant-table-cell-fix-left,
-.ant-table-tbody > tr:hover > td.ant-table-cell-fix-right {
+.ant-table-tbody > tr:hover > td.ant-table-cell-fix-start,
+.ant-table-tbody > tr:hover > td.ant-table-cell-fix-end {
   background-color: #fafafa;
 }
 
-.ant-table-tbody > tr.row-selected:hover > td.ant-table-cell-fix-left,
-.ant-table-tbody > tr.row-selected:hover > td.ant-table-cell-fix-right {
+.ant-table-tbody > tr.row-selected:hover > td.ant-table-cell-fix-start,
+.ant-table-tbody > tr.row-selected:hover > td.ant-table-cell-fix-end {
   background-color: #e6f4ff;
 }
 
 /* Header fixed cells also need opaque backgrounds */
-.ant-table-thead > tr > th.ant-table-cell-fix-left,
-.ant-table-thead > tr > th.ant-table-cell-fix-right {
+.ant-table-thead > tr > th.ant-table-cell-fix-start,
+.ant-table-thead > tr > th.ant-table-cell-fix-end {
   background-color: #fafafa;
   z-index: 5 !important;
   backface-visibility: hidden;

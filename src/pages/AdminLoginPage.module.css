@@ -114,18 +114,12 @@
 
 .logoWrapper {
   position: relative;
-  width: 128px;
-  height: 128px;
+  width: 160px;
+  height: 160px;
   margin-bottom: 16px;
-  background: rgba(30, 41, 59, 0.4);
-  backdrop-filter: blur(12px);
-  border-radius: 24px;
-  border: 1px solid rgba(255,255,255,0.1);
-  box-shadow: 0 0 40px -10px rgba(0,0,0,0.5);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
 }
 
 .logo {
@@ -200,6 +194,11 @@
   color: #1e293b !important;
   font-size: 14px;
   letter-spacing: 0.05em;
+}
+
+/* Password toggle eye icon — override dark theme color to match white input bg */
+.input :global(.ant-input-suffix) .anticon {
+  color: #94a3b8 !important;
 }
 
 .loginBtn {

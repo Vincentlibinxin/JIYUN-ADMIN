@@ -21,6 +21,7 @@ import {
   getAdminByUsername,
   getAdminsPaged,
   getOrdersPaged,
+  getParcelItems,
   getParcelsPaged,
   searchAdmins,
   searchOrders,
@@ -33,6 +34,7 @@ import {
   updateAdminLastLogin,
   updateAdminStatus,
   updateOrderStatus,
+  updateParcel,
   updateParcelStatus,
 } from '../db';
 
@@ -227,6 +229,12 @@ const csrfGuard = (req: Request, res: Response, next: () => void): void => {
     return;
   }
 
+  // Bearer Token 认证天然免疫 CSRF，跳过校验（移动端适配）
+  if (req.headers.authorization?.startsWith('Bearer ')) {
+    next();
+    return;
+  }
+
   const csrfHeader = String(req.headers['x-csrf-token'] || '').trim();
   const cookies = parseCookies(req.headers.cookie);
   const csrfCookie = String(cookies[CSRF_COOKIE_NAME] || '').trim();
@@ -381,6 +389,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     res.json({
       message: '登录成功',
+      token,
       csrfToken,
       admin: {
         id: admin.id,
@@ -690,7 +699,7 @@ const parcelUpload = multer({
 });
 
 router.post('/parcels/inbound', adminAuth, csrfGuard, parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
-  const { tracking_number, weight, length_cm, width_cm, height_cm } = req.body;
+  const { tracking_number, weight, length_cm, width_cm, height_cm, shelf_location, items: itemsJson } = req.body;
   if (!tracking_number || typeof tracking_number !== 'string' || !tracking_number.trim()) {
     res.status(400).json({ error: '包裹单号不能为空' });
     return;
@@ -701,6 +710,19 @@ router.post('/parcels/inbound', adminAuth, csrfGuard, parcelUpload.array('files'
   const h = Number(height_cm);
   if (isNaN(w) || w <= 0 || isNaN(l) || l <= 0 || isNaN(wi) || wi <= 0 || isNaN(h) || h <= 0) {
     res.status(400).json({ error: '重量和尺寸必须为正数' });
+    return;
+  }
+  let items: { name: string; value: number; quantity: number }[];
+  try {
+    items = JSON.parse(itemsJson);
+    if (!Array.isArray(items) || items.length === 0) throw new Error();
+    for (const item of items) {
+      if (!item.name || typeof item.name !== 'string' || !item.name.trim()) throw new Error('物品名称不能为空');
+      if (typeof item.value !== 'number' || item.value < 0) throw new Error('物品价值无效');
+      if (!Number.isInteger(item.quantity) || item.quantity < 1) throw new Error('物品数量无效');
+    }
+  } catch {
+    res.status(400).json({ error: '至少需要一个物品，且物品信息必须完整' });
     return;
   }
   const volume = parseFloat((l * wi * h).toFixed(2));
@@ -715,11 +737,71 @@ router.post('/parcels/inbound', adminAuth, csrfGuard, parcelUpload.array('files'
       height_cm: h,
       volume,
       images: imageUrls || undefined,
+      shelf_location: typeof shelf_location === 'string' ? shelf_location.trim() || undefined : undefined,
+      items: items.map(it => ({ name: it.name.trim(), value: it.value, quantity: it.quantity })),
     });
     res.json({ message: '入库成功', parcelId: insertId });
   } catch (err: any) {
     console.error('[入库失败]', err);
     res.status(500).json({ error: '入库失败，请稍后重试' });
+  }
+});
+
+router.get('/parcels/:id/items', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+  const items = await getParcelItems(Number(req.params.id));
+  res.json({ data: items });
+});
+
+router.put('/parcels/:id', adminAuth, csrfGuard, parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
+  const parcelId = Number(req.params.id);
+  const { weight, length_cm, width_cm, height_cm, origin, destination, status, items: itemsJson, existing_images } = req.body;
+  const w = Number(weight);
+  const l = Number(length_cm);
+  const wi = Number(width_cm);
+  const h = Number(height_cm);
+  if (isNaN(w) || w <= 0 || isNaN(l) || l <= 0 || isNaN(wi) || wi <= 0 || isNaN(h) || h <= 0) {
+    res.status(400).json({ error: '重量和尺寸必须为正数' });
+    return;
+  }
+  let items: { name: string; value: number; quantity: number }[];
+  try {
+    items = JSON.parse(itemsJson);
+    if (!Array.isArray(items) || items.length === 0) throw new Error();
+    for (const item of items) {
+      if (!item.name || typeof item.name !== 'string' || !item.name.trim()) throw new Error();
+      if (typeof item.value !== 'number' || item.value < 0) throw new Error();
+      if (!Number.isInteger(item.quantity) || item.quantity < 1) throw new Error();
+    }
+  } catch {
+    res.status(400).json({ error: '至少需要一个物品，且物品信息必须完整' });
+    return;
+  }
+  const volume = parseFloat((l * wi * h).toFixed(2));
+  const files = (req.files || []) as Express.Multer.File[];
+  const newImageUrls = files.map(f => `/api/uploads/parcels/${f.filename}`);
+  const existingUrls = typeof existing_images === 'string' && existing_images.trim() ? existing_images.split(',').filter(Boolean) : [];
+  const allImages = [...existingUrls, ...newImageUrls].join(',');
+  try {
+    const ok = await updateParcel(parcelId, {
+      weight: w,
+      length_cm: l,
+      width_cm: wi,
+      height_cm: h,
+      volume,
+      origin: typeof origin === 'string' ? origin.trim() : undefined,
+      destination: typeof destination === 'string' ? destination.trim() : undefined,
+      status: typeof status === 'string' ? status.trim() : undefined,
+      images: allImages || undefined,
+      items: items.map(it => ({ name: it.name.trim(), value: it.value, quantity: it.quantity })),
+    });
+    if (!ok) {
+      res.status(404).json({ error: '包裹不存在' });
+      return;
+    }
+    res.json({ message: '修改成功' });
+  } catch (err: any) {
+    console.error('[修改包裹失败]', err);
+    res.status(500).json({ error: '修改失败，请稍后重试' });
   }
 });
 

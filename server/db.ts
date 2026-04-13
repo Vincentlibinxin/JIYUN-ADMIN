@@ -255,6 +255,9 @@ export const initDb = async (): Promise<void> => {
     if (!existingCols.has('images')) {
       await connection.execute(`ALTER TABLE parcels ADD COLUMN images TEXT AFTER volume`);
     }
+    if (!existingCols.has('shelf_location')) {
+      await connection.execute(`ALTER TABLE parcels ADD COLUMN shelf_location VARCHAR(64) AFTER images`);
+    }
 
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS orders (
@@ -616,7 +619,9 @@ export const getParcelsPaged = async (
     `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
             p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images,
             p.status, p.estimated_delivery, p.created_at,
-            u.username AS username
+            u.username AS username,
+            (SELECT pi.name FROM parcel_items pi WHERE pi.parcel_id = p.id ORDER BY pi.id LIMIT 1) AS first_item_name,
+            (SELECT COUNT(*) FROM parcel_items pi WHERE pi.parcel_id = p.id) AS item_count
      FROM parcels p
      LEFT JOIN users u ON p.user_id = u.id
      ${whereSql}
@@ -661,7 +666,9 @@ export const searchParcels = async (keyword: string, startDate?: string, endDate
     `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
             p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images,
             p.status, p.estimated_delivery, p.created_at,
-            u.username AS username
+            u.username AS username,
+            (SELECT pi.name FROM parcel_items pi WHERE pi.parcel_id = p.id ORDER BY pi.id LIMIT 1) AS first_item_name,
+            (SELECT COUNT(*) FROM parcel_items pi WHERE pi.parcel_id = p.id) AS item_count
      FROM parcels p
      LEFT JOIN users u ON p.user_id = u.id
      ${whereSql}
@@ -687,14 +694,89 @@ export const createParcelInbound = async (payload: {
   height_cm: number;
   volume: number;
   images?: string;
+  shelf_location?: string;
+  items: { name: string; value: number; quantity: number }[];
 }): Promise<number> => {
-  const { tracking_number, weight, length_cm, width_cm, height_cm, volume, images } = payload;
-  const [result] = await pool.execute<mysql.ResultSetHeader>(
-    `INSERT INTO parcels (tracking_number, weight, length_cm, width_cm, height_cm, volume, images, origin, destination, status, user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, '', '', 'arrived', NULL)`,
-    [tracking_number, weight, length_cm, width_cm, height_cm, volume, images || null]
+  const { tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, items } = payload;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [result] = await conn.execute<mysql.ResultSetHeader>(
+      `INSERT INTO parcels (tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, origin, destination, status, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '', 'arrived', NULL)`,
+      [tracking_number, weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null]
+    );
+    const parcelId = result.insertId;
+    for (const item of items) {
+      await conn.execute(
+        `INSERT INTO parcel_items (parcel_id, name, value, quantity) VALUES (?, ?, ?, ?)`,
+        [parcelId, item.name, item.value, item.quantity]
+      );
+    }
+    await conn.commit();
+    return parcelId;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+export const getParcelItems = async (parcelId: number): Promise<{ id: number; name: string; value: number; quantity: number }[]> => {
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    'SELECT id, name, value, quantity FROM parcel_items WHERE parcel_id = ? ORDER BY id',
+    [parcelId]
   );
-  return result.insertId;
+  return rows as any[];
+};
+
+export const updateParcel = async (parcelId: number, payload: {
+  weight: number;
+  length_cm: number;
+  width_cm: number;
+  height_cm: number;
+  volume: number;
+  origin?: string;
+  destination?: string;
+  status?: string;
+  images?: string;
+  items: { name: string; value: number; quantity: number }[];
+}): Promise<boolean> => {
+  const { weight, length_cm, width_cm, height_cm, volume, origin, destination, status, images, items } = payload;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const sets: string[] = ['weight = ?', 'length_cm = ?', 'width_cm = ?', 'height_cm = ?', 'volume = ?', 'updated_at = NOW()'];
+    const params: any[] = [weight, length_cm, width_cm, height_cm, volume];
+    if (origin !== undefined) { sets.push('origin = ?'); params.push(origin); }
+    if (destination !== undefined) { sets.push('destination = ?'); params.push(destination); }
+    if (status !== undefined) { sets.push('status = ?'); params.push(status); }
+    if (images !== undefined) { sets.push('images = ?'); params.push(images || null); }
+    params.push(parcelId);
+    const [result] = await conn.execute<mysql.ResultSetHeader>(
+      `UPDATE parcels SET ${sets.join(', ')} WHERE id = ?`,
+      params
+    );
+    if (result.affectedRows === 0) {
+      await conn.rollback();
+      return false;
+    }
+    await conn.execute('DELETE FROM parcel_items WHERE parcel_id = ?', [parcelId]);
+    for (const item of items) {
+      await conn.execute(
+        'INSERT INTO parcel_items (parcel_id, name, value, quantity) VALUES (?, ?, ?, ?)',
+        [parcelId, item.name, item.value, item.quantity]
+      );
+    }
+    await conn.commit();
+    return true;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 };
 
 const ADMINS_SORT_COLUMNS = new Set(['id', 'username', 'email', 'role', 'status', 'last_login', 'created_at']);
