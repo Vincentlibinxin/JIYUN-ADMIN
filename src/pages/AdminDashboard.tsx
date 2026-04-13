@@ -673,6 +673,40 @@ export default function AdminDashboard() {
     }
   };
 
+  const editParcel = async (id: number, formData: FormData): Promise<boolean> => {
+    try {
+      const response = await adminFetch(`/admin/parcels/${id}`, {
+        method: 'PUT',
+        headers: {},
+        body: formData,
+      });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchParcels(parcelPage, parcelPageSize);
+        return true;
+      } else {
+        const data = await response.json();
+        setError(data.error || '修改失败');
+        return false;
+      }
+    } catch {
+      setError('修改失败');
+      return false;
+    }
+  };
+
+  const fetchParcelItems = async (id: number): Promise<{ name: string; value: number; quantity: number }[]> => {
+    try {
+      const response = await adminFetch(`/admin/parcels/${id}/items`);
+      if (!ensureAuthorized(response)) return [];
+      if (response.ok) {
+        const data = await response.json();
+        return data.data || [];
+      }
+    } catch { /* ignore */ }
+    return [];
+  };
+
   const updateOrderStatus = async (orderId: number, newStatus: string) => {
     try {
       const response = await adminFetch(`/admin/orders/${orderId}`, {
@@ -947,6 +981,8 @@ export default function AdminDashboard() {
               onUpdateStatus={updateParcelStatus}
               onDelete={deleteParcel}
               onInbound={inboundParcel}
+              onEdit={editParcel}
+              onFetchItems={fetchParcelItems}
               refreshKey={refreshKey}
               onColumnFilterChange={(cf, df) => {
                 setParcelColumnFilters(cf);

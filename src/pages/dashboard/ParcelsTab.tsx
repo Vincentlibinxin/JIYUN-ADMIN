@@ -1,6 +1,6 @@
 ﻿import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, Card, Checkbox, DatePicker, Form, Image, Input, InputNumber, Modal, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tooltip, Upload } from 'antd';
-import { ReloadOutlined, EyeOutlined, EditOutlined, DeleteOutlined, InboxOutlined, PlusOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EyeOutlined, EditOutlined, DeleteOutlined, InboxOutlined, PlusOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { UploadFile } from 'antd/es/upload/interface';
 
@@ -20,6 +20,8 @@ interface Parcel {
   estimated_delivery: string | null;
   created_at: string;
   username: string | null;
+  first_item_name: string | null;
+  item_count: number;
 }
 
 type ParcelSortKey = 'id' | 'user_id' | 'tracking_number' | 'origin' | 'destination' | 'weight' | 'length_cm' | 'width_cm' | 'height_cm' | 'volume' | 'status' | 'estimated_delivery' | 'created_at' | 'username';
@@ -43,6 +45,8 @@ interface ParcelsTabProps {
   onUpdateStatus: (parcelId: number, status: string) => void;
   onDelete: (id: number) => void;
   onInbound: (formData: FormData) => Promise<boolean>;
+  onEdit: (id: number, formData: FormData) => Promise<boolean>;
+  onFetchItems: (id: number) => Promise<{ name: string; value: number; quantity: number }[]>;
   refreshKey?: number;
   onColumnFilterChange?: (columnFilters: Record<string, string>, dateFilters: Record<string, [string, string]>) => void;
 }
@@ -65,6 +69,8 @@ export default function ParcelsTab({
   onUpdateStatus,
   onDelete,
   onInbound,
+  onEdit,
+  onFetchItems,
   refreshKey,
   onColumnFilterChange,
 }: ParcelsTabProps) {
@@ -106,6 +112,12 @@ export default function ParcelsTab({
   const [inboundForm] = Form.useForm();
   const [fileList, setFileList] = useState<UploadFile[]>([]);
 
+  const [editOpen, setEditOpen] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editForm] = Form.useForm();
+  const [editFileList, setEditFileList] = useState<UploadFile[]>([]);
+  const [editingParcel, setEditingParcel] = useState<Parcel | null>(null);
+
   const handleInboundSubmit = async () => {
     try {
       const values = await inboundForm.validateFields();
@@ -116,6 +128,7 @@ export default function ParcelsTab({
       fd.append('length_cm', String(values.length_cm));
       fd.append('width_cm', String(values.width_cm));
       fd.append('height_cm', String(values.height_cm));
+      fd.append('items', JSON.stringify(values.items));
       fileList.forEach(f => {
         if (f.originFileObj) fd.append('files', f.originFileObj);
       });
@@ -129,6 +142,61 @@ export default function ParcelsTab({
       // validation failed
     } finally {
       setInboundLoading(false);
+    }
+  };
+
+  const openEditModal = async (record: Parcel) => {
+    setEditingParcel(record);
+    const existingUrls = record.images ? record.images.split(',').map(s => s.trim()).filter(Boolean) : [];
+    setEditFileList(existingUrls.map((url, i) => ({ uid: `existing-${i}`, name: url.split('/').pop() || `img-${i}`, status: 'done' as const, url })));
+    editForm.setFieldsValue({
+      tracking_number: record.tracking_number,
+      weight: record.weight,
+      length_cm: record.length_cm,
+      width_cm: record.width_cm,
+      height_cm: record.height_cm,
+      origin: record.origin || '',
+      destination: record.destination || '',
+      status: record.status,
+      items: [{ name: '', value: 0, quantity: 1 }],
+    });
+    setEditOpen(true);
+    try {
+      const items = await onFetchItems(record.id);
+      if (items.length > 0) editForm.setFieldsValue({ items });
+    } catch { /* keep default */ }
+  };
+
+  const handleEditSubmit = async () => {
+    if (!editingParcel) return;
+    try {
+      const values = await editForm.validateFields();
+      setEditLoading(true);
+      const fd = new FormData();
+      fd.append('weight', String(values.weight));
+      fd.append('length_cm', String(values.length_cm));
+      fd.append('width_cm', String(values.width_cm));
+      fd.append('height_cm', String(values.height_cm));
+      fd.append('origin', values.origin || '');
+      fd.append('destination', values.destination || '');
+      fd.append('status', values.status || editingParcel.status);
+      fd.append('items', JSON.stringify(values.items));
+      const existingUrls = editFileList.filter(f => f.url && !f.originFileObj).map(f => f.url!);
+      fd.append('existing_images', existingUrls.join(','));
+      editFileList.forEach(f => {
+        if (f.originFileObj) fd.append('files', f.originFileObj);
+      });
+      const ok = await onEdit(editingParcel.id, fd);
+      if (ok) {
+        setEditOpen(false);
+        editForm.resetFields();
+        setEditFileList([]);
+        setEditingParcel(null);
+      }
+    } catch {
+      // validation failed
+    } finally {
+      setEditLoading(false);
     }
   };
 
@@ -327,6 +395,24 @@ export default function ParcelsTab({
       ],
     },
     {
+      title: '物品',
+      key: 'items',
+      width: 120,
+      children: [
+        {
+          title: <span style={{ fontSize: 12, color: '#999' }}>物品</span>,
+          key: 'items_child',
+          width: 120,
+          ellipsis: true,
+          render: (_, record) => {
+            if (!record.first_item_name) return '-';
+            const count = Number(record.item_count) || 0;
+            return count > 1 ? `${record.first_item_name} 等${count}件` : record.first_item_name;
+          },
+        },
+      ],
+    },
+    {
       title: '图片',
       key: 'images',
       width: 120,
@@ -489,7 +575,7 @@ export default function ParcelsTab({
                 <Button size="small" type="text" icon={<EyeOutlined />} />
               </Tooltip>
               <Tooltip title="修改">
-                <Button size="small" type="text" icon={<EditOutlined />} />
+                <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
               </Tooltip>
               <Popconfirm
                 title="确定删除该包裹？"
@@ -579,6 +665,134 @@ export default function ParcelsTab({
               )}
             </Upload>
           </Form.Item>
+          <Form.List
+            name="items"
+            initialValue={[{ name: '', value: 0, quantity: 1 }]}
+            rules={[{ validator: async (_, items) => { if (!items || items.length < 1) throw new Error('至少添加一个物品'); } }]}
+          >
+            {(fields, { add, remove }, { errors }) => (
+              <>
+                <div style={{ marginBottom: 8, fontWeight: 500 }}>物品清单</div>
+                {fields.map(({ key, name, ...restField }) => (
+                  <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
+                    <Form.Item {...restField} name={[name, 'name']} rules={[{ required: true, message: '名称' }]} style={{ flex: 2, marginBottom: 0 }}>
+                      <Input placeholder="物品名称" />
+                    </Form.Item>
+                    <Form.Item {...restField} name={[name, 'value']} rules={[{ required: true, message: '价值' }]} style={{ flex: 1, marginBottom: 0 }}>
+                      <InputNumber min={0} step={0.01} precision={2} style={{ width: '100%' }} placeholder="价值" />
+                    </Form.Item>
+                    <Form.Item {...restField} name={[name, 'quantity']} rules={[{ required: true, message: '数量' }]} style={{ flex: 1, marginBottom: 0 }}>
+                      <InputNumber min={1} step={1} precision={0} style={{ width: '100%' }} placeholder="数量" />
+                    </Form.Item>
+                    {fields.length > 1 && (
+                      <MinusCircleOutlined style={{ marginTop: 8, color: '#ff4d4f', fontSize: 18 }} onClick={() => remove(name)} />
+                    )}
+                  </div>
+                ))}
+                <Button type="dashed" onClick={() => add({ name: '', value: 0, quantity: 1 })} block icon={<PlusOutlined />}>
+                  添加物品
+                </Button>
+                <Form.ErrorList errors={errors} />
+              </>
+            )}
+          </Form.List>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="编辑包裹"
+        open={editOpen}
+        onCancel={() => { setEditOpen(false); editForm.resetFields(); setEditFileList([]); setEditingParcel(null); }}
+        onOk={handleEditSubmit}
+        confirmLoading={editLoading}
+        okText="保存"
+        cancelText="取消"
+        width={600}
+      >
+        <Form form={editForm} layout="vertical" autoComplete="off">
+          <Form.Item name="tracking_number" label="包裹单号">
+            <Input disabled />
+          </Form.Item>
+          <Form.Item name="weight" label="重量 (kg)" rules={[{ required: true, message: '请输入重量' }]}>
+            <InputNumber min={0.01} step={0.01} precision={2} style={{ width: '100%' }} placeholder="请输入重量" />
+          </Form.Item>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Form.Item name="length_cm" label="长 (cm)" rules={[{ required: true, message: '请输入长' }]} style={{ flex: 1 }}>
+              <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="长" />
+            </Form.Item>
+            <Form.Item name="width_cm" label="宽 (cm)" rules={[{ required: true, message: '请输入宽' }]} style={{ flex: 1 }}>
+              <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="宽" />
+            </Form.Item>
+            <Form.Item name="height_cm" label="高 (cm)" rules={[{ required: true, message: '请输入高' }]} style={{ flex: 1 }}>
+              <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="高" />
+            </Form.Item>
+          </div>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Form.Item name="origin" label="来源" style={{ flex: 1 }}>
+              <Input placeholder="来源" />
+            </Form.Item>
+            <Form.Item name="destination" label="目的地" style={{ flex: 1 }}>
+              <Input placeholder="目的地" />
+            </Form.Item>
+          </div>
+          <Form.Item name="status" label="状态">
+            <Select
+              options={[
+                { label: '待入库', value: 'pending' },
+                { label: '已入库', value: 'arrived' },
+                { label: '运输中', value: 'shipping' },
+                { label: '已签收', value: 'completed' },
+                { label: '已取消', value: 'cancelled' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item label="图片">
+            <Upload
+              listType="picture-card"
+              fileList={editFileList}
+              onChange={({ fileList: fl }) => setEditFileList(fl)}
+              beforeUpload={() => false}
+              accept="image/*"
+              multiple
+            >
+              {editFileList.length >= 10 ? null : (
+                <div>
+                  <PlusOutlined />
+                  <div style={{ marginTop: 8 }}>上传</div>
+                </div>
+              )}
+            </Upload>
+          </Form.Item>
+          <Form.List
+            name="items"
+            rules={[{ validator: async (_, items) => { if (!items || items.length < 1) throw new Error('至少添加一个物品'); } }]}
+          >
+            {(fields, { add, remove }, { errors }) => (
+              <>
+                <div style={{ marginBottom: 8, fontWeight: 500 }}>物品清单</div>
+                {fields.map(({ key, name, ...restField }) => (
+                  <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
+                    <Form.Item {...restField} name={[name, 'name']} rules={[{ required: true, message: '名称' }]} style={{ flex: 2, marginBottom: 0 }}>
+                      <Input placeholder="物品名称" />
+                    </Form.Item>
+                    <Form.Item {...restField} name={[name, 'value']} rules={[{ required: true, message: '价值' }]} style={{ flex: 1, marginBottom: 0 }}>
+                      <InputNumber min={0} step={0.01} precision={2} style={{ width: '100%' }} placeholder="价值" />
+                    </Form.Item>
+                    <Form.Item {...restField} name={[name, 'quantity']} rules={[{ required: true, message: '数量' }]} style={{ flex: 1, marginBottom: 0 }}>
+                      <InputNumber min={1} step={1} precision={0} style={{ width: '100%' }} placeholder="数量" />
+                    </Form.Item>
+                    {fields.length > 1 && (
+                      <MinusCircleOutlined style={{ marginTop: 8, color: '#ff4d4f', fontSize: 18 }} onClick={() => remove(name)} />
+                    )}
+                  </div>
+                ))}
+                <Button type="dashed" onClick={() => add({ name: '', value: 0, quantity: 1 })} block icon={<PlusOutlined />}>
+                  添加物品
+                </Button>
+                <Form.ErrorList errors={errors} />
+              </>
+            )}
+          </Form.List>
         </Form>
       </Modal>
 
@@ -592,10 +806,9 @@ export default function ParcelsTab({
           pagination={false}
           size="small"
           sticky
-          tableLayout="fixed"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
-          scroll={{ x: 'max-content', y: tableScrollY }}
+          scroll={{ x: 1800, y: tableScrollY }}
           locale={{ emptyText: '没有包裹记录' }}
           onChange={(_, __, sorter) => {
             if (Array.isArray(sorter)) {

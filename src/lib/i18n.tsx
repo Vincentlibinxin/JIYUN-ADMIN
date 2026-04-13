@@ -15,7 +15,7 @@ const dictionaries: Record<LangCode, Dictionary> = {
     'lang.english': 'English',
     'lang.indonesian': 'Indonesian',
 
-    'app.systemTitle': '业务管理系统',
+    'app.systemTitle': '跨境物流系统',
     'app.admin': '管理员',
     'app.logout': '登出',
 
@@ -60,7 +60,7 @@ const dictionaries: Record<LangCode, Dictionary> = {
     'lang.english': 'English',
     'lang.indonesian': 'Indonesian',
 
-    'app.systemTitle': '業務管理系統',
+    'app.systemTitle': '跨境物流系統',
     'app.admin': '管理員',
     'app.logout': '登出',
 
@@ -105,7 +105,7 @@ const dictionaries: Record<LangCode, Dictionary> = {
     'lang.english': 'English',
     'lang.indonesian': 'Indonesian',
 
-    'app.systemTitle': 'Business Management System',
+    'app.systemTitle': 'Cross-Border Logistics System',
     'app.admin': 'Administrator',
     'app.logout': 'Logout',
 
@@ -150,7 +150,7 @@ const dictionaries: Record<LangCode, Dictionary> = {
     'lang.english': 'English',
     'lang.indonesian': 'Indonesian',
 
-    'app.systemTitle': 'Sistem Manajemen Bisnis',
+    'app.systemTitle': 'Sistem Logistik Lintas Batas',
     'app.admin': 'Pentadbir',
     'app.logout': 'Keluar',
 
