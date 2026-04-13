@@ -74,7 +74,7 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
   ];
 
   return (
-    <Layout className={styles.layout}>
+    <Layout className={styles.layout} style={{ borderRadius: 0 }}>
       {/* 側邊導航欄 - 緊湊模式 */}
       <Sider
         trigger={null}
@@ -90,7 +90,8 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
           left: 0,
           top: 0,
           bottom: 0,
-          zIndex: 100
+          zIndex: 100,
+          borderRadius: 0
         }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -136,7 +137,7 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
       </Sider>
 
       {/* 主體區域，左側自適應寬度 margin */}
-      <Layout style={{ marginLeft: collapsed ? 56 : 180, transition: 'all 0.2s', height: '100vh', overflow: 'hidden' }}>
+      <Layout style={{ marginLeft: collapsed ? 56 : 180, transition: 'all 0.2s', height: '100vh', overflow: 'hidden', borderRadius: 0 }}>
         {/* 頂部導航欄 */}
         <Header className={styles.header} style={{ height: 45, lineHeight: '45px', padding: '0 24px' }}>
           <div className={styles.headerLeft}>

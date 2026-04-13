@@ -13,12 +13,15 @@ html, body {
   margin: 0;
   padding: 0;
   height: 100%;
-  overflow: hidden;
+  overflow: hidden !important;
 }
 
 /* Reset Ant Design Layout border-radius to prevent corner gaps */
 .ant-layout,
-.ant-layout-sider {
+.ant-layout-sider,
+div.ant-layout,
+aside.ant-layout-sider,
+[class*="ant-layout"] {
   border-radius: 0 !important;
 }
 
