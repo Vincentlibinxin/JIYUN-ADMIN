@@ -136,7 +136,7 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
       </Sider>
 
       {/* 主體區域，左側自適應寬度 margin */}
-      <Layout style={{ marginLeft: collapsed ? 56 : 180, transition: 'all 0.2s', minHeight: '100vh' }}>
+      <Layout style={{ marginLeft: collapsed ? 56 : 180, transition: 'all 0.2s', height: '100vh', overflow: 'hidden' }}>
         {/* 頂部導航欄 */}
         <Header className={styles.header} style={{ height: 45, lineHeight: '45px', padding: '0 24px' }}>
           <div className={styles.headerLeft}>
@@ -173,8 +173,8 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
         </Header>
 
         {/* 核心內容區 */}
-        <Content style={{ margin: '8px', display: 'flex', flexDirection: 'column' }}>
-           <div style={{ flex: 1, padding: 0, background: '#fff', borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.05)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <Content style={{ margin: '8px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+           <div style={{ flex: 1, minHeight: 0, padding: 0, background: '#fff', borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.05)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
              {children}
            </div>
         </Content>
