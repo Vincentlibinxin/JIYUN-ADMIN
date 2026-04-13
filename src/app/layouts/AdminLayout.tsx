@@ -52,10 +52,10 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
 
   const menuItems = [
     { key: 'overview', icon: <DashboardOutlined />, label: t('menu.overview') },
-    { key: 'users', icon: <TeamOutlined />, label: t('menu.users') },
+    { key: 'parcels', icon: <CodeSandboxOutlined />, label: t('menu.parcels') },
     { key: 'orders', icon: <ShoppingCartOutlined />, label: t('menu.orders') },
     { key: 'sms', icon: <MessageOutlined />, label: t('menu.sms') },
-    { key: 'parcels', icon: <CodeSandboxOutlined />, label: t('menu.parcels') },
+    { key: 'users', icon: <TeamOutlined />, label: t('menu.users') },
     { key: 'admins', icon: <SafetyCertificateOutlined />, label: t('menu.admins') },
   ];
 
