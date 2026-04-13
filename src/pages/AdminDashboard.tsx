@@ -1,7 +1,7 @@
 ﻿import AdminLayout from '../app/layouts/AdminLayout';
 import { useState, useEffect } from 'react';
 import { Home, Users, User, ShoppingCart, MessageCircle, Package, ClipboardList, Shield } from 'lucide-react';
-import { Alert } from 'antd';
+
 import { adminFetch } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import OverviewTab from './dashboard/OverviewTab';
@@ -813,13 +813,10 @@ export default function AdminDashboard() {
   return (
     <AdminLayout activeMenu={activeMenu} onMenuClick={(key) => { setActiveMenu(key); setActiveTab(key); }} onRefresh={handleRefresh}>
           {error && (
-            <Alert
-              message={error}
-              type="error"
-              closable
-              onClose={() => setError('')}
-              style={{ marginBottom: 12 }}
-            />
+            <div style={{ padding: '8px 12px', marginBottom: 12, backgroundColor: '#fff2f0', border: '1px solid #ffccc7', color: '#ff4d4f', borderRadius: 6, fontSize: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>{error}</span>
+              <span style={{ cursor: 'pointer', fontSize: 16, lineHeight: 1 }} onClick={() => setError('')}>&times;</span>
+            </div>
           )}
 
           {/* 概覽頁面 */}
