@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Button, Form, Input, Typography, ConfigProvider, theme } from 'antd';
+import { Button, Form, Input, Typography, ConfigProvider, theme } from 'antd';
 import { UserOutlined, LockOutlined, LoginOutlined } from '@ant-design/icons';
 import { ApiRequestError } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -125,17 +125,15 @@ export default function AdminLoginPage() {
           >
             {error && (
               <Form.Item>
-                <Alert
-                  message={error}
-                  type="error"
-                  showIcon
-                  style={{
-                    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-                    borderColor: 'rgba(239, 68, 68, 0.5)',
-                    color: '#fca5a5',
-                    borderRadius: 12
-                  }}
-                />
+                <div style={{
+                  padding: '8px 12px',
+                  backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                  border: '1px solid rgba(239, 68, 68, 0.5)',
+                  color: '#fca5a5',
+                  borderRadius: 12,
+                  fontSize: 14,
+                  textAlign: 'center'
+                }}>{error}</div>
               </Form.Item>
             )}
 
