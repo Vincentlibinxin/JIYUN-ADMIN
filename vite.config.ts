@@ -24,9 +24,6 @@ export default defineConfig({
     port: 3002,
     strictPort: true,
     host: '0.0.0.0',
-    headers: {
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-    },
     proxy: {
       '/api': {
         target: 'http://localhost:3001',

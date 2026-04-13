@@ -3,7 +3,20 @@ import type { ReactElement } from 'react';
 import AdminLoginPage from '@/pages/AdminLoginPage';
 import AdminDashboard from '@/pages/AdminDashboard';
 import { AuthProvider, useAuth } from '@/lib/auth';
-import { I18nProvider } from '@/lib/i18n';
+import { I18nProvider, useI18n } from '@/lib/i18n';
+
+function AuthLoadingScreen() {
+  const { t } = useI18n();
+
+  return (
+    <div className="min-h-screen bg-[#0f1012] text-white flex items-center justify-center">
+      <div className="flex items-center gap-2 text-sm text-white/70">
+        <span className="material-symbols-outlined animate-spin text-base">progress_activity</span>
+        {t('auth.checking')}
+      </div>
+    </div>
+  );
+}
 
 function AuthSilentScreen() {
   return <div className="min-h-screen bg-[#0f1012]" />;
@@ -13,7 +26,7 @@ function ProtectedRoute({ children }: { children: ReactElement }) {
   const { user, loading } = useAuth();
 
   if (loading) {
-    return <AuthSilentScreen />;
+    return <AuthLoadingScreen />;
   }
 
   if (!user) {
