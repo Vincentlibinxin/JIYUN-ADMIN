@@ -9,6 +9,19 @@
   --color-surface-dark: #1f1f1f;
 }
 
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Reset Ant Design Layout border-radius to prevent corner gaps */
+.ant-layout,
+.ant-layout-sider {
+  border-radius: 0 !important;
+}
+
 main form details {
   display: none !important;
 }
