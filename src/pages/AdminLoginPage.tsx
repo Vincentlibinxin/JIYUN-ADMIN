@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Button, Form, Input, Typography, ConfigProvider, theme } from 'antd';
+import { Button, Form, Input, Typography, ConfigProvider, theme, message } from 'antd';
 import { UserOutlined, LockOutlined, LoginOutlined } from '@ant-design/icons';
 import { ApiRequestError } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -13,7 +13,7 @@ export default function AdminLoginPage() {
   const navigate = useNavigate();
   const { login } = useAuth();
   const { t } = useI18n();
-  const [error, setError] = useState('');
+  const [messageApi, contextHolder] = message.useMessage();
   const [loading, setLoading] = useState(false);
 
   const formatRetryAfter = (seconds: number): string => {
@@ -25,7 +25,7 @@ export default function AdminLoginPage() {
   };
 
   const handleLogin = async (values: any) => {
-    setError('');
+    messageApi.destroy();
     setLoading(true);
     try {
       await login(values.username, values.password);
@@ -35,24 +35,24 @@ export default function AdminLoginPage() {
         if (err.status === 429) {
           const retryAfterSeconds = Number(err.payload?.retryAfterSeconds || 0);
           const waitText = retryAfterSeconds > 0 ? formatRetryAfter(retryAfterSeconds) : '稍后';
-          setError(`${t('login.retryPrefix')}${waitText}${t('login.retrySuffix')}`);
+          messageApi.error(`${t('login.retryPrefix')}${waitText}${t('login.retrySuffix')}`);
           return;
         }
 
         if (err.status === 401) {
-          setError(t('login.invalidCredentials'));
+          messageApi.error(t('login.invalidCredentials'));
           return;
         }
 
-        setError(err.message || t('login.failed'));
+        messageApi.error(err.message || t('login.failed'));
         return;
       }
 
       const message = String(err?.message || '').toLowerCase();
       if (message.includes('failed to fetch') || message.includes('network') || message.includes('load failed')) {
-        setError(t('login.networkError'));
+        messageApi.error(t('login.networkError'));
       } else {
-        setError(err.message || t('login.requestFailed'));
+        messageApi.error(err.message || t('login.requestFailed'));
       }
     } finally {
       setLoading(false);
@@ -70,6 +70,7 @@ export default function AdminLoginPage() {
         },
       }}
     >
+      {contextHolder}
       <div className={styles.container}>
         <div className={styles.bgContainer}>
           <div className={styles.bgGradient} />
@@ -123,22 +124,6 @@ export default function AdminLoginPage() {
             size="large"
             style={{ width: '100%' }}
           >
-            {error && (
-              <Form.Item>
-                <Alert
-                  message={error}
-                  type="error"
-                  showIcon
-                  style={{
-                    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-                    borderColor: 'rgba(239, 68, 68, 0.5)',
-                    color: '#fca5a5',
-                    borderRadius: 12
-                  }}
-                />
-              </Form.Item>
-            )}
-
             <Form.Item
               name="username"
               rules={[{ required: true, message: t('login.usernameRequired') }]}
