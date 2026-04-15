@@ -6,6 +6,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { uploadToOss } from '../oss';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import {
@@ -674,20 +675,8 @@ router.patch('/parcels/:id', adminAuth, csrfGuard, async (req: AdminRequest, res
   res.json({ message: '包裹状态已更新', parcelId, status });
 });
 
-const uploadsDir = path.resolve(__dirname, '../../uploads/parcels');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
 const parcelUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, uploadsDir),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname);
-      const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
-      cb(null, name);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (/^image\/(jpeg|png|gif|webp|bmp)$/i.test(file.mimetype)) {
@@ -727,7 +716,8 @@ router.post('/parcels/inbound', adminAuth, csrfGuard, parcelUpload.array('files'
   }
   const volume = parseFloat((l * wi * h).toFixed(2));
   const files = (req.files || []) as Express.Multer.File[];
-  const imageUrls = files.map(f => `/api/uploads/parcels/${f.filename}`).join(',');
+  const ossUrls = await Promise.all(files.map(f => uploadToOss(f.buffer, f.originalname, 'parcels')));
+  const imageUrls = ossUrls.join(',');
   try {
     const insertId = await createParcelInbound({
       tracking_number: tracking_number.trim(),
@@ -778,7 +768,7 @@ router.put('/parcels/:id', adminAuth, csrfGuard, parcelUpload.array('files', 10)
   }
   const volume = parseFloat((l * wi * h).toFixed(2));
   const files = (req.files || []) as Express.Multer.File[];
-  const newImageUrls = files.map(f => `/api/uploads/parcels/${f.filename}`);
+  const newImageUrls = await Promise.all(files.map(f => uploadToOss(f.buffer, f.originalname, 'parcels')));
   const existingUrls = typeof existing_images === 'string' && existing_images.trim() ? existing_images.split(',').filter(Boolean) : [];
   const allImages = [...existingUrls, ...newImageUrls].join(',');
   try {
