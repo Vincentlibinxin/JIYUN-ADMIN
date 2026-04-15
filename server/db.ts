@@ -333,11 +333,11 @@ export const initDb = async (): Promise<void> => {
 };
 
 export const getAdminByUsername = async (username: string): Promise<any | null> => {
-  return querySingle<any>('SELECT * FROM admin_users WHERE username = ? LIMIT 1', [username]);
+  return querySingle<any>('SELECT * FROM admin_users WHERE username = ? AND deleted_at IS NULL LIMIT 1', [username]);
 };
 
 export const getAdminById = async (adminId: number): Promise<any | null> => {
-  return querySingle<any>('SELECT * FROM admin_users WHERE id = ? LIMIT 1', [adminId]);
+  return querySingle<any>('SELECT * FROM admin_users WHERE id = ? AND deleted_at IS NULL LIMIT 1', [adminId]);
 };
 
 export const updateAdminLastLogin = async (adminId: number): Promise<void> => {
@@ -356,7 +356,8 @@ export const getUsersPaged = async (
 ) => {
   const orderBy = toSafeOrderBy(sortKey, sortOrder, USERS_SORT_COLUMNS, 'created_at');
   const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, USERS_SORT_COLUMNS);
-  const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const allClauses = ['deleted_at IS NULL', ...clauses];
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
 
   const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
   const safeLimit = toSafeInt(limit, 10, 1, 500);
@@ -394,7 +395,7 @@ export const searchUsersPaged = async (keyword: string, page: number, limit: num
       const [rows] = await pool.execute<mysql.RowDataPacket[]>(
         `SELECT id, username, phone, email, real_name, address, created_at, updated_at
          FROM users
-         WHERE username LIKE ? OR phone LIKE ? OR email LIKE ? OR real_name LIKE ?
+         WHERE deleted_at IS NULL AND (username LIKE ? OR phone LIKE ? OR email LIKE ? OR real_name LIKE ?)
          ORDER BY ${orderBy}
          LIMIT ${safeLimit} OFFSET ${offset}`,
         [like, like, like, like]
@@ -405,7 +406,7 @@ export const searchUsersPaged = async (keyword: string, page: number, limit: num
       const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
         `SELECT COUNT(*) as count
          FROM users
-         WHERE username LIKE ? OR phone LIKE ? OR email LIKE ? OR real_name LIKE ?`,
+         WHERE deleted_at IS NULL AND (username LIKE ? OR phone LIKE ? OR email LIKE ? OR real_name LIKE ?)`,
         [like, like, like, like]
       );
       return Number(countRows?.[0]?.count || 0);
@@ -414,22 +415,22 @@ export const searchUsersPaged = async (keyword: string, page: number, limit: num
 };
 
 export const deleteUser = async (userId: number): Promise<boolean> => {
-  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM users WHERE id = ?', [userId]);
+  const [result] = await pool.execute<mysql.ResultSetHeader>('UPDATE users SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL', [userId]);
   return result.affectedRows > 0;
 };
 
 export const deleteOrder = async (orderId: number): Promise<boolean> => {
-  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM orders WHERE id = ?', [orderId]);
+  const [result] = await pool.execute<mysql.ResultSetHeader>('UPDATE orders SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL', [orderId]);
   return result.affectedRows > 0;
 };
 
 export const deleteSms = async (smsId: number): Promise<boolean> => {
-  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM sms_verifications WHERE id = ?', [smsId]);
+  const [result] = await pool.execute<mysql.ResultSetHeader>('UPDATE otp_codes SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL', [smsId]);
   return result.affectedRows > 0;
 };
 
 export const deleteParcel = async (parcelId: number): Promise<boolean> => {
-  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM parcels WHERE id = ?', [parcelId]);
+  const [result] = await pool.execute<mysql.ResultSetHeader>('UPDATE parcels SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL', [parcelId]);
   return result.affectedRows > 0;
 };
 
@@ -450,9 +451,9 @@ export const getOrdersPaged = async (
   const offset = (safePage - 1) * safeLimit;
   const dateRange = buildCreatedAtFilter(startDate, endDate);
   const colFilter = buildColumnFilters(columnFilters, dateFilters, ORDERS_SORT_COLUMNS);
-  const allClauses = [...dateRange.clauses, ...colFilter.clauses];
+  const allClauses = ['deleted_at IS NULL', ...dateRange.clauses, ...colFilter.clauses];
   const allParams = [...dateRange.params, ...colFilter.params];
-  const whereSql = allClauses.length > 0 ? `WHERE ${allClauses.join(' AND ')}` : '';
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
   const orderBy = toSafeOrderBy(sortKey, sortOrder, ORDERS_SORT_COLUMNS, 'created_at');
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
@@ -483,9 +484,8 @@ export const searchOrders = async (keyword: string, startDate?: string, endDate?
   const like = `%${keyword}%`;
   const { clauses, params } = buildCreatedAtFilter(startDate, endDate);
   const keywordClause = '(CAST(id AS CHAR) LIKE ? OR CAST(user_id AS CHAR) LIKE ? OR status LIKE ?)';
-  const whereSql = clauses.length > 0
-    ? `WHERE ${keywordClause} AND ${clauses.join(' AND ')}`
-    : `WHERE ${keywordClause}`;
+  const allClauses = ['deleted_at IS NULL', keywordClause, ...clauses];
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT id, user_id, total_amount, currency, status, created_at
@@ -522,9 +522,9 @@ export const getSmsPaged = async (
   const offset = (safePage - 1) * safeLimit;
   const dateRange = buildCreatedAtFilter(startDate, endDate);
   const colFilter = buildColumnFilters(columnFilters, dateFilters, SMS_SORT_COLUMNS);
-  const allClauses = [...dateRange.clauses, ...colFilter.clauses];
+  const allClauses = ['deleted_at IS NULL', ...dateRange.clauses, ...colFilter.clauses];
   const allParams = [...dateRange.params, ...colFilter.params];
-  const whereSql = allClauses.length > 0 ? `WHERE ${allClauses.join(' AND ')}` : '';
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
   const orderBy = toSafeOrderBy(sortKey, sortOrder, SMS_SORT_COLUMNS, 'created_at');
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
@@ -560,9 +560,8 @@ export const searchSms = async (keyword: string, startDate?: string, endDate?: s
     OR code LIKE ?
     OR CAST(verified AS CHAR) LIKE ?
   )`;
-  const whereSql = clauses.length > 0
-    ? `WHERE ${keywordClause} AND ${clauses.join(' AND ')}`
-    : `WHERE ${keywordClause}`;
+  const allClauses = ['deleted_at IS NULL', keywordClause, ...clauses];
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT id, phone, code, verified, created_at, expires_at
@@ -601,7 +600,7 @@ export const getParcelsPaged = async (
 
   const dateRange = buildCreatedAtFilter(startDate, endDate, 'p.');
   const colFilter = buildColumnFilters(parcelColFilters, dateFilters, PARCELS_SORT_COLUMNS, 'p.');
-  const allClauses = [...dateRange.clauses, ...colFilter.clauses];
+  const allClauses = ['p.deleted_at IS NULL', ...dateRange.clauses, ...colFilter.clauses];
   const allParams = [...dateRange.params, ...colFilter.params];
 
   if (usernameFilter) {
@@ -609,7 +608,7 @@ export const getParcelsPaged = async (
     allParams.push(`%${usernameFilter.trim()}%`);
   }
 
-  const whereSql = allClauses.length > 0 ? `WHERE ${allClauses.join(' AND ')}` : '';
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
   const safeSort = sortKey === PARCELS_USERNAME_COL ? 'u.username' : undefined;
   const orderBy = safeSort
     ? `${safeSort} ${sortOrder === 'asc' ? 'ASC' : 'DESC'}`
@@ -658,9 +657,8 @@ export const searchParcels = async (keyword: string, startDate?: string, endDate
     OR p.status LIKE ?
     OR u.username LIKE ?
   )`;
-  const whereSql = clauses.length > 0
-    ? `WHERE ${keywordClause} AND ${clauses.join(' AND ')}`
-    : `WHERE ${keywordClause}`;
+  const allClauses = ['p.deleted_at IS NULL', keywordClause, ...clauses];
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
@@ -791,7 +789,8 @@ export const getAdminsPaged = async (
 ) => {
   const orderBy = toSafeOrderBy(sortKey, sortOrder, ADMINS_SORT_COLUMNS, 'created_at');
   const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, ADMINS_SORT_COLUMNS);
-  const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const allClauses = ['deleted_at IS NULL', ...clauses];
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
 
   const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
   const safeLimit = toSafeInt(limit, 10, 1, 500);
@@ -824,11 +823,13 @@ export const searchAdmins = async (keyword: string): Promise<any[]> => {
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT id, username, email, role, status, last_login, created_at, updated_at
      FROM admin_users
-     WHERE CAST(id AS CHAR) LIKE ?
+     WHERE deleted_at IS NULL AND (
+       CAST(id AS CHAR) LIKE ?
        OR username LIKE ?
        OR email LIKE ?
        OR role LIKE ?
        OR status LIKE ?
+     )
      ORDER BY created_at DESC`,
     [like, like, like, like, like]
   );
@@ -862,8 +863,43 @@ export const updateAdminStatus = async (adminId: number, status: string): Promis
 };
 
 export const deleteAdmin = async (adminId: number): Promise<boolean> => {
-  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM admin_users WHERE id = ?', [adminId]);
+  const [result] = await pool.execute<mysql.ResultSetHeader>('UPDATE admin_users SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL', [adminId]);
   return result.affectedRows > 0;
+};
+
+export const batchDeleteUsers = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE users SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`, ids);
+  return result.affectedRows;
+};
+
+export const batchDeleteOrders = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE orders SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`, ids);
+  return result.affectedRows;
+};
+
+export const batchDeleteSms = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE otp_codes SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`, ids);
+  return result.affectedRows;
+};
+
+export const batchDeleteParcels = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE parcels SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`, ids);
+  return result.affectedRows;
+};
+
+export const batchDeleteAdmins = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE admin_users SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`, ids);
+  return result.affectedRows;
 };
 
 export const logAdminAudit = async (payload: {

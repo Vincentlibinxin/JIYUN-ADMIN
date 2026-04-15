@@ -31,6 +31,7 @@ interface SmsTabProps {
   sortDirection: SortDirection;
   onSortChange: (key: SmsSortKey, direction: SortDirection) => void;
   onDelete: (id: number) => void;
+  onBatchDelete: (ids: number[]) => void;
   refreshKey?: number;
   onColumnFilterChange?: (columnFilters: Record<string, string>, dateFilters: Record<string, [string, string]>) => void;
 }
@@ -51,6 +52,7 @@ export default function SmsTab({
   sortDirection,
   onSortChange,
   onDelete,
+  onBatchDelete,
   refreshKey,
   onColumnFilterChange,
 }: SmsTabProps) {
@@ -347,9 +349,22 @@ export default function SmsTab({
 
   return (
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
-        <Space wrap>
-          <Input
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+        <div style={{ flex: '0 0 auto' }}>
+          <Popconfirm
+            title={`确定删除选中的 ${selectedRowKeys.length} 条记录？`}
+            okText="删除"
+            cancelText="取消"
+            onConfirm={() => { onBatchDelete(selectedRowKeys); setSelectedRowKeys([]); }}
+            disabled={selectedRowKeys.length === 0}
+          >
+            <Button danger disabled={selectedRowKeys.length === 0}>
+              批量删除{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
+            </Button>
+          </Popconfirm>
+        </div>
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          <Input.Search
             allowClear
             value={searchQuery}
             onChange={(event) => {
@@ -357,14 +372,15 @@ export default function SmsTab({
               onSearchQueryChange(val);
               if (!val) onReset();
             }}
-            onPressEnter={onSearch}
+            onSearch={onSearch}
             placeholder="搜索简讯：ID、手机、验证码或状态"
-            style={{ width: 320 }}
+            style={{ width: 400 }}
+            enterButton
           />
-          <Button type="primary" onClick={onSearch}>
-            搜索
-          </Button>
-        </Space>
+        </div>
+        <div style={{ flex: '0 0 auto', visibility: 'hidden' }}>
+          <Button>占位</Button>
+        </div>
       </div>
 
       <div ref={tableHostRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>

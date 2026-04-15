@@ -32,6 +32,7 @@ interface OrdersTabProps {
   onSortChange: (key: OrderSortKey, direction: SortDirection) => void;
   onUpdateStatus: (orderId: number, status: string) => void;
   onDelete: (id: number) => void;
+  onBatchDelete: (ids: number[]) => void;
   refreshKey?: number;
   onColumnFilterChange?: (columnFilters: Record<string, string>, dateFilters: Record<string, [string, string]>) => void;
 }
@@ -53,6 +54,7 @@ export default function OrdersTab({
   onSortChange,
   onUpdateStatus,
   onDelete,
+  onBatchDelete,
   refreshKey,
   onColumnFilterChange,
 }: OrdersTabProps) {
@@ -346,9 +348,22 @@ export default function OrdersTab({
 
   return (
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
-        <Space wrap>
-          <Input
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+        <div style={{ flex: '0 0 auto' }}>
+          <Popconfirm
+            title={`确定删除选中的 ${selectedRowKeys.length} 条记录？`}
+            okText="删除"
+            cancelText="取消"
+            onConfirm={() => { onBatchDelete(selectedRowKeys); setSelectedRowKeys([]); }}
+            disabled={selectedRowKeys.length === 0}
+          >
+            <Button danger disabled={selectedRowKeys.length === 0}>
+              批量删除{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
+            </Button>
+          </Popconfirm>
+        </div>
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          <Input.Search
             allowClear
             value={searchQuery}
             onChange={(event) => {
@@ -356,14 +371,15 @@ export default function OrdersTab({
               onSearchQueryChange(val);
               if (!val) onReset();
             }}
-            onPressEnter={onSearch}
+            onSearch={onSearch}
             placeholder="搜索订单：订单ID、会员ID或状态"
-            style={{ width: 320 }}
+            style={{ width: 400 }}
+            enterButton
           />
-          <Button type="primary" onClick={onSearch}>
-            搜索
-          </Button>
-        </Space>
+        </div>
+        <div style={{ flex: '0 0 auto', visibility: 'hidden' }}>
+          <Button>占位</Button>
+        </div>
       </div>
 
       <div ref={tableHostRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>

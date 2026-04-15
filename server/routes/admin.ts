@@ -10,6 +10,11 @@ import { uploadToOss, signParcelImages } from '../oss';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import {
+  batchDeleteAdmins,
+  batchDeleteOrders,
+  batchDeleteParcels,
+  batchDeleteSms,
+  batchDeleteUsers,
   createAdmin,
   createParcelInbound,
   deleteAdmin,
@@ -520,6 +525,17 @@ router.delete('/users/:id', adminAuth, csrfGuard, async (req: AdminRequest, res:
   res.json({ message: '用户已删除' });
 });
 
+router.post('/users/batch-delete', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: '请提供要删除的ID列表' });
+    return;
+  }
+  const numIds = ids.map(Number).filter(n => Number.isInteger(n) && n > 0);
+  const deleted = await batchDeleteUsers(numIds);
+  res.json({ message: `已删除 ${deleted} 条记录`, deleted });
+});
+
 router.get('/orders', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
@@ -581,6 +597,17 @@ router.delete('/orders/:id', adminAuth, csrfGuard, async (req: AdminRequest, res
   res.json({ message: '订单已删除' });
 });
 
+router.post('/orders/batch-delete', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: '请提供要删除的ID列表' });
+    return;
+  }
+  const numIds = ids.map(Number).filter(n => Number.isInteger(n) && n > 0);
+  const deleted = await batchDeleteOrders(numIds);
+  res.json({ message: `已删除 ${deleted} 条记录`, deleted });
+});
+
 router.get('/sms', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
@@ -621,6 +648,17 @@ router.delete('/sms/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: R
     return;
   }
   res.json({ message: '记录已删除' });
+});
+
+router.post('/sms/batch-delete', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: '请提供要删除的ID列表' });
+    return;
+  }
+  const numIds = ids.map(Number).filter(n => Number.isInteger(n) && n > 0);
+  const deleted = await batchDeleteSms(numIds);
+  res.json({ message: `已删除 ${deleted} 条记录`, deleted });
 });
 
 router.get('/parcels', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
@@ -802,6 +840,17 @@ router.delete('/parcels/:id', adminAuth, csrfGuard, async (req: AdminRequest, re
     return;
   }
   res.json({ message: '包裹已删除' });
+});
+
+router.post('/parcels/batch-delete', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: '请提供要删除的ID列表' });
+    return;
+  }
+  const numIds = ids.map(Number).filter(n => Number.isInteger(n) && n > 0);
+  const deleted = await batchDeleteParcels(numIds);
+  res.json({ message: `已删除 ${deleted} 条记录`, deleted });
 });
 
 router.get('/admins', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
@@ -1030,6 +1079,23 @@ router.delete('/admins/:id', adminAuth, csrfGuard, requireSuperAdmin, async (req
     detail: 'admin_deleted',
   });
   res.json({ message: '管理员已删除', adminId });
+});
+
+router.post('/admins/batch-delete', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: '请提供要删除的ID列表' });
+    return;
+  }
+  const numIds = ids.map(Number).filter(n => Number.isInteger(n) && n > 0);
+  // 排除当前登录管理员
+  const safeIds = numIds.filter(id => id !== req.adminId);
+  if (safeIds.length === 0) {
+    res.status(400).json({ error: '不能删除当前登录账号' });
+    return;
+  }
+  const deleted = await batchDeleteAdmins(safeIds);
+  res.json({ message: `已删除 ${deleted} 条记录`, deleted });
 });
 
 export default router;

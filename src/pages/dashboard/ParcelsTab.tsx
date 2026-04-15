@@ -44,6 +44,7 @@ interface ParcelsTabProps {
   onSortChange: (key: ParcelSortKey, direction: SortDirection) => void;
   onUpdateStatus: (parcelId: number, status: string) => void;
   onDelete: (id: number) => void;
+  onBatchDelete: (ids: number[]) => void;
   onInbound: (formData: FormData) => Promise<boolean>;
   onEdit: (id: number, formData: FormData) => Promise<boolean>;
   onFetchItems: (id: number) => Promise<{ name: string; value: number; quantity: number }[]>;
@@ -68,6 +69,7 @@ export default function ParcelsTab({
   onSortChange,
   onUpdateStatus,
   onDelete,
+  onBatchDelete,
   onInbound,
   onEdit,
   onFetchItems,
@@ -598,9 +600,24 @@ export default function ParcelsTab({
 
   return (
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Space wrap>
-          <Input
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+        <div style={{ flex: '0 0 auto' }}>
+          <Space>
+            <Popconfirm
+              title={`确定删除选中的 ${selectedRowKeys.length} 条记录？`}
+              okText="删除"
+              cancelText="取消"
+              onConfirm={() => { onBatchDelete(selectedRowKeys); setSelectedRowKeys([]); }}
+              disabled={selectedRowKeys.length === 0}
+            >
+              <Button danger disabled={selectedRowKeys.length === 0}>
+                批量删除{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
+              </Button>
+            </Popconfirm>
+          </Space>
+        </div>
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          <Input.Search
             allowClear
             value={searchQuery}
             onChange={(event) => {
@@ -608,17 +625,17 @@ export default function ParcelsTab({
               onSearchQueryChange(val);
               if (!val) onReset();
             }}
-            onPressEnter={onSearch}
+            onSearch={onSearch}
             placeholder="搜索包裹：包裹单号、来源、目的地、用户名或状态"
             style={{ width: 420 }}
+            enterButton
           />
-          <Button type="primary" onClick={onSearch}>
-            搜索
+        </div>
+        <div style={{ flex: '0 0 auto' }}>
+          <Button type="primary" icon={<InboxOutlined />} onClick={() => setInboundOpen(true)}>
+            入库
           </Button>
-        </Space>
-        <Button type="primary" icon={<InboxOutlined />} onClick={() => setInboundOpen(true)}>
-          入库
-        </Button>
+        </div>
       </div>
 
       <Modal

@@ -651,6 +651,61 @@ export default function AdminDashboard() {
     } catch { setError('删除失败'); }
   };
 
+  const batchDeleteUsers = async (ids: number[]) => {
+    try {
+      const response = await adminFetch('/admin/users/batch-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) { fetchUsers(currentPage); } else { setError('批量删除会员失败'); }
+    } catch { setError('批量删除失败'); }
+  };
+
+  const batchDeleteOrders = async (ids: number[]) => {
+    try {
+      const response = await adminFetch('/admin/orders/batch-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) { fetchOrders(orderPage); } else { setError('批量删除订单失败'); }
+    } catch { setError('批量删除失败'); }
+  };
+
+  const batchDeleteSmsRecords = async (ids: number[]) => {
+    try {
+      const response = await adminFetch('/admin/sms/batch-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) { fetchSms(smsPage); } else { setError('批量删除记录失败'); }
+    } catch { setError('批量删除失败'); }
+  };
+
+  const batchDeleteParcels = async (ids: number[]) => {
+    try {
+      const response = await adminFetch('/admin/parcels/batch-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) { fetchParcels(parcelPage); } else { setError('批量删除包裹失败'); }
+    } catch { setError('批量删除失败'); }
+  };
+
+  const batchDeleteAdminUsers = async (ids: number[]) => {
+    try {
+      const response = await adminFetch('/admin/admins/batch-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) { fetchAdmins(adminPage, adminPageSize); } else { setError('批量删除管理员失败'); }
+    } catch { setError('批量删除失败'); }
+  };
+
   const inboundParcel = async (formData: FormData): Promise<boolean> => {
     try {
       const response = await adminFetch('/admin/parcels/inbound', {
@@ -873,6 +928,7 @@ export default function AdminDashboard() {
                 fetchUsers(1, pageSize, undefined, undefined, {}, {});
               }}
               onDelete={deleteUser}
+              onBatchDelete={batchDeleteUsers}
               currentPage={currentPage}
               pageSize={pageSize}
               totalItems={userTotalItems}
@@ -919,6 +975,7 @@ export default function AdminDashboard() {
               }}
               onUpdateStatus={updateOrderStatus}
               onDelete={deleteOrder}
+              onBatchDelete={batchDeleteOrders}
               refreshKey={refreshKey}
               onColumnFilterChange={(cf, df) => {
                 setOrderColumnFilters(cf);
@@ -949,6 +1006,7 @@ export default function AdminDashboard() {
                 fetchSms(smsPage, smsPageSize, smsStartDate, smsEndDate, key, direction);
               }}
               onDelete={deleteSmsRecord}
+              onBatchDelete={batchDeleteSmsRecords}
               refreshKey={refreshKey}
               onColumnFilterChange={(cf, df) => {
                 setSmsColumnFilters(cf);
@@ -980,6 +1038,7 @@ export default function AdminDashboard() {
               }}
               onUpdateStatus={updateParcelStatus}
               onDelete={deleteParcel}
+              onBatchDelete={batchDeleteParcels}
               onInbound={inboundParcel}
               onEdit={editParcel}
               onFetchItems={fetchParcelItems}
@@ -1014,6 +1073,7 @@ export default function AdminDashboard() {
               }}
               onToggleStatus={updateAdminAccountStatus}
               onDelete={deleteAdminUser}
+              onBatchDelete={batchDeleteAdminUsers}
               currentAdminId={adminUser?.id}
               refreshKey={refreshKey}
               onColumnFilterChange={(cf, df) => {

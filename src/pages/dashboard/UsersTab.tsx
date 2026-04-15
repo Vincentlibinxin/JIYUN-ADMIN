@@ -25,6 +25,7 @@ interface UsersTabProps {
   onSearch: () => void;
   onReset: () => void;
   onDelete: (id: number) => void;
+  onBatchDelete: (ids: number[]) => void;
   currentPage: number;
   pageSize: number;
   totalItems: number;
@@ -45,6 +46,7 @@ export default function UsersTab({
   onSearch,
   onReset,
   onDelete,
+  onBatchDelete,
   currentPage,
   pageSize,
   totalItems,
@@ -388,9 +390,22 @@ export default function UsersTab({
 
   return (
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
-        <Space wrap>
-          <Input
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+        <div style={{ flex: '0 0 auto' }}>
+          <Popconfirm
+            title={`确定删除选中的 ${selectedRowKeys.length} 条记录？`}
+            okText="删除"
+            cancelText="取消"
+            onConfirm={() => { onBatchDelete(selectedRowKeys); setSelectedRowKeys([]); }}
+            disabled={selectedRowKeys.length === 0}
+          >
+            <Button danger disabled={selectedRowKeys.length === 0}>
+              批量删除{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
+            </Button>
+          </Popconfirm>
+        </div>
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          <Input.Search
             allowClear
             value={searchQuery}
             onChange={(event) => {
@@ -398,14 +413,15 @@ export default function UsersTab({
               onSearchQueryChange(val);
               if (!val) onReset();
             }}
-            onPressEnter={onSearch}
+            onSearch={onSearch}
             placeholder="搜索会员：账号、手机或电子邮箱"
-            style={{ width: 320 }}
+            style={{ width: 400 }}
+            enterButton
           />
-          <Button type="primary" onClick={onSearch}>
-            搜索
-          </Button>
-        </Space>
+        </div>
+        <div style={{ flex: '0 0 auto', visibility: 'hidden' }}>
+          <Button>占位</Button>
+        </div>
       </div>
 
       <div ref={tableHostRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
