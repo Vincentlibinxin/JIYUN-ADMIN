@@ -19,7 +19,7 @@ if (!requiredJwtSecret || requiredJwtSecret.length < 32 || requiredJwtSecret ===
 const app = express();
 const port = 3001;
 
-const defaultOrigins = ['http://localhost:3002', 'http://127.0.0.1:3002'];
+const defaultOrigins = ['http://localhost:3002', 'http://127.0.0.1:3002', 'http://localhost:3003', 'http://127.0.0.1:3003'];
 const configuredOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map((item) => item.trim())
@@ -34,8 +34,6 @@ app.use(
 );
 
 app.use(express.json());
-
-app.use('/api/uploads', express.static(path.resolve(__dirname, '../uploads')));
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', service: 'jiyun-admin-api', timestamp: new Date().toISOString() });

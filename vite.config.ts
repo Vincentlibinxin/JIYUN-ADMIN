@@ -13,6 +13,7 @@ export default defineConfig({
     port: 3002,
     strictPort: true,
     host: '0.0.0.0',
+    allowedHosts: 'all',
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
@@ -24,6 +25,7 @@ export default defineConfig({
     port: 3002,
     strictPort: true,
     host: '0.0.0.0',
+    allowedHosts: 'all',
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
