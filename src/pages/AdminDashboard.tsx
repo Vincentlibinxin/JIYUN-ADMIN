@@ -901,6 +901,7 @@ export default function AdminDashboard() {
 
   return (
     <AdminLayout activeMenu={activeMenu} onMenuClick={(key) => { setActiveMenu(key); setActiveTab(key); }} onRefresh={handleRefresh}>
+          <div key={refreshKey} style={{ display: 'contents' }}>
           {error && (
             <div style={{ padding: '8px 12px', marginBottom: 12, backgroundColor: '#fff2f0', border: '1px solid #ffccc7', color: '#ff4d4f', borderRadius: 6, fontSize: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>{error}</span>
@@ -1083,6 +1084,7 @@ export default function AdminDashboard() {
               }}
             />
           )}
+          </div>
     </AdminLayout>
   );
 }
