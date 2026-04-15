@@ -699,12 +699,36 @@ export const createParcelInbound = async (payload: {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const [result] = await conn.execute<mysql.ResultSetHeader>(
-      `INSERT INTO parcels (tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, origin, destination, status, user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '', 'arrived', NULL)`,
-      [tracking_number, weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null]
+
+    // Check if parcel with same tracking number already exists (including soft-deleted)
+    const [existing] = await conn.execute<mysql.RowDataPacket[]>(
+      'SELECT id FROM parcels WHERE tracking_number = ? LIMIT 1',
+      [tracking_number]
     );
-    const parcelId = result.insertId;
+
+    let parcelId: number;
+    if (existing.length > 0) {
+      // Update existing parcel with new inbound info (restore if soft-deleted)
+      parcelId = existing[0].id;
+      await conn.execute(
+        `UPDATE parcels SET weight = ?, length_cm = ?, width_cm = ?, height_cm = ?, volume = ?,
+         images = ?, shelf_location = ?, status = 'arrived',
+         deleted_at = NULL, updated_at = NOW()
+         WHERE id = ?`,
+        [weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, parcelId]
+      );
+      // Remove old items, will re-insert below
+      await conn.execute('DELETE FROM parcel_items WHERE parcel_id = ?', [parcelId]);
+    } else {
+      // Insert new parcel
+      const [result] = await conn.execute<mysql.ResultSetHeader>(
+        `INSERT INTO parcels (tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, origin, destination, status, user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '', 'arrived', NULL)`,
+        [tracking_number, weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null]
+      );
+      parcelId = result.insertId;
+    }
+
     for (const item of items) {
       await conn.execute(
         `INSERT INTO parcel_items (parcel_id, name, value, quantity) VALUES (?, ?, ?, ?)`,

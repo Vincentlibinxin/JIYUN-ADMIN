@@ -71,6 +71,17 @@ export async function adminFetch(path: string, init: RequestInit = {}, options?:
     unauthorizedHandler();
   }
 
+  // CSRF token desync → clear stale token and force re-login
+  if (response.status === 403 && !options?.suppressUnauthorizedHandler) {
+    try {
+      const body = await response.clone().json();
+      if (typeof body?.error === 'string' && body.error.includes('CSRF')) {
+        sessionStorage.removeItem('adminCsrfToken');
+        if (unauthorizedHandler) unauthorizedHandler();
+      }
+    } catch { /* ignore parse errors */ }
+  }
+
   return response;
 }
 
