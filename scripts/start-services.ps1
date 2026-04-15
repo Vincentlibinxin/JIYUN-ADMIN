@@ -37,6 +37,16 @@ Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] Starting services fro
 
 Stop-PortListeners -ports @(3001, 3002)
 
+Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] Building frontend assets before start"
+$buildOut = Join-Path $logDir 'build.out.log'
+$buildErr = Join-Path $logDir 'build.err.log'
+$buildProcess = Start-Process -FilePath $npmCmd -ArgumentList @('run', 'build') -WorkingDirectory $repoRoot -WindowStyle Hidden -RedirectStandardOutput $buildOut -RedirectStandardError $buildErr -PassThru -Wait
+if ($buildProcess.ExitCode -ne 0) {
+  Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] ERROR: build failed, startup aborted"
+  throw "Build failed. Startup aborted."
+}
+Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] Build finished successfully"
+
 $apiOut = Join-Path $logDir 'api.out.log'
 $apiErr = Join-Path $logDir 'api.err.log'
 $webOut = Join-Path $logDir 'web.out.log'

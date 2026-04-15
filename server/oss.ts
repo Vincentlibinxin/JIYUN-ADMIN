@@ -41,6 +41,40 @@ export async function uploadToOss(
 }
 
 /**
+ * 为私有 Bucket 中的对象生成临时签名 URL
+ * @param url 文件的完整 URL 或 object name
+ * @param expires 签名有效时长（秒），默认 1 小时
+ * @returns 带签名参数的临时访问 URL
+ */
+export function signOssUrl(url: string, expires: number = 3600): string {
+  const oss = getOssClient();
+  let objectName = url;
+  try {
+    const parsed = new URL(url);
+    objectName = parsed.pathname.replace(/^\//, '');
+  } catch {
+    // 不是完整 URL，当作 object name
+  }
+  return oss.signatureUrl(objectName, { expires });
+}
+
+/**
+ * 批量替换 parcel 记录中的图片 URL 为签名 URL
+ */
+export function signParcelImages<T extends { images?: string | null }>(records: T[]): T[] {
+  return records.map(r => {
+    if (!r.images) return r;
+    const signed = r.images
+      .split(',')
+      .map(u => u.trim())
+      .filter(Boolean)
+      .map(u => (u.startsWith('http') ? signOssUrl(u) : u))
+      .join(',');
+    return { ...r, images: signed };
+  });
+}
+
+/**
  * 从 OSS 删除文件
  * @param url 文件的完整 URL 或 object name
  */

@@ -6,7 +6,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { uploadToOss } from '../oss';
+import { uploadToOss, signParcelImages } from '../oss';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import {
@@ -634,7 +634,7 @@ router.get('/parcels', adminAuth, async (req: AdminRequest, res: Response): Prom
   const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
   const result = await getParcelsPaged(page, limit, startDate, endDate, sortKey, sortOrder, columnFilters, dateFilters);
   res.json({
-    data: result.data,
+    data: signParcelImages(result.data),
     pagination: {
       page,
       limit,
@@ -653,7 +653,7 @@ router.get('/parcels/search', adminAuth, async (req: AdminRequest, res: Response
     return;
   }
   const data = await searchParcels(keyword, startDate, endDate);
-  res.json({ data, count: data.length });
+  res.json({ data: signParcelImages(data), count: data.length });
 });
 
 router.patch('/parcels/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {

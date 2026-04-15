@@ -5,3 +5,7 @@ dist/
 .env.api
 server/data/db.json
 logs/
+
+# Local upload files (now on OSS)
+uploads/parcels/*
+!uploads/parcels/.gitkeep

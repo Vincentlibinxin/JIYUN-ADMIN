@@ -4,7 +4,19 @@
  */
 const path = require('path');
 const fs = require('fs');
-require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
+const dotenv = require('dotenv');
+
+const envFiles = [
+  path.resolve(__dirname, '..', '.env.api'),
+  path.resolve(__dirname, '..', '.env'),
+];
+
+for (const envFile of envFiles) {
+  if (fs.existsSync(envFile)) {
+    dotenv.config({ path: envFile, override: false });
+  }
+}
+
 const OSS = require('ali-oss');
 const mysql = require('mysql2/promise');
 
