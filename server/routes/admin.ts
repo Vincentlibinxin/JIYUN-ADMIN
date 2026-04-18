@@ -29,6 +29,8 @@ import {
   getOrdersPaged,
   getParcelItems,
   getParcelsPaged,
+  getParcelStatusLogs,
+  getStatusLogsPaged,
   searchAdmins,
   searchOrders,
   searchParcels,
@@ -104,7 +106,15 @@ if (!JWT_SECRET || JWT_SECRET.length < 32 || JWT_SECRET === 'please-change-this-
 const ROLE_SET = new Set(['admin', 'super_admin']);
 const ADMIN_STATUS_SET = new Set(['active', 'disabled']);
 const ORDER_STATUS_SET = new Set(['pending', 'paid', 'processing', 'shipped', 'completed', 'cancelled']);
-const PARCEL_STATUS_SET = new Set(['pending', 'received', 'in_transit', 'arrived', 'delivered', 'exception']);
+const PARCEL_STATUS_SET = new Set(['pending', 'received', 'in_transit', 'arrived', 'pickup_pending', 'delivered', 'exception']);
+const SUB_STATUS_SET = new Set([
+  'awaiting_shelving', 'packing', 'awaiting_dispatch',
+  'export_declaring', 'export_clearing', 'import_clearing', 'customs_released',
+  'linehaul_in_transit', 'arrived_destination',
+  'out_for_delivery', 'delivery_failed',
+  'locker_stored', 'pickup_notified', 'pickup_overtime', 'locker_returned',
+  'address_issue', 'customs_issue', 'lost', 'damaged', 'return_processing',
+]);
 
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_BLOCK_MS = 15 * 60 * 1000;
@@ -694,6 +704,16 @@ router.get('/parcels/search', adminAuth, async (req: AdminRequest, res: Response
   res.json({ data: signParcelImages(data), count: data.length });
 });
 
+router.get('/parcels/status-logs', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+  const page = Number(req.query.page) || 1;
+  const limit = Number(req.query.limit) || 20;
+  const keyword = typeof req.query.keyword === 'string' ? req.query.keyword : undefined;
+  const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : undefined;
+  const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
+  const result = await getStatusLogsPaged(page, limit, keyword, startDate, endDate);
+  res.json(result);
+});
+
 router.patch('/parcels/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
   const status = String(req.body?.status || '').trim();
   if (!PARCEL_STATUS_SET.has(status)) {
@@ -705,12 +725,29 @@ router.patch('/parcels/:id', adminAuth, csrfGuard, async (req: AdminRequest, res
     res.status(400).json({ error: '包裹ID不合法' });
     return;
   }
-  const ok = await updateParcelStatus(parcelId, status);
+  const subStatus = req.body?.sub_status !== undefined ? String(req.body.sub_status || '').trim() || null : undefined;
+  if (subStatus && !SUB_STATUS_SET.has(subStatus)) {
+    res.status(400).json({ error: '包裹子状态不合法' });
+    return;
+  }
+  const statusRemark = req.body?.status_remark !== undefined ? String(req.body.status_remark || '').trim().slice(0, 255) || null : undefined;
+  const operatorId = (req as any).adminId || null;
+  const ok = await updateParcelStatus(parcelId, status, subStatus, statusRemark, operatorId);
   if (!ok) {
     res.status(404).json({ error: '包裹不存在' });
     return;
   }
-  res.json({ message: '包裹状态已更新', parcelId, status });
+  res.json({ message: '包裹状态已更新', parcelId, status, sub_status: subStatus });
+});
+
+router.get('/parcels/:id/status-logs', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+  const parcelId = toId(req.params.id);
+  if (!parcelId) {
+    res.status(400).json({ error: '包裹ID不合法' });
+    return;
+  }
+  const logs = await getParcelStatusLogs(parcelId);
+  res.json({ data: logs });
 });
 
 const parcelUpload = multer({
@@ -782,7 +819,7 @@ router.get('/parcels/:id/items', adminAuth, async (req: AdminRequest, res: Respo
 
 router.put('/parcels/:id', adminAuth, csrfGuard, parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
   const parcelId = Number(req.params.id);
-  const { weight, length_cm, width_cm, height_cm, origin, destination, status, items: itemsJson, existing_images } = req.body;
+  const { weight, length_cm, width_cm, height_cm, origin, destination, status, sub_status, status_remark, items: itemsJson, existing_images } = req.body;
   const w = Number(weight);
   const l = Number(length_cm);
   const wi = Number(width_cm);
@@ -819,6 +856,8 @@ router.put('/parcels/:id', adminAuth, csrfGuard, parcelUpload.array('files', 10)
       origin: typeof origin === 'string' ? origin.trim() : undefined,
       destination: typeof destination === 'string' ? destination.trim() : undefined,
       status: typeof status === 'string' ? status.trim() : undefined,
+      sub_status: typeof sub_status === 'string' ? sub_status.trim() : undefined,
+      status_remark: typeof status_remark === 'string' ? status_remark.trim() : undefined,
       images: allImages || undefined,
       items: items.map(it => ({ name: it.name.trim(), value: it.value, quantity: it.quantity })),
     });

@@ -1,8 +1,10 @@
-﻿import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Button, Card, Checkbox, DatePicker, Form, Image, Input, InputNumber, Modal, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tooltip, Upload } from 'antd';
-import { ReloadOutlined, EyeOutlined, EditOutlined, DeleteOutlined, InboxOutlined, PlusOutlined, MinusCircleOutlined } from '@ant-design/icons';
+﻿import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
+import { Button, Card, Checkbox, DatePicker, Form, Image, Input, InputNumber, Modal, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tooltip, Upload, Tag } from 'antd';
+import { ReloadOutlined, EyeOutlined, EditOutlined, DeleteOutlined, InboxOutlined, PlusOutlined, MinusCircleOutlined, FileTextOutlined, PictureOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { UploadFile } from 'antd/es/upload/interface';
+import { adminFetch } from '../../lib/api';
+import dayjs from 'dayjs';
 
 interface Parcel {
   id: number;
@@ -17,6 +19,9 @@ interface Parcel {
   volume: number | null;
   images: string | null;
   status: string;
+  sub_status: string | null;
+  status_remark: string | null;
+  status_updated_at: string | null;
   estimated_delivery: string | null;
   created_at: string;
   username: string | null;
@@ -120,6 +125,94 @@ export default function ParcelsTab({
   const [editFileList, setEditFileList] = useState<UploadFile[]>([]);
   const [editingParcel, setEditingParcel] = useState<Parcel | null>(null);
 
+  // ---- 状态流转日志弹窗 ----
+  interface StatusLog {
+    id: number;
+    parcel_id: number;
+    tracking_number: string | null;
+    from_status: string | null;
+    to_status: string;
+    sub_status: string | null;
+    remark: string | null;
+    operator_name: string | null;
+    created_at: string;
+  }
+  const [logsOpen, setLogsOpen] = useState(false);
+  const [logsData, setLogsData] = useState<StatusLog[]>([]);
+  const [logsTotal, setLogsTotal] = useState(0);
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsPageSize, setLogsPageSize] = useState(20);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsKeyword, setLogsKeyword] = useState('');
+  const [logsDateRange, setLogsDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+
+  const fetchStatusLogs = useCallback(async (page = 1, size = 20, keyword = '', dateRange: [dayjs.Dayjs, dayjs.Dayjs] | null = null) => {
+    setLogsLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: String(size) });
+      if (keyword.trim()) params.set('keyword', keyword.trim());
+      if (dateRange) {
+        params.set('startDate', dateRange[0].format('YYYY-MM-DD'));
+        params.set('endDate', dateRange[1].format('YYYY-MM-DD'));
+      }
+      const res = await adminFetch(`/admin/parcels/status-logs?${params}`);
+      const json = await res.json();
+      setLogsData(json.data || []);
+      setLogsTotal(json.total || 0);
+    } catch {
+      setLogsData([]);
+      setLogsTotal(0);
+    } finally {
+      setLogsLoading(false);
+    }
+  }, []);
+
+  const openLogsModal = () => {
+    setLogsOpen(true);
+    setLogsPage(1);
+    setLogsKeyword('');
+    setLogsDateRange(null);
+    fetchStatusLogs(1, logsPageSize);
+  };
+
+  const STATUS_LABEL: Record<string, string> = {
+    pending: '待处理',
+    received: '已入库',
+    in_transit: '运输中',
+    arrived: '已到达',
+    pickup_pending: '待自提',
+    delivered: '已签收',
+    exception: '异常',
+  };
+  const STATUS_COLOR: Record<string, string> = {
+    pending: 'default',
+    received: 'processing',
+    in_transit: 'cyan',
+    arrived: 'blue',
+    pickup_pending: 'purple',
+    delivered: 'green',
+    exception: 'red',
+  };
+
+  const logsColumns: ColumnsType<StatusLog> = [
+    { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 170, render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '-' },
+    { title: '包裹ID', dataIndex: 'parcel_id', key: 'parcel_id', width: 80 },
+    { title: '运单号', dataIndex: 'tracking_number', key: 'tracking_number', width: 160, render: (v: string | null) => v || '-' },
+    {
+      title: '状态变更', key: 'status_change', width: 200,
+      render: (_: unknown, r: StatusLog) => (
+        <span>
+          <Tag color={STATUS_COLOR[r.from_status || ''] || 'default'}>{STATUS_LABEL[r.from_status || ''] || r.from_status || '无'}</Tag>
+          →
+          <Tag color={STATUS_COLOR[r.to_status] || 'default'}>{STATUS_LABEL[r.to_status] || r.to_status}</Tag>
+        </span>
+      ),
+    },
+    { title: '子状态', dataIndex: 'sub_status', key: 'sub_status', width: 120, render: (v: string | null) => v || '-' },
+    { title: '备注', dataIndex: 'remark', key: 'remark', width: 180, ellipsis: true, render: (v: string | null) => v || '-' },
+    { title: '操作人', dataIndex: 'operator_name', key: 'operator_name', width: 100, render: (v: string | null) => v || '系统' },
+  ];
+
   const handleInboundSubmit = async () => {
     try {
       const values = await inboundForm.validateFields();
@@ -160,6 +253,8 @@ export default function ParcelsTab({
       origin: record.origin || '',
       destination: record.destination || '',
       status: record.status,
+      sub_status: record.sub_status || undefined,
+      status_remark: record.status_remark || '',
       items: [{ name: '', value: 0, quantity: 1 }],
     });
     setEditOpen(true);
@@ -182,6 +277,8 @@ export default function ParcelsTab({
       fd.append('origin', values.origin || '');
       fd.append('destination', values.destination || '');
       fd.append('status', values.status || editingParcel.status);
+      fd.append('sub_status', values.sub_status || '');
+      fd.append('status_remark', values.status_remark || '');
       fd.append('items', JSON.stringify(values.items));
       const existingUrls = editFileList.filter(f => f.url && !f.originFileObj).map(f => f.url!);
       fd.append('existing_images', existingUrls.join(','));
@@ -417,24 +514,21 @@ export default function ParcelsTab({
     {
       title: '图片',
       key: 'images',
-      width: 120,
+      width: 60,
       children: [
         {
           title: <span style={{ fontSize: 12, color: '#999' }}>图片</span>,
           key: 'images_child',
-          width: 120,
+          width: 60,
+          align: 'center' as const,
           render: (_, record) => {
             if (!record.images) return '-';
             const urls = record.images.split(',').map(s => s.trim()).filter(Boolean);
             if (urls.length === 0) return '-';
             return (
               <Image.PreviewGroup items={urls.map(url => ({ src: url }))}>
-                <Space size={4}>
-                  {urls.slice(0, 3).map((url, i) => (
-                    <Image key={i} src={url} width={32} height={32} style={{ objectFit: 'cover', borderRadius: 4, cursor: 'pointer' }} preview={{ mask: false }} />
-                  ))}
-                  {urls.length > 3 && <span style={{ fontSize: 12, color: '#999' }}>+{urls.length - 3}</span>}
-                </Space>
+                <Image src={urls[0]} width={0} height={0} style={{ display: 'none' }} preview={{ mask: false }} />
+                <PictureOutlined style={{ fontSize: 18, color: '#1677ff', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); const hidden = (e.currentTarget as HTMLElement).previousElementSibling as HTMLElement; hidden?.click(); }} />
               </Image.PreviewGroup>
             );
           },
@@ -507,14 +601,49 @@ export default function ParcelsTab({
               onChange={(value) => onUpdateStatus(record.id, value)}
               onClick={(e) => e.stopPropagation()}
               options={[
-                { label: '待入库', value: 'pending' },
-                { label: '已入库', value: 'arrived' },
-                { label: '运输中', value: 'shipping' },
-                { label: '已签收', value: 'completed' },
-                { label: '已取消', value: 'cancelled' },
+                { label: '待处理', value: 'pending' },
+                { label: '已收货', value: 'received' },
+                { label: '运输中', value: 'in_transit' },
+                { label: '已到达', value: 'arrived' },
+                { label: '待自提', value: 'pickup_pending' },
+                { label: '已签收', value: 'delivered' },
+                { label: '异常件', value: 'exception' },
               ]}
             />
           ),
+        },
+      ],
+    },
+    {
+      title: '子状态',
+      key: 'sub_status',
+      width: 130,
+      children: [
+        {
+          title: renderSearchInput('sub_status', '子状态'),
+          key: 'sub_status_child',
+          width: 130,
+          render: (_: any, record: Parcel) => {
+            const subStatusLabels: Record<string, string> = {
+              awaiting_shelving: '待上架',
+              packing: '打包中',
+              awaiting_dispatch: '待出库',
+              export_declaring: '出口申报中',
+              export_clearing: '出口清关中',
+              import_clearing: '进口清关中',
+              customs_released: '海关放行',
+              linehaul_in_transit: '干线运输中',
+              arrived_destination: '到达目的地',
+              out_for_delivery: '派送中',
+              delivery_failed: '派送失败',
+              address_issue: '地址异常',
+              customs_issue: '清关异常',
+              lost: '包裹丢失',
+              damaged: '包裹破损',
+              return_processing: '退回中',
+            };
+            return record.sub_status ? (subStatusLabels[record.sub_status] || record.sub_status) : '-';
+          },
         },
       ],
     },
@@ -755,13 +884,46 @@ export default function ParcelsTab({
           <Form.Item name="status" label="状态">
             <Select
               options={[
-                { label: '待入库', value: 'pending' },
-                { label: '已入库', value: 'arrived' },
-                { label: '运输中', value: 'shipping' },
-                { label: '已签收', value: 'completed' },
-                { label: '已取消', value: 'cancelled' },
+                { label: '待处理', value: 'pending' },
+                { label: '已收货', value: 'received' },
+                { label: '运输中', value: 'in_transit' },
+                { label: '已到达', value: 'arrived' },
+                { label: '待自提', value: 'pickup_pending' },
+                { label: '已签收', value: 'delivered' },
+                { label: '异常件', value: 'exception' },
               ]}
             />
+          </Form.Item>
+          <Form.Item name="sub_status" label="子状态">
+            <Select
+              allowClear
+              placeholder="可选"
+              options={[
+                { label: '待上架', value: 'awaiting_shelving' },
+                { label: '打包中', value: 'packing' },
+                { label: '待出库', value: 'awaiting_dispatch' },
+                { label: '出口申报中', value: 'export_declaring' },
+                { label: '出口清关中', value: 'export_clearing' },
+                { label: '进口清关中', value: 'import_clearing' },
+                { label: '海关放行', value: 'customs_released' },
+                { label: '干线运输中', value: 'linehaul_in_transit' },
+                { label: '到达目的地', value: 'arrived_destination' },
+                { label: '已入柜', value: 'locker_stored' },
+                { label: '已通知取件', value: 'pickup_notified' },
+                { label: '超时未取', value: 'pickup_overtime' },
+                { label: '退柜处理', value: 'locker_returned' },
+                { label: '派送中', value: 'out_for_delivery' },
+                { label: '派送失败', value: 'delivery_failed' },
+                { label: '地址异常', value: 'address_issue' },
+                { label: '清关异常', value: 'customs_issue' },
+                { label: '包裹丢失', value: 'lost' },
+                { label: '包裹破损', value: 'damaged' },
+                { label: '退回中', value: 'return_processing' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="status_remark" label="状态备注">
+            <Input.TextArea rows={2} maxLength={255} placeholder="可选，填写异常原因或备注信息" />
           </Form.Item>
           <Form.Item label="图片">
             <Upload
@@ -848,6 +1010,9 @@ export default function ParcelsTab({
           background: '#fff',
           borderTop: '1px solid #f0f0f0',
           padding: '6px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
         }}
       >
         <AntPagination
@@ -862,7 +1027,62 @@ export default function ParcelsTab({
           onChange={(page, size) => onPageChange(page, size)}
           onShowSizeChange={(_, size) => onPageSizeChange(size)}
         />
+        <Button size="small" icon={<FileTextOutlined />} onClick={openLogsModal}>
+          状态流转日志
+        </Button>
       </div>
+
+      {/* 状态流转日志弹窗 */}
+      <Modal
+        title="包裹状态流转日志"
+        open={logsOpen}
+        onCancel={() => setLogsOpen(false)}
+        footer={null}
+        width={1000}
+        destroyOnClose
+      >
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <Input.Search
+            placeholder="搜索运单号/状态/备注/操作人..."
+            allowClear
+            style={{ width: 300 }}
+            value={logsKeyword}
+            onChange={e => setLogsKeyword(e.target.value)}
+            onSearch={(val) => { setLogsPage(1); fetchStatusLogs(1, logsPageSize, val, logsDateRange); }}
+          />
+          <DatePicker.RangePicker
+            size="middle"
+            value={logsDateRange}
+            onChange={(dates) => {
+              const range = dates as [dayjs.Dayjs, dayjs.Dayjs] | null;
+              setLogsDateRange(range);
+              setLogsPage(1);
+              fetchStatusLogs(1, logsPageSize, logsKeyword, range);
+            }}
+          />
+        </div>
+        <Table
+          rowKey="id"
+          columns={logsColumns}
+          dataSource={logsData}
+          loading={logsLoading}
+          size="small"
+          pagination={{
+            current: logsPage,
+            pageSize: logsPageSize,
+            total: logsTotal,
+            showSizeChanger: true,
+            pageSizeOptions: [10, 20, 50],
+            showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条 / 共 ${total} 条`,
+            onChange: (p, s) => {
+              setLogsPage(p);
+              setLogsPageSize(s);
+              fetchStatusLogs(p, s, logsKeyword, logsDateRange);
+            },
+          }}
+          scroll={{ y: 400 }}
+        />
+      </Modal>
     </Card>
   );
 }

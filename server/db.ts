@@ -258,6 +258,44 @@ export const initDb = async (): Promise<void> => {
     if (!existingCols.has('shelf_location')) {
       await connection.execute(`ALTER TABLE parcels ADD COLUMN shelf_location VARCHAR(64) AFTER images`);
     }
+    if (!existingCols.has('sub_status')) {
+      await connection.execute(`ALTER TABLE parcels ADD COLUMN sub_status VARCHAR(64) DEFAULT NULL AFTER status`);
+    }
+    if (!existingCols.has('status_remark')) {
+      await connection.execute(`ALTER TABLE parcels ADD COLUMN status_remark VARCHAR(255) DEFAULT NULL AFTER sub_status`);
+    }
+    if (!existingCols.has('status_updated_at')) {
+      await connection.execute(`ALTER TABLE parcels ADD COLUMN status_updated_at DATETIME DEFAULT NULL AFTER status_remark`);
+    }
+
+    // Add indexes for status columns if not exist
+    const [parcelIndexes] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'parcels'`
+    );
+    const existingIndexes = new Set((parcelIndexes as any[]).map((r: any) => r.INDEX_NAME));
+    if (!existingIndexes.has('idx_parcels_status')) {
+      await connection.execute(`ALTER TABLE parcels ADD INDEX idx_parcels_status (status)`);
+    }
+    if (!existingIndexes.has('idx_parcels_sub_status')) {
+      await connection.execute(`ALTER TABLE parcels ADD INDEX idx_parcels_sub_status (sub_status)`);
+    }
+
+    // Parcel status change logs
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS parcel_status_logs (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        parcel_id INT NOT NULL,
+        from_status VARCHAR(64),
+        to_status VARCHAR(64),
+        sub_status VARCHAR(64),
+        remark VARCHAR(255),
+        operator_id INT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_psl_parcel (parcel_id),
+        INDEX idx_psl_created (created_at),
+        FOREIGN KEY (parcel_id) REFERENCES parcels(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
 
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS orders (
@@ -617,7 +655,8 @@ export const getParcelsPaged = async (
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
             p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images,
-            p.status, p.estimated_delivery, p.created_at,
+            p.status, p.sub_status, p.status_remark, p.status_updated_at,
+            p.estimated_delivery, p.created_at,
             u.username AS username,
             (SELECT pi.name FROM parcel_items pi WHERE pi.parcel_id = p.id ORDER BY pi.id LIMIT 1) AS first_item_name,
             (SELECT COUNT(*) FROM parcel_items pi WHERE pi.parcel_id = p.id) AS item_count
@@ -663,7 +702,8 @@ export const searchParcels = async (keyword: string, startDate?: string, endDate
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
             p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images,
-            p.status, p.estimated_delivery, p.created_at,
+            p.status, p.sub_status, p.status_remark, p.status_updated_at,
+            p.estimated_delivery, p.created_at,
             u.username AS username,
             (SELECT pi.name FROM parcel_items pi WHERE pi.parcel_id = p.id ORDER BY pi.id LIMIT 1) AS first_item_name,
             (SELECT COUNT(*) FROM parcel_items pi WHERE pi.parcel_id = p.id) AS item_count
@@ -676,12 +716,59 @@ export const searchParcels = async (keyword: string, startDate?: string, endDate
   return rows as any[];
 };
 
-export const updateParcelStatus = async (parcelId: number, status: string): Promise<boolean> => {
-  const [result] = await pool.execute<mysql.ResultSetHeader>(
-    'UPDATE parcels SET status = ?, updated_at = NOW() WHERE id = ?',
-    [status, parcelId]
-  );
-  return result.affectedRows > 0;
+export const updateParcelStatus = async (
+  parcelId: number,
+  status: string,
+  subStatus?: string | null,
+  statusRemark?: string | null,
+  operatorId?: number | null
+): Promise<boolean> => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // Get current status for logging
+    const [rows] = await conn.execute<mysql.RowDataPacket[]>(
+      'SELECT status, sub_status FROM parcels WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+      [parcelId]
+    );
+    if (!rows.length) {
+      await conn.rollback();
+      return false;
+    }
+    const fromStatus = rows[0].status;
+
+    // Update parcel status
+    const sets: string[] = ['status = ?', 'status_updated_at = NOW()', 'updated_at = NOW()'];
+    const params: any[] = [status];
+    if (subStatus !== undefined) { sets.push('sub_status = ?'); params.push(subStatus || null); }
+    if (statusRemark !== undefined) { sets.push('status_remark = ?'); params.push(statusRemark || null); }
+    params.push(parcelId);
+
+    const [result] = await conn.execute<mysql.ResultSetHeader>(
+      `UPDATE parcels SET ${sets.join(', ')} WHERE id = ?`,
+      params
+    );
+    if (result.affectedRows === 0) {
+      await conn.rollback();
+      return false;
+    }
+
+    // Insert status change log
+    await conn.execute(
+      `INSERT INTO parcel_status_logs (parcel_id, from_status, to_status, sub_status, remark, operator_id)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [parcelId, fromStatus, status, subStatus || null, statusRemark || null, operatorId || null]
+    );
+
+    await conn.commit();
+    return true;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 };
 
 export const createParcelInbound = async (payload: {
@@ -712,7 +799,7 @@ export const createParcelInbound = async (payload: {
       parcelId = existing[0].id;
       await conn.execute(
         `UPDATE parcels SET weight = ?, length_cm = ?, width_cm = ?, height_cm = ?, volume = ?,
-         images = ?, shelf_location = ?, status = 'arrived',
+         images = ?, shelf_location = ?, status = 'arrived', status_updated_at = NOW(),
          deleted_at = NULL, updated_at = NOW()
          WHERE id = ?`,
         [weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, parcelId]
@@ -722,8 +809,8 @@ export const createParcelInbound = async (payload: {
     } else {
       // Insert new parcel
       const [result] = await conn.execute<mysql.ResultSetHeader>(
-        `INSERT INTO parcels (tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, origin, destination, status, user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '', 'arrived', NULL)`,
+        `INSERT INTO parcels (tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, origin, destination, status, status_updated_at, user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '', 'arrived', NOW(), NULL)`,
         [tracking_number, weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null]
       );
       parcelId = result.insertId;
@@ -762,10 +849,12 @@ export const updateParcel = async (parcelId: number, payload: {
   origin?: string;
   destination?: string;
   status?: string;
+  sub_status?: string;
+  status_remark?: string;
   images?: string;
   items: { name: string; value: number; quantity: number }[];
 }): Promise<boolean> => {
-  const { weight, length_cm, width_cm, height_cm, volume, origin, destination, status, images, items } = payload;
+  const { weight, length_cm, width_cm, height_cm, volume, origin, destination, status, sub_status, status_remark, images, items } = payload;
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -773,7 +862,9 @@ export const updateParcel = async (parcelId: number, payload: {
     const params: any[] = [weight, length_cm, width_cm, height_cm, volume];
     if (origin !== undefined) { sets.push('origin = ?'); params.push(origin); }
     if (destination !== undefined) { sets.push('destination = ?'); params.push(destination); }
-    if (status !== undefined) { sets.push('status = ?'); params.push(status); }
+    if (status !== undefined) { sets.push('status = ?'); sets.push('status_updated_at = NOW()'); params.push(status); }
+    if (sub_status !== undefined) { sets.push('sub_status = ?'); params.push(sub_status || null); }
+    if (status_remark !== undefined) { sets.push('status_remark = ?'); params.push(status_remark || null); }
     if (images !== undefined) { sets.push('images = ?'); params.push(images || null); }
     params.push(parcelId);
     const [result] = await conn.execute<mysql.ResultSetHeader>(
@@ -799,6 +890,82 @@ export const updateParcel = async (parcelId: number, payload: {
   } finally {
     conn.release();
   }
+};
+
+export const getParcelStatusLogs = async (parcelId: number): Promise<any[]> => {
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT psl.id, psl.parcel_id, psl.from_status, psl.to_status, psl.sub_status,
+            psl.remark, psl.operator_id, psl.created_at,
+            a.username AS operator_name
+     FROM parcel_status_logs psl
+     LEFT JOIN admin_users a ON psl.operator_id = a.id
+     WHERE psl.parcel_id = ?
+     ORDER BY psl.created_at DESC`,
+    [parcelId]
+  );
+  return rows as any[];
+};
+
+export const getStatusLogsPaged = async (
+  page: number,
+  limit: number,
+  keyword?: string,
+  startDate?: string,
+  endDate?: string,
+) => {
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 20, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const allClauses: string[] = [];
+  const allParams: any[] = [];
+
+  if (keyword && keyword.trim()) {
+    const like = `%${keyword.trim()}%`;
+    allClauses.push(`(
+      CAST(psl.parcel_id AS CHAR) LIKE ?
+      OR p.tracking_number LIKE ?
+      OR psl.from_status LIKE ?
+      OR psl.to_status LIKE ?
+      OR psl.remark LIKE ?
+      OR a.username LIKE ?
+    )`);
+    allParams.push(like, like, like, like, like, like);
+  }
+  if (startDate) { allClauses.push('psl.created_at >= ?'); allParams.push(startDate); }
+  if (endDate) { allClauses.push('psl.created_at <= ?'); allParams.push(endDate + ' 23:59:59'); }
+
+  const whereSql = allClauses.length > 0 ? `WHERE ${allClauses.join(' AND ')}` : '';
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT psl.id, psl.parcel_id, psl.from_status, psl.to_status, psl.sub_status,
+            psl.remark, psl.operator_id, psl.created_at,
+            a.username AS operator_name,
+            p.tracking_number
+     FROM parcel_status_logs psl
+     LEFT JOIN admin_users a ON psl.operator_id = a.id
+     LEFT JOIN parcels p ON psl.parcel_id = p.id
+     ${whereSql}
+     ORDER BY psl.created_at DESC
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    allParams
+  );
+
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count
+     FROM parcel_status_logs psl
+     LEFT JOIN admin_users a ON psl.operator_id = a.id
+     LEFT JOIN parcels p ON psl.parcel_id = p.id
+     ${whereSql}`,
+    allParams
+  );
+
+  const total = Number(countRows?.[0]?.count || 0);
+  return {
+    data: rows as any[],
+    total,
+    pages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
 };
 
 const ADMINS_SORT_COLUMNS = new Set(['id', 'username', 'email', 'role', 'status', 'last_login', 'created_at']);
