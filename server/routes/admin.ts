@@ -778,11 +778,16 @@ router.post('/parcels/inbound', adminAuth, csrfGuard, parcelUpload.array('files'
   }
   let items: { name: string; value: number; quantity: number }[];
   try {
-    items = JSON.parse(itemsJson);
-    if (!Array.isArray(items) || items.length === 0) throw new Error();
+    const parsed = JSON.parse(itemsJson);
+    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error();
+    items = parsed.map((it: any) => ({
+      name: String(it?.name || '').trim(),
+      value: Number(it?.value),
+      quantity: Number(it?.quantity),
+    }));
     for (const item of items) {
-      if (!item.name || typeof item.name !== 'string' || !item.name.trim()) throw new Error('物品名称不能为空');
-      if (typeof item.value !== 'number' || item.value < 0) throw new Error('物品价值无效');
+      if (!item.name) throw new Error('物品名称不能为空');
+      if (!Number.isFinite(item.value) || item.value < 0) throw new Error('物品价值无效');
       if (!Number.isInteger(item.quantity) || item.quantity < 1) throw new Error('物品数量无效');
     }
   } catch {
@@ -830,11 +835,16 @@ router.put('/parcels/:id', adminAuth, csrfGuard, parcelUpload.array('files', 10)
   }
   let items: { name: string; value: number; quantity: number }[];
   try {
-    items = JSON.parse(itemsJson);
-    if (!Array.isArray(items) || items.length === 0) throw new Error();
+    const parsed = JSON.parse(itemsJson);
+    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error();
+    items = parsed.map((it: any) => ({
+      name: String(it?.name || '').trim(),
+      value: Number(it?.value),
+      quantity: Number(it?.quantity),
+    }));
     for (const item of items) {
-      if (!item.name || typeof item.name !== 'string' || !item.name.trim()) throw new Error();
-      if (typeof item.value !== 'number' || item.value < 0) throw new Error();
+      if (!item.name) throw new Error();
+      if (!Number.isFinite(item.value) || item.value < 0) throw new Error();
       if (!Number.isInteger(item.quantity) || item.quantity < 1) throw new Error();
     }
   } catch {

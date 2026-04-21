@@ -1,7 +1,7 @@
 {
   "name": "jiyun-admin-web",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.13",
   "type": "module",
   "scripts": {
     "postinstall": "patch-package",

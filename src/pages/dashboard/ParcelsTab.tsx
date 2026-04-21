@@ -123,7 +123,25 @@ export default function ParcelsTab({
   const [editLoading, setEditLoading] = useState(false);
   const [editForm] = Form.useForm();
   const [editFileList, setEditFileList] = useState<UploadFile[]>([]);
+  const [editPreviewOpen, setEditPreviewOpen] = useState(false);
+  const [editPreviewSrc, setEditPreviewSrc] = useState('');
+  const handleEditPreview = async (file: UploadFile) => {
+    let src = file.url || (file as any).thumbUrl || '';
+    if (!src && file.originFileObj) {
+      src = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(file.originFileObj as Blob);
+      });
+    }
+    if (src) { setEditPreviewSrc(src); setEditPreviewOpen(true); }
+  };
   const [editingParcel, setEditingParcel] = useState<Parcel | null>(null);
+
+  // 行内图片预览（列表图片列点击时使用）
+  const [rowPreviewOpen, setRowPreviewOpen] = useState(false);
+  const [rowPreviewUrls, setRowPreviewUrls] = useState<string[]>([]);
+  const [rowPreviewIndex, setRowPreviewIndex] = useState(0);
 
   // ---- 状态流转日志弹窗 ----
   interface StatusLog {
@@ -526,10 +544,15 @@ export default function ParcelsTab({
             const urls = record.images.split(',').map(s => s.trim()).filter(Boolean);
             if (urls.length === 0) return '-';
             return (
-              <Image.PreviewGroup items={urls.map(url => ({ src: url }))}>
-                <Image src={urls[0]} width={0} height={0} style={{ display: 'none' }} preview={{ mask: false }} />
-                <PictureOutlined style={{ fontSize: 18, color: '#1677ff', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); const hidden = (e.currentTarget as HTMLElement).previousElementSibling as HTMLElement; hidden?.click(); }} />
-              </Image.PreviewGroup>
+              <PictureOutlined
+                style={{ fontSize: 18, color: '#1677ff', cursor: 'pointer' }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRowPreviewUrls(urls);
+                  setRowPreviewIndex(0);
+                  setRowPreviewOpen(true);
+                }}
+              />
             );
           },
         },
@@ -930,6 +953,7 @@ export default function ParcelsTab({
               listType="picture-card"
               fileList={editFileList}
               onChange={({ fileList: fl }) => setEditFileList(fl)}
+              onPreview={handleEditPreview}
               beforeUpload={() => false}
               accept="image/*"
               multiple
@@ -974,6 +998,31 @@ export default function ParcelsTab({
           </Form.List>
         </Form>
       </Modal>
+
+      {editPreviewSrc && (
+        <Image
+          wrapperStyle={{ display: 'none' }}
+          preview={{
+            visible: editPreviewOpen,
+            onVisibleChange: (v) => { setEditPreviewOpen(v); if (!v) setEditPreviewSrc(''); },
+          }}
+          src={editPreviewSrc}
+        />
+      )}
+
+      <div style={{ display: 'none' }}>
+        <Image.PreviewGroup
+          items={rowPreviewUrls}
+          preview={{
+            visible: rowPreviewOpen,
+            current: rowPreviewIndex,
+            onVisibleChange: (v) => setRowPreviewOpen(v),
+            onChange: (idx) => setRowPreviewIndex(idx),
+          }}
+        >
+          {rowPreviewUrls.map((u) => <Image key={u} src={u} />)}
+        </Image.PreviewGroup>
+      </div>
 
       <div ref={tableHostRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <Table<Parcel>

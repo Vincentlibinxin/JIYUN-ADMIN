@@ -1,5 +1,6 @@
 ﻿import AdminLayout from '../app/layouts/AdminLayout';
 import { useState, useEffect } from 'react';
+import { message } from 'antd';
 import { Home, Users, User, ShoppingCart, MessageCircle, Package, ClipboardList, Shield } from 'lucide-react';
 
 import { adminFetch } from '../lib/api';
@@ -107,6 +108,13 @@ export default function AdminDashboard() {
   const [parcelsLoading, setParcelsLoading] = useState(false);
   const [adminsLoading, setAdminsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [messageApi, messageContextHolder] = message.useMessage();
+  useEffect(() => {
+    if (error) {
+      messageApi.error({ content: error, duration: 3 });
+      setError('');
+    }
+  }, [error, messageApi]);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [totalPages, setTotalPages] = useState(1);
@@ -901,13 +909,8 @@ export default function AdminDashboard() {
 
   return (
     <AdminLayout activeMenu={activeMenu} onMenuClick={(key) => { setActiveMenu(key); setActiveTab(key); }} onRefresh={handleRefresh}>
+          {messageContextHolder}
           <div key={refreshKey} style={{ display: 'contents' }}>
-          {error && (
-            <div style={{ padding: '8px 12px', marginBottom: 12, backgroundColor: '#fff2f0', border: '1px solid #ffccc7', color: '#ff4d4f', borderRadius: 6, fontSize: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>{error}</span>
-              <span style={{ cursor: 'pointer', fontSize: 16, lineHeight: 1 }} onClick={() => setError('')}>&times;</span>
-            </div>
-          )}
 
           {/* 概覽頁面 */}
           {activeTab === 'overview' && (

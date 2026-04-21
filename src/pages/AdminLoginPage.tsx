@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Form, Input, Typography, ConfigProvider, theme } from 'antd';
+import { Button, Form, Input, Typography, ConfigProvider, theme, message } from 'antd';
 import { UserOutlined, LockOutlined, LoginOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
 import { ApiRequestError } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -13,8 +13,9 @@ export default function AdminLoginPage() {
   const navigate = useNavigate();
   const { login } = useAuth();
   const { t } = useI18n();
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [messageApi, messageContextHolder] = message.useMessage();
+  const showError = (msg: string) => messageApi.error({ content: msg, duration: 3 });
 
   const formatRetryAfter = (seconds: number): string => {
     const safeSeconds = Math.max(0, Math.floor(seconds));
@@ -25,7 +26,6 @@ export default function AdminLoginPage() {
   };
 
   const handleLogin = async (values: any) => {
-    setError('');
     setLoading(true);
     try {
       await login(values.username, values.password);
@@ -35,24 +35,24 @@ export default function AdminLoginPage() {
         if (err.status === 429) {
           const retryAfterSeconds = Number(err.payload?.retryAfterSeconds || 0);
           const waitText = retryAfterSeconds > 0 ? formatRetryAfter(retryAfterSeconds) : '稍后';
-          setError(`${t('login.retryPrefix')}${waitText}${t('login.retrySuffix')}`);
+          showError(`${t('login.retryPrefix')}${waitText}${t('login.retrySuffix')}`);
           return;
         }
 
         if (err.status === 401) {
-          setError(t('login.invalidCredentials'));
+          showError(t('login.invalidCredentials'));
           return;
         }
 
-        setError(err.message || t('login.failed'));
+        showError(err.message || t('login.failed'));
         return;
       }
 
-      const message = String(err?.message || '').toLowerCase();
-      if (message.includes('failed to fetch') || message.includes('network') || message.includes('load failed')) {
-        setError(t('login.networkError'));
+      const msg = String(err?.message || '').toLowerCase();
+      if (msg.includes('failed to fetch') || msg.includes('network') || msg.includes('load failed')) {
+        showError(t('login.networkError'));
       } else {
-        setError(err.message || t('login.requestFailed'));
+        showError(err.message || t('login.requestFailed'));
       }
     } finally {
       setLoading(false);
@@ -123,19 +123,7 @@ export default function AdminLoginPage() {
             size="large"
             style={{ width: '100%' }}
           >
-            {error && (
-              <Form.Item>
-                <div style={{
-                  padding: '8px 12px',
-                  backgroundColor: 'rgba(239, 68, 68, 0.2)',
-                  border: '1px solid rgba(239, 68, 68, 0.5)',
-                  color: '#fca5a5',
-                  borderRadius: 12,
-                  fontSize: 14,
-                  textAlign: 'center'
-                }}>{error}</div>
-              </Form.Item>
-            )}
+            {messageContextHolder}
 
             <Form.Item
               name="username"

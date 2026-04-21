@@ -837,7 +837,12 @@ export const getParcelItems = async (parcelId: number): Promise<{ id: number; na
     'SELECT id, name, value, quantity FROM parcel_items WHERE parcel_id = ? ORDER BY id',
     [parcelId]
   );
-  return rows as any[];
+  return (rows as any[]).map(r => ({
+    id: r.id,
+    name: r.name,
+    value: Number(r.value),
+    quantity: Number(r.quantity),
+  }));
 };
 
 export const updateParcel = async (parcelId: number, payload: {
