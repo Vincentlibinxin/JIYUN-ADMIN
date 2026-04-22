@@ -297,7 +297,7 @@ export default function AdminsTab({
           title: renderDateRangeInput('last_login'),
           key: 'last_login_child',
           width: 180,
-          render: (_, record) => (record.last_login ? new Date(record.last_login).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '-'),
+          render: (_, record) => (record.last_login ? new Date(record.last_login).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : ''),
         },
       ],
     },

@@ -1,5 +1,5 @@
 ﻿import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
-import { Button, Card, Checkbox, DatePicker, Form, Image, Input, InputNumber, Modal, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tooltip, Upload, Tag } from 'antd';
+import { Button, Card, Checkbox, DatePicker, Form, Image, Input, InputNumber, Modal, Pagination as AntPagination, Popconfirm, Row, Col, Select, Space, Table, Tooltip, Upload, Tag } from 'antd';
 import { ReloadOutlined, EyeOutlined, EditOutlined, DeleteOutlined, InboxOutlined, PlusOutlined, MinusCircleOutlined, FileTextOutlined, PictureOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { UploadFile } from 'antd/es/upload/interface';
@@ -124,8 +124,9 @@ export default function ParcelsTab({
   const [editForm] = Form.useForm();
   const [editFileList, setEditFileList] = useState<UploadFile[]>([]);
   const [editPreviewOpen, setEditPreviewOpen] = useState(false);
-  const [editPreviewSrc, setEditPreviewSrc] = useState('');
-  const handleEditPreview = async (file: UploadFile) => {
+  const [editPreviewUrls, setEditPreviewUrls] = useState<string[]>([]);
+  const [editPreviewIndex, setEditPreviewIndex] = useState(0);
+  const fileToSrc = async (file: UploadFile): Promise<string> => {
     let src = file.url || (file as any).thumbUrl || '';
     if (!src && file.originFileObj) {
       src = await new Promise<string>((resolve) => {
@@ -134,7 +135,17 @@ export default function ParcelsTab({
         reader.readAsDataURL(file.originFileObj as Blob);
       });
     }
-    if (src) { setEditPreviewSrc(src); setEditPreviewOpen(true); }
+    return src;
+  };
+  const handleEditPreview = async (file: UploadFile) => {
+    const urls = await Promise.all(editFileList.map(fileToSrc));
+    const validUrls = urls.filter(Boolean);
+    if (validUrls.length === 0) return;
+    const clicked = await fileToSrc(file);
+    const idx = Math.max(0, validUrls.indexOf(clicked));
+    setEditPreviewUrls(validUrls);
+    setEditPreviewIndex(idx);
+    setEditPreviewOpen(true);
   };
   const [editingParcel, setEditingParcel] = useState<Parcel | null>(null);
 
@@ -213,9 +224,9 @@ export default function ParcelsTab({
   };
 
   const logsColumns: ColumnsType<StatusLog> = [
-    { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 170, render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '-' },
+    { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 170, render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '' },
     { title: '包裹ID', dataIndex: 'parcel_id', key: 'parcel_id', width: 80 },
-    { title: '运单号', dataIndex: 'tracking_number', key: 'tracking_number', width: 160, render: (v: string | null) => v || '-' },
+    { title: '运单号', dataIndex: 'tracking_number', key: 'tracking_number', width: 160, render: (v: string | null) => v || '' },
     {
       title: '状态变更', key: 'status_change', width: 200,
       render: (_: unknown, r: StatusLog) => (
@@ -226,8 +237,8 @@ export default function ParcelsTab({
         </span>
       ),
     },
-    { title: '子状态', dataIndex: 'sub_status', key: 'sub_status', width: 120, render: (v: string | null) => v || '-' },
-    { title: '备注', dataIndex: 'remark', key: 'remark', width: 180, ellipsis: true, render: (v: string | null) => v || '-' },
+    { title: '子状态', dataIndex: 'sub_status', key: 'sub_status', width: 120, render: (v: string | null) => v || '' },
+    { title: '备注', dataIndex: 'remark', key: 'remark', width: 180, ellipsis: true, render: (v: string | null) => v || '' },
     { title: '操作人', dataIndex: 'operator_name', key: 'operator_name', width: 100, render: (v: string | null) => v || '系统' },
   ];
 
@@ -474,7 +485,7 @@ export default function ParcelsTab({
           title: renderSearchInput('weight', '重量'),
           key: 'weight_child',
           width: 100,
-          render: (_, record) => (record.weight != null ? `${record.weight.toFixed(2)}kg` : '-'),
+          render: (_, record) => (record.weight != null ? `${record.weight.toFixed(2)}kg` : ''),
         },
       ],
     },
@@ -484,14 +495,14 @@ export default function ParcelsTab({
       width: 140,
       children: [
         {
-          title: <span style={{ fontSize: 12, color: '#999' }}>长*宽*高</span>,
+          title: renderSearchInput('dimensions', '尺寸 例:30*20'),
           key: 'dimensions_child',
           width: 140,
           render: (_, record) => {
             if (record.length_cm != null && record.width_cm != null && record.height_cm != null) {
               return `${record.length_cm}*${record.width_cm}*${record.height_cm}`;
             }
-            return '-';
+            return '';
           },
         },
       ],
@@ -507,7 +518,7 @@ export default function ParcelsTab({
           title: renderSearchInput('volume', '体积'),
           key: 'volume_child',
           width: 100,
-          render: (_, record) => (record.volume != null ? record.volume : '-'),
+          render: (_, record) => (record.volume != null ? record.volume : ''),
         },
       ],
     },
@@ -517,12 +528,12 @@ export default function ParcelsTab({
       width: 120,
       children: [
         {
-          title: <span style={{ fontSize: 12, color: '#999' }}>物品</span>,
+          title: renderSearchInput('items', '物品名称'),
           key: 'items_child',
           width: 120,
           ellipsis: true,
           render: (_, record) => {
-            if (!record.first_item_name) return '-';
+            if (!record.first_item_name) return '';
             const count = Number(record.item_count) || 0;
             return count > 1 ? `${record.first_item_name} 等${count}件` : record.first_item_name;
           },
@@ -540,9 +551,9 @@ export default function ParcelsTab({
           width: 60,
           align: 'center' as const,
           render: (_, record) => {
-            if (!record.images) return '-';
+            if (!record.images) return '';
             const urls = record.images.split(',').map(s => s.trim()).filter(Boolean);
-            if (urls.length === 0) return '-';
+            if (urls.length === 0) return '';
             return (
               <PictureOutlined
                 style={{ fontSize: 18, color: '#1677ff', cursor: 'pointer' }}
@@ -601,7 +612,7 @@ export default function ParcelsTab({
           title: renderDateRangeInput('estimated_delivery'),
           key: 'estimated_delivery_child',
           width: 180,
-          render: (_, record) => (record.estimated_delivery ? new Date(record.estimated_delivery).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '-'),
+          render: (_, record) => (record.estimated_delivery ? new Date(record.estimated_delivery).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : ''),
         },
       ],
     },
@@ -665,7 +676,7 @@ export default function ParcelsTab({
               damaged: '包裹破损',
               return_processing: '退回中',
             };
-            return record.sub_status ? (subStatusLabels[record.sub_status] || record.sub_status) : '-';
+            return record.sub_status ? (subStatusLabels[record.sub_status] || record.sub_status) : '';
           },
         },
       ],
@@ -697,7 +708,7 @@ export default function ParcelsTab({
           title: renderSearchInput('username', '用户名'),
           key: 'username_child',
           width: 130,
-          render: (_, record) => record.username || '-',
+          render: (_, record) => record.username || '',
         },
       ],
     },
@@ -876,79 +887,103 @@ export default function ParcelsTab({
         confirmLoading={editLoading}
         okText="保存"
         cancelText="取消"
-        width={600}
+        width={720}
+        styles={{ body: { paddingTop: 12, paddingBottom: 8 } }}
+        className="parcel-edit-modal"
       >
-        <Form form={editForm} layout="vertical" autoComplete="off">
-          <Form.Item name="tracking_number" label="包裹单号">
-            <Input disabled />
-          </Form.Item>
-          <Form.Item name="weight" label="重量 (kg)" rules={[{ required: true, message: '请输入重量' }]}>
-            <InputNumber min={0.01} step={0.01} precision={2} style={{ width: '100%' }} placeholder="请输入重量" />
-          </Form.Item>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <Form.Item name="length_cm" label="长 (cm)" rules={[{ required: true, message: '请输入长' }]} style={{ flex: 1 }}>
-              <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="长" />
-            </Form.Item>
-            <Form.Item name="width_cm" label="宽 (cm)" rules={[{ required: true, message: '请输入宽' }]} style={{ flex: 1 }}>
-              <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="宽" />
-            </Form.Item>
-            <Form.Item name="height_cm" label="高 (cm)" rules={[{ required: true, message: '请输入高' }]} style={{ flex: 1 }}>
-              <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="高" />
-            </Form.Item>
-          </div>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <Form.Item name="origin" label="来源" style={{ flex: 1 }}>
-              <Input placeholder="来源" />
-            </Form.Item>
-            <Form.Item name="destination" label="目的地" style={{ flex: 1 }}>
-              <Input placeholder="目的地" />
-            </Form.Item>
-          </div>
-          <Form.Item name="status" label="状态">
-            <Select
-              options={[
-                { label: '待处理', value: 'pending' },
-                { label: '已收货', value: 'received' },
-                { label: '运输中', value: 'in_transit' },
-                { label: '已到达', value: 'arrived' },
-                { label: '待自提', value: 'pickup_pending' },
-                { label: '已签收', value: 'delivered' },
-                { label: '异常件', value: 'exception' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item name="sub_status" label="子状态">
-            <Select
-              allowClear
-              placeholder="可选"
-              options={[
-                { label: '待上架', value: 'awaiting_shelving' },
-                { label: '打包中', value: 'packing' },
-                { label: '待出库', value: 'awaiting_dispatch' },
-                { label: '出口申报中', value: 'export_declaring' },
-                { label: '出口清关中', value: 'export_clearing' },
-                { label: '进口清关中', value: 'import_clearing' },
-                { label: '海关放行', value: 'customs_released' },
-                { label: '干线运输中', value: 'linehaul_in_transit' },
-                { label: '到达目的地', value: 'arrived_destination' },
-                { label: '已入柜', value: 'locker_stored' },
-                { label: '已通知取件', value: 'pickup_notified' },
-                { label: '超时未取', value: 'pickup_overtime' },
-                { label: '退柜处理', value: 'locker_returned' },
-                { label: '派送中', value: 'out_for_delivery' },
-                { label: '派送失败', value: 'delivery_failed' },
-                { label: '地址异常', value: 'address_issue' },
-                { label: '清关异常', value: 'customs_issue' },
-                { label: '包裹丢失', value: 'lost' },
-                { label: '包裹破损', value: 'damaged' },
-                { label: '退回中', value: 'return_processing' },
-              ]}
-            />
-          </Form.Item>
+        <Form form={editForm} layout="vertical" autoComplete="off" size="small" className="compact-form">
+          <Row gutter={8}>
+            <Col span={12}>
+              <Form.Item name="tracking_number" label="包裹单号">
+                <Input disabled />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="weight" label="重量 (kg)" rules={[{ required: true, message: '请输入重量' }]}>
+                <InputNumber min={0.01} step={0.01} precision={2} style={{ width: '100%' }} placeholder="请输入重量" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={8}>
+            <Col span={8}>
+              <Form.Item name="length_cm" label="长 (cm)" rules={[{ required: true, message: '请输入长' }]}>
+                <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="长" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="width_cm" label="宽 (cm)" rules={[{ required: true, message: '请输入宽' }]}>
+                <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="宽" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="height_cm" label="高 (cm)" rules={[{ required: true, message: '请输入高' }]}>
+                <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="高" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={8}>
+            <Col span={12}>
+              <Form.Item name="origin" label="来源">
+                <Input placeholder="来源" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="destination" label="目的地">
+                <Input placeholder="目的地" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={8}>
+            <Col span={12}>
+              <Form.Item name="status" label="状态">
+                <Select
+                  options={[
+                    { label: '待处理', value: 'pending' },
+                    { label: '已收货', value: 'received' },
+                    { label: '运输中', value: 'in_transit' },
+                    { label: '已到达', value: 'arrived' },
+                    { label: '待自提', value: 'pickup_pending' },
+                    { label: '已签收', value: 'delivered' },
+                    { label: '异常件', value: 'exception' },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="sub_status" label="子状态">
+                <Select
+                  allowClear
+                  placeholder="可选"
+                  options={[
+                    { label: '待上架', value: 'awaiting_shelving' },
+                    { label: '打包中', value: 'packing' },
+                    { label: '待出库', value: 'awaiting_dispatch' },
+                    { label: '出口申报中', value: 'export_declaring' },
+                    { label: '出口清关中', value: 'export_clearing' },
+                    { label: '进口清关中', value: 'import_clearing' },
+                    { label: '海关放行', value: 'customs_released' },
+                    { label: '干线运输中', value: 'linehaul_in_transit' },
+                    { label: '到达目的地', value: 'arrived_destination' },
+                    { label: '已入柜', value: 'locker_stored' },
+                    { label: '已通知取件', value: 'pickup_notified' },
+                    { label: '超时未取', value: 'pickup_overtime' },
+                    { label: '退柜处理', value: 'locker_returned' },
+                    { label: '派送中', value: 'out_for_delivery' },
+                    { label: '派送失败', value: 'delivery_failed' },
+                    { label: '地址异常', value: 'address_issue' },
+                    { label: '清关异常', value: 'customs_issue' },
+                    { label: '包裹丢失', value: 'lost' },
+                    { label: '包裹破损', value: 'damaged' },
+                    { label: '退回中', value: 'return_processing' },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
           <Form.Item name="status_remark" label="状态备注">
             <Input.TextArea rows={2} maxLength={255} placeholder="可选，填写异常原因或备注信息" />
           </Form.Item>
-          <Form.Item label="图片">
+          <Form.Item label="图片" className="compact-upload">
             <Upload
               listType="picture-card"
               fileList={editFileList}
@@ -961,7 +996,7 @@ export default function ParcelsTab({
               {editFileList.length >= 10 ? null : (
                 <div>
                   <PlusOutlined />
-                  <div style={{ marginTop: 8 }}>上传</div>
+                  <div style={{ marginTop: 4, fontSize: 12 }}>上传</div>
                 </div>
               )}
             </Upload>
@@ -972,9 +1007,9 @@ export default function ParcelsTab({
           >
             {(fields, { add, remove }, { errors }) => (
               <>
-                <div style={{ marginBottom: 8, fontWeight: 500 }}>物品清单</div>
+                <div style={{ marginBottom: 6, fontWeight: 500, fontSize: 13 }}>物品清单</div>
                 {fields.map(({ key, name, ...restField }) => (
-                  <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
+                  <div key={key} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginBottom: 6 }}>
                     <Form.Item {...restField} name={[name, 'name']} rules={[{ required: true, message: '名称' }]} style={{ flex: 2, marginBottom: 0 }}>
                       <Input placeholder="物品名称" />
                     </Form.Item>
@@ -985,11 +1020,11 @@ export default function ParcelsTab({
                       <InputNumber min={1} step={1} precision={0} style={{ width: '100%' }} placeholder="数量" />
                     </Form.Item>
                     {fields.length > 1 && (
-                      <MinusCircleOutlined style={{ marginTop: 8, color: '#ff4d4f', fontSize: 18 }} onClick={() => remove(name)} />
+                      <MinusCircleOutlined style={{ marginTop: 6, color: '#ff4d4f', fontSize: 16 }} onClick={() => remove(name)} />
                     )}
                   </div>
                 ))}
-                <Button type="dashed" onClick={() => add({ name: '', value: 0, quantity: 1 })} block icon={<PlusOutlined />}>
+                <Button type="dashed" size="small" onClick={() => add({ name: '', value: 0, quantity: 1 })} block icon={<PlusOutlined />}>
                   添加物品
                 </Button>
                 <Form.ErrorList errors={errors} />
@@ -999,15 +1034,20 @@ export default function ParcelsTab({
         </Form>
       </Modal>
 
-      {editPreviewSrc && (
-        <Image
-          wrapperStyle={{ display: 'none' }}
-          preview={{
-            visible: editPreviewOpen,
-            onVisibleChange: (v) => { setEditPreviewOpen(v); if (!v) setEditPreviewSrc(''); },
-          }}
-          src={editPreviewSrc}
-        />
+      {editPreviewUrls.length > 0 && (
+        <div style={{ display: 'none' }}>
+          <Image.PreviewGroup
+            items={editPreviewUrls}
+            preview={{
+              visible: editPreviewOpen,
+              current: editPreviewIndex,
+              onVisibleChange: (v) => { setEditPreviewOpen(v); if (!v) setEditPreviewUrls([]); },
+              onChange: (idx) => setEditPreviewIndex(idx),
+            }}
+          >
+            {editPreviewUrls.map((u) => <Image key={u} src={u} />)}
+          </Image.PreviewGroup>
+        </div>
       )}
 
       <div style={{ display: 'none' }}>

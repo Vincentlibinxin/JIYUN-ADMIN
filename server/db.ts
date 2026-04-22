@@ -635,6 +635,16 @@ export const getParcelsPaged = async (
     usernameFilter = parcelColFilters[PARCELS_USERNAME_COL];
     delete parcelColFilters[PARCELS_USERNAME_COL];
   }
+  let dimensionsFilter: string | undefined;
+  if (parcelColFilters && parcelColFilters['dimensions']) {
+    dimensionsFilter = parcelColFilters['dimensions'];
+    delete parcelColFilters['dimensions'];
+  }
+  let itemsFilter: string | undefined;
+  if (parcelColFilters && parcelColFilters['items']) {
+    itemsFilter = parcelColFilters['items'];
+    delete parcelColFilters['items'];
+  }
 
   const dateRange = buildCreatedAtFilter(startDate, endDate, 'p.');
   const colFilter = buildColumnFilters(parcelColFilters, dateFilters, PARCELS_SORT_COLUMNS, 'p.');
@@ -644,6 +654,18 @@ export const getParcelsPaged = async (
   if (usernameFilter) {
     allClauses.push(`CAST(u.username AS CHAR) LIKE ?`);
     allParams.push(`%${usernameFilter.trim()}%`);
+  }
+  if (dimensionsFilter) {
+    allClauses.push(
+      `CONCAT_WS('*', p.length_cm, p.width_cm, p.height_cm) LIKE ?`
+    );
+    allParams.push(`%${dimensionsFilter.trim()}%`);
+  }
+  if (itemsFilter) {
+    allClauses.push(
+      `EXISTS (SELECT 1 FROM parcel_items pi WHERE pi.parcel_id = p.id AND pi.name LIKE ?)`
+    );
+    allParams.push(`%${itemsFilter.trim()}%`);
   }
 
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;

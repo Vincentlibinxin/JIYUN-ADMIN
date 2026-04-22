@@ -103,3 +103,37 @@ main form details {
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
 }
+
+/* 空白单元格统一显示 "-"（最后一列的占位列除外） */
+.ant-table-tbody > tr > td:not(:last-child):empty::after,
+.ant-table-tbody > tr > td:not(:last-child) > .ant-table-cell-ellipsis:empty::after,
+.ant-table-tbody > tr > td:not(:last-child) > span.ant-typography:empty::after {
+  content: '-';
+  color: #bfbfbf;
+}
+
+/* 紧凑表单：用于包裹编辑弹窗 */
+.compact-form .ant-form-item {
+  margin-bottom: 10px;
+}
+.compact-form .ant-form-item-label {
+  padding-bottom: 2px !important;
+}
+.compact-form .ant-form-item-label > label {
+  height: 22px;
+  font-size: 13px;
+}
+.compact-form .ant-input-number,
+.compact-form .ant-input,
+.compact-form .ant-select-selector {
+  font-size: 13px;
+}
+.compact-form .compact-upload .ant-upload.ant-upload-select,
+.compact-form .compact-upload .ant-upload-list-item-container {
+  width: 72px !important;
+  height: 72px !important;
+}
+.parcel-edit-modal .ant-modal-body {
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+}

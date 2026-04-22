@@ -252,7 +252,7 @@ export default function UsersTab({
           dataIndex: 'phone',
           key: 'phone_child',
           width: 140,
-          render: (value: string | null) => value || '-',
+          render: (value: string | null) => value || '',
         }
       ]
     },
@@ -269,7 +269,7 @@ export default function UsersTab({
           key: 'email_child',
           width: 220,
           ellipsis: true,
-          render: (value: string | null) => value || '-',
+          render: (value: string | null) => value || '',
         }
       ]
     },
@@ -286,7 +286,7 @@ export default function UsersTab({
           key: 'real_name_child',
           width: 140,
           ellipsis: true,
-          render: (value: string | null) => value || '-',
+          render: (value: string | null) => value || '',
         }
       ]
     },
@@ -303,7 +303,7 @@ export default function UsersTab({
           key: 'address_child',
           width: 220,
           ellipsis: true,
-          render: (value: string | null) => value || '-',
+          render: (value: string | null) => value || '',
         }
       ]
     },
