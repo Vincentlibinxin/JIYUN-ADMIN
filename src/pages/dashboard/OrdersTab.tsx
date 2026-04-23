@@ -1,5 +1,5 @@
 ﻿import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Button, Card, Checkbox, DatePicker, Input, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tooltip } from 'antd';
+import { Button, Card, Checkbox, DatePicker, Input, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tag, Tooltip } from 'antd';
 import { EyeOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -10,6 +10,7 @@ interface Order {
   currency: string;
   status: string;
   created_at: string;
+  deleted_at?: string | null;
 }
 
 type OrderSortKey = 'id' | 'user_id' | 'total_amount' | 'status' | 'created_at';
@@ -164,6 +165,21 @@ export default function OrdersTab({
     </div>
   );
 
+  const renderDeletedFilter = () => (
+    <Select
+      size="small"
+      value={columnFilters['__deleted__'] || 'not_deleted'}
+      onChange={(v) => handleColumnSearch('__deleted__', v)}
+      onClick={(e) => e.stopPropagation()}
+      style={{ width: '100%' }}
+      options={[
+        { label: '未删除', value: 'not_deleted' },
+        { label: '已删除', value: 'deleted' },
+        { label: '全部', value: 'all' },
+      ]}
+    />
+  );
+
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const visibleRowIds = orders.map((item) => item.id);
   const selectedVisibleCount = visibleRowIds.filter((id) => selectedRowKeys.includes(id)).length;
@@ -296,6 +312,19 @@ export default function OrdersTab({
           render: (value: string) => new Date(value).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
         },
       ],
+    },
+    {
+      title: '删除',
+      key: '__deleted__',
+      width: 110,
+      children: [
+        {
+          title: renderDeletedFilter(),
+          key: '__deleted___child',
+          width: 110,
+          render: (_, record) => record.deleted_at ? <Tag color="red">已删除</Tag> : '',
+        }
+      ]
     },
     {
       title: '',

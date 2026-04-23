@@ -27,6 +27,7 @@ interface Parcel {
   username: string | null;
   first_item_name: string | null;
   item_count: number;
+  deleted_at?: string | null;
 }
 
 type ParcelSortKey = 'id' | 'user_id' | 'tracking_number' | 'origin' | 'destination' | 'weight' | 'length_cm' | 'width_cm' | 'height_cm' | 'volume' | 'status' | 'estimated_delivery' | 'created_at' | 'username';
@@ -401,6 +402,21 @@ export default function ParcelsTab({
     </div>
   );
 
+  const renderDeletedFilter = () => (
+    <Select
+      size="small"
+      value={columnFilters['__deleted__'] || 'not_deleted'}
+      onChange={(v) => handleColumnSearch('__deleted__', v)}
+      onClick={(e) => e.stopPropagation()}
+      style={{ width: '100%' }}
+      options={[
+        { label: '未删除', value: 'not_deleted' },
+        { label: '已删除', value: 'deleted' },
+        { label: '全部', value: 'all' },
+      ]}
+    />
+  );
+
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const visibleRowIds = parcels.map((item) => item.id);
   const selectedVisibleCount = visibleRowIds.filter((id) => selectedRowKeys.includes(id)).length;
@@ -711,6 +727,19 @@ export default function ParcelsTab({
           render: (_, record) => record.username || '',
         },
       ],
+    },
+    {
+      title: '删除',
+      key: '__deleted__',
+      width: 110,
+      children: [
+        {
+          title: renderDeletedFilter(),
+          key: '__deleted___child',
+          width: 110,
+          render: (_, record) => record.deleted_at ? <Tag color="red">已删除</Tag> : '',
+        }
+      ]
     },
     {
       title: '',

@@ -126,6 +126,28 @@ const buildColumnFilters = (
   return { clauses, params };
 };
 
+/**
+ * Extract the special __deleted__ filter ('not_deleted' | 'deleted' | 'all')
+ * from columnFilters and return a WHERE clause plus cleaned filters.
+ * Default (missing / unknown) = 'not_deleted'.
+ */
+const buildDeletedFilter = (
+  columnFilters: Record<string, string> | undefined,
+  colPrefix: string = ''
+): { clause: string; cleanedFilters: Record<string, string> | undefined } => {
+  const cleaned = columnFilters ? { ...columnFilters } : undefined;
+  let val: string | undefined;
+  if (cleaned && Object.prototype.hasOwnProperty.call(cleaned, '__deleted__')) {
+    val = cleaned['__deleted__'];
+    delete cleaned['__deleted__'];
+  }
+  let clause: string;
+  if (val === 'deleted') clause = `${colPrefix}deleted_at IS NOT NULL`;
+  else if (val === 'all') clause = '1=1';
+  else clause = `${colPrefix}deleted_at IS NULL`;
+  return { clause, cleanedFilters: cleaned };
+};
+
 const getUsersCount = async (): Promise<number> => {
   const row = await querySingle<{ count: number }>('SELECT COUNT(*) as count FROM users');
   return row ? row.count : 0;
@@ -393,8 +415,9 @@ export const getUsersPaged = async (
   dateFilters?: Record<string, [string, string]>
 ) => {
   const orderBy = toSafeOrderBy(sortKey, sortOrder, USERS_SORT_COLUMNS, 'created_at');
-  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, USERS_SORT_COLUMNS);
-  const allClauses = ['deleted_at IS NULL', ...clauses];
+  const { clause: deletedClause, cleanedFilters } = buildDeletedFilter(columnFilters);
+  const { clauses, params } = buildColumnFilters(cleanedFilters, dateFilters, USERS_SORT_COLUMNS);
+  const allClauses = [deletedClause, ...clauses];
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
 
   const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
@@ -402,7 +425,7 @@ export const getUsersPaged = async (
   const offset = (safePage - 1) * safeLimit;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, username, phone, email, real_name, address, created_at, updated_at
+    `SELECT id, username, phone, email, real_name, address, created_at, updated_at, deleted_at
      FROM users
      ${whereSql}
      ORDER BY ${orderBy}
@@ -488,14 +511,15 @@ export const getOrdersPaged = async (
   const safeLimit = toSafeInt(limit, 10, 1, 500);
   const offset = (safePage - 1) * safeLimit;
   const dateRange = buildCreatedAtFilter(startDate, endDate);
-  const colFilter = buildColumnFilters(columnFilters, dateFilters, ORDERS_SORT_COLUMNS);
-  const allClauses = ['deleted_at IS NULL', ...dateRange.clauses, ...colFilter.clauses];
+  const { clause: deletedClause, cleanedFilters } = buildDeletedFilter(columnFilters);
+  const colFilter = buildColumnFilters(cleanedFilters, dateFilters, ORDERS_SORT_COLUMNS);
+  const allClauses = [deletedClause, ...dateRange.clauses, ...colFilter.clauses];
   const allParams = [...dateRange.params, ...colFilter.params];
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
   const orderBy = toSafeOrderBy(sortKey, sortOrder, ORDERS_SORT_COLUMNS, 'created_at');
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, user_id, total_amount, currency, status, created_at
+    `SELECT id, user_id, total_amount, currency, status, created_at, deleted_at
      FROM orders
      ${whereSql}
      ORDER BY ${orderBy}
@@ -559,14 +583,15 @@ export const getSmsPaged = async (
   const safeLimit = toSafeInt(limit, 10, 1, 500);
   const offset = (safePage - 1) * safeLimit;
   const dateRange = buildCreatedAtFilter(startDate, endDate);
-  const colFilter = buildColumnFilters(columnFilters, dateFilters, SMS_SORT_COLUMNS);
-  const allClauses = ['deleted_at IS NULL', ...dateRange.clauses, ...colFilter.clauses];
+  const { clause: deletedClause, cleanedFilters } = buildDeletedFilter(columnFilters);
+  const colFilter = buildColumnFilters(cleanedFilters, dateFilters, SMS_SORT_COLUMNS);
+  const allClauses = [deletedClause, ...dateRange.clauses, ...colFilter.clauses];
   const allParams = [...dateRange.params, ...colFilter.params];
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
   const orderBy = toSafeOrderBy(sortKey, sortOrder, SMS_SORT_COLUMNS, 'created_at');
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, phone, code, verified, created_at, expires_at
+    `SELECT id, phone, code, verified, created_at, expires_at, deleted_at
      FROM otp_codes
      ${whereSql}
      ORDER BY ${orderBy}
@@ -647,8 +672,9 @@ export const getParcelsPaged = async (
   }
 
   const dateRange = buildCreatedAtFilter(startDate, endDate, 'p.');
-  const colFilter = buildColumnFilters(parcelColFilters, dateFilters, PARCELS_SORT_COLUMNS, 'p.');
-  const allClauses = ['p.deleted_at IS NULL', ...dateRange.clauses, ...colFilter.clauses];
+  const { clause: deletedClause, cleanedFilters } = buildDeletedFilter(parcelColFilters, 'p.');
+  const colFilter = buildColumnFilters(cleanedFilters, dateFilters, PARCELS_SORT_COLUMNS, 'p.');
+  const allClauses = [deletedClause, ...dateRange.clauses, ...colFilter.clauses];
   const allParams = [...dateRange.params, ...colFilter.params];
 
   if (usernameFilter) {
@@ -678,7 +704,7 @@ export const getParcelsPaged = async (
     `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
             p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images,
             p.status, p.sub_status, p.status_remark, p.status_updated_at,
-            p.estimated_delivery, p.created_at,
+            p.estimated_delivery, p.created_at, p.deleted_at,
             u.username AS username,
             (SELECT pi.name FROM parcel_items pi WHERE pi.parcel_id = p.id ORDER BY pi.id LIMIT 1) AS first_item_name,
             (SELECT COUNT(*) FROM parcel_items pi WHERE pi.parcel_id = p.id) AS item_count
@@ -1006,8 +1032,9 @@ export const getAdminsPaged = async (
   dateFilters?: Record<string, [string, string]>
 ) => {
   const orderBy = toSafeOrderBy(sortKey, sortOrder, ADMINS_SORT_COLUMNS, 'created_at');
-  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, ADMINS_SORT_COLUMNS);
-  const allClauses = ['deleted_at IS NULL', ...clauses];
+  const { clause: deletedClause, cleanedFilters } = buildDeletedFilter(columnFilters);
+  const { clauses, params } = buildColumnFilters(cleanedFilters, dateFilters, ADMINS_SORT_COLUMNS);
+  const allClauses = [deletedClause, ...clauses];
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
 
   const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
@@ -1015,7 +1042,7 @@ export const getAdminsPaged = async (
   const offset = (safePage - 1) * safeLimit;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, username, email, role, status, last_login, created_at, updated_at
+    `SELECT id, username, email, role, status, last_login, created_at, updated_at, deleted_at
      FROM admin_users
      ${whereSql}
      ORDER BY ${orderBy}
