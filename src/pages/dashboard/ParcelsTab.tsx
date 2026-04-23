@@ -51,6 +51,7 @@ interface ParcelsTabProps {
   onUpdateStatus: (parcelId: number, status: string) => void;
   onDelete: (id: number) => void;
   onBatchDelete: (ids: number[]) => void;
+  onExport?: () => void | Promise<void>;
   onInbound: (formData: FormData) => Promise<boolean>;
   onEdit: (id: number, formData: FormData) => Promise<boolean>;
   onFetchItems: (id: number) => Promise<{ name: string; value: number; quantity: number }[]>;
@@ -76,6 +77,7 @@ export default function ParcelsTab({
   onUpdateStatus,
   onDelete,
   onBatchDelete,
+  onExport,
   onInbound,
   onEdit,
   onFetchItems,
@@ -806,6 +808,11 @@ export default function ParcelsTab({
                 批量删除{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
               </Button>
             </Popconfirm>
+            {onExport && (
+              <Button type="primary" ghost onClick={() => { void onExport(); }}>
+                下载
+              </Button>
+            )}
           </Space>
         </div>
         <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>

@@ -11,6 +11,7 @@ import OrdersTab from './dashboard/OrdersTab';
 import SmsTab from './dashboard/SmsTab';
 import ParcelsTab from './dashboard/ParcelsTab';
 import AdminsTab from './dashboard/AdminsTab';
+import { exportParcelsToTemplate } from '../lib/parcelExport';
 
 interface User {
   id: number;
@@ -703,6 +704,36 @@ export default function AdminDashboard() {
     } catch { setError('批量删除失败'); }
   };
 
+  const handleExportParcels = async () => {
+    try {
+      const params = new URLSearchParams({
+        sortKey: parcelSort.key,
+        sortOrder: parcelSort.direction,
+      });
+      appendDateRangeParams(params, parcelStartDate, parcelEndDate);
+      if (Object.keys(parcelColumnFilters).length > 0) {
+        params.set('columnFilters', JSON.stringify(parcelColumnFilters));
+      }
+      if (Object.keys(parcelDateFilters).length > 0) {
+        params.set('dateFilters', JSON.stringify(parcelDateFilters));
+      }
+      const response = await adminFetch(`/admin/parcels/export?${params.toString()}`);
+      if (!ensureAuthorized(response)) return;
+      if (!response.ok) throw new Error('export failed');
+      const result = await response.json();
+      const rows = (result.data || []) as any[];
+      if (rows.length === 0) {
+        message.warning('当前筛选结果为空，无可导出数据');
+        return;
+      }
+      await exportParcelsToTemplate(rows);
+      message.success(`已导出 ${rows.length} 条数据`);
+    } catch (err) {
+      setError('导出失败');
+      message.error('导出失败');
+    }
+  };
+
   const batchDeleteAdminUsers = async (ids: number[]) => {
     try {
       const response = await adminFetch('/admin/admins/batch-delete', {
@@ -1043,6 +1074,7 @@ export default function AdminDashboard() {
               onUpdateStatus={updateParcelStatus}
               onDelete={deleteParcel}
               onBatchDelete={batchDeleteParcels}
+              onExport={handleExportParcels}
               onInbound={inboundParcel}
               onEdit={editParcel}
               onFetchItems={fetchParcelItems}

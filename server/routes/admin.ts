@@ -29,6 +29,7 @@ import {
   getOrdersPaged,
   getParcelItems,
   getParcelsPaged,
+  getParcelsForExport,
   getParcelStatusLogs,
   getStatusLogsPaged,
   searchAdmins,
@@ -690,6 +691,17 @@ router.get('/parcels', adminAuth, async (req: AdminRequest, res: Response): Prom
       pages: result.pages,
     },
   });
+});
+
+router.get('/parcels/export', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+  const startDate = String(req.query.startDate || '').trim() || undefined;
+  const endDate = String(req.query.endDate || '').trim() || undefined;
+  const sortKey = String(req.query.sortKey || '').trim() || undefined;
+  const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
+  const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
+  const rows = await getParcelsForExport(startDate, endDate, sortKey, sortOrder, columnFilters, dateFilters);
+  res.json({ data: rows, count: rows.length });
 });
 
 router.get('/parcels/search', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {

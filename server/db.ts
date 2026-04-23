@@ -732,6 +732,78 @@ export const getParcelsPaged = async (
   };
 };
 
+export const getParcelsForExport = async (
+  startDate?: string,
+  endDate?: string,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>
+) => {
+  const parcelColFilters = columnFilters ? { ...columnFilters } : undefined;
+  let usernameFilter: string | undefined;
+  if (parcelColFilters && parcelColFilters[PARCELS_USERNAME_COL]) {
+    usernameFilter = parcelColFilters[PARCELS_USERNAME_COL];
+    delete parcelColFilters[PARCELS_USERNAME_COL];
+  }
+  let dimensionsFilter: string | undefined;
+  if (parcelColFilters && parcelColFilters['dimensions']) {
+    dimensionsFilter = parcelColFilters['dimensions'];
+    delete parcelColFilters['dimensions'];
+  }
+  let itemsFilter: string | undefined;
+  if (parcelColFilters && parcelColFilters['items']) {
+    itemsFilter = parcelColFilters['items'];
+    delete parcelColFilters['items'];
+  }
+
+  const dateRange = buildCreatedAtFilter(startDate, endDate, 'p.');
+  const { clause: deletedClause, cleanedFilters } = buildDeletedFilter(parcelColFilters, 'p.');
+  const colFilter = buildColumnFilters(cleanedFilters, dateFilters, PARCELS_SORT_COLUMNS, 'p.');
+  const allClauses = [deletedClause, ...dateRange.clauses, ...colFilter.clauses];
+  const allParams = [...dateRange.params, ...colFilter.params];
+
+  if (usernameFilter) {
+    allClauses.push(`CAST(u.username AS CHAR) LIKE ?`);
+    allParams.push(`%${usernameFilter.trim()}%`);
+  }
+  if (dimensionsFilter) {
+    allClauses.push(
+      `CONCAT_WS('*', p.length_cm, p.width_cm, p.height_cm) LIKE ?`
+    );
+    allParams.push(`%${dimensionsFilter.trim()}%`);
+  }
+  if (itemsFilter) {
+    allClauses.push(
+      `EXISTS (SELECT 1 FROM parcel_items pi WHERE pi.parcel_id = p.id AND pi.name LIKE ?)`
+    );
+    allParams.push(`%${itemsFilter.trim()}%`);
+  }
+
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
+  const safeSort = sortKey === PARCELS_USERNAME_COL ? 'u.username' : undefined;
+  const orderBy = safeSort
+    ? `${safeSort} ${sortOrder === 'asc' ? 'ASC' : 'DESC'}`
+    : `p.${toSafeOrderBy(sortKey, sortOrder, PARCELS_SORT_COLUMNS, 'created_at')}`;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
+            p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume,
+            p.status, p.sub_status, p.status_remark, p.created_at,
+            u.username AS username,
+            (SELECT GROUP_CONCAT(pi.name SEPARATOR ',') FROM parcel_items pi WHERE pi.parcel_id = p.id) AS item_names,
+            (SELECT GROUP_CONCAT(pi.value SEPARATOR ',') FROM parcel_items pi WHERE pi.parcel_id = p.id) AS item_values,
+            (SELECT GROUP_CONCAT(pi.quantity SEPARATOR ',') FROM parcel_items pi WHERE pi.parcel_id = p.id) AS item_quantities
+     FROM parcels p
+     LEFT JOIN users u ON p.user_id = u.id
+     ${whereSql}
+     ORDER BY ${orderBy}`,
+    allParams
+  );
+
+  return rows as any[];
+};
+
 export const searchParcels = async (keyword: string, startDate?: string, endDate?: string): Promise<any[]> => {
   const like = `%${keyword}%`;
   const { clauses, params } = buildCreatedAtFilter(startDate, endDate, 'p.');
