@@ -25,6 +25,8 @@ interface Parcel {
   estimated_delivery: string | null;
   created_at: string;
   username: string | null;
+  logistics_provider_id: number | null;
+  logistics_provider_name: string | null;
   first_item_name: string | null;
   item_count: number;
   deleted_at?: string | null;
@@ -152,6 +154,23 @@ export default function ParcelsTab({
   };
   const [editingParcel, setEditingParcel] = useState<Parcel | null>(null);
 
+  const [logisticsOptions, setLogisticsOptions] = useState<{ id: number; name: string; code: string | null }[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await adminFetch('/admin/logistics/options');
+        if (res.ok) {
+          const j = await res.json();
+          setLogisticsOptions(j.data || []);
+        }
+      } catch { /* ignore */ }
+    })();
+  }, []);
+  const logisticsSelectOptions = logisticsOptions.map((o) => ({
+    label: o.code ? `${o.name}（${o.code}）` : o.name,
+    value: o.id,
+  }));
+
   // 行内图片预览（列表图片列点击时使用）
   const [rowPreviewOpen, setRowPreviewOpen] = useState(false);
   const [rowPreviewUrls, setRowPreviewUrls] = useState<string[]>([]);
@@ -255,6 +274,7 @@ export default function ParcelsTab({
       fd.append('length_cm', String(values.length_cm));
       fd.append('width_cm', String(values.width_cm));
       fd.append('height_cm', String(values.height_cm));
+      fd.append('logistics_provider_id', values.logistics_provider_id != null ? String(values.logistics_provider_id) : '');
       fd.append('items', JSON.stringify(values.items));
       fileList.forEach(f => {
         if (f.originFileObj) fd.append('files', f.originFileObj);
@@ -287,6 +307,7 @@ export default function ParcelsTab({
       status: record.status,
       sub_status: record.sub_status || undefined,
       status_remark: record.status_remark || '',
+      logistics_provider_id: record.logistics_provider_id ?? undefined,
       items: [{ name: '', value: 0, quantity: 1 }],
     });
     setEditOpen(true);
@@ -311,6 +332,7 @@ export default function ParcelsTab({
       fd.append('status', values.status || editingParcel.status);
       fd.append('sub_status', values.sub_status || '');
       fd.append('status_remark', values.status_remark || '');
+      fd.append('logistics_provider_id', values.logistics_provider_id != null ? String(values.logistics_provider_id) : '');
       fd.append('items', JSON.stringify(values.items));
       const existingUrls = editFileList.filter(f => f.url && !f.originFileObj).map(f => f.url!);
       fd.append('existing_images', existingUrls.join(','));
@@ -505,7 +527,7 @@ export default function ParcelsTab({
           title: renderSearchInput('weight', '重量'),
           key: 'weight_child',
           width: 100,
-          render: (_, record) => (record.weight != null ? `${record.weight.toFixed(2)}kg` : ''),
+          render: (_, record) => (record.weight != null ? `${record.weight.toFixed(2)}` : ''),
         },
       ],
     },
@@ -659,6 +681,20 @@ export default function ParcelsTab({
       ],
     },
     {
+      title: '物流商',
+      key: 'logistics_provider',
+      width: 150,
+      children: [
+        {
+          title: renderSearchInput('logistics_provider', '物流商'),
+          key: 'logistics_provider_child',
+          width: 150,
+          ellipsis: true,
+          render: (_, record) => record.logistics_provider_name || '',
+        },
+      ],
+    },
+    {
       title: '删除',
       key: '__deleted__',
       width: 110,
@@ -792,6 +828,15 @@ export default function ParcelsTab({
               <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="高" />
             </Form.Item>
           </div>
+          <Form.Item name="logistics_provider_id" label="物流商">
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="请选择物流商（可选）"
+              options={logisticsSelectOptions}
+            />
+          </Form.Item>
           <Form.Item label="图片 (可选)">
             <Upload
               listType="picture-card"
@@ -946,6 +991,15 @@ export default function ParcelsTab({
           </Row>
           <Form.Item name="status_remark" label="状态备注">
             <Input.TextArea rows={2} maxLength={255} placeholder="可选，填写异常原因或备注信息" />
+          </Form.Item>
+          <Form.Item name="logistics_provider_id" label="物流商">
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="请选择物流商（可选）"
+              options={logisticsSelectOptions}
+            />
           </Form.Item>
           <Form.Item label="图片" className="compact-upload">
             <Upload

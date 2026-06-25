@@ -11,6 +11,7 @@ import OrdersTab from './dashboard/OrdersTab';
 import SmsTab from './dashboard/SmsTab';
 import ParcelsTab from './dashboard/ParcelsTab';
 import AdminsTab from './dashboard/AdminsTab';
+import LogisticsTab, { LogisticsProvider, LogisticsPayload } from './dashboard/LogisticsTab';
 import { exportParcelsToTemplate } from '../lib/parcelExport';
 
 interface User {
@@ -91,6 +92,7 @@ export default function AdminDashboard() {
   const [smsItems, setSmsItems] = useState<SmsInfo[]>([]);
   const [parcels, setParcels] = useState<Parcel[]>([]);
   const [admins, setAdmins] = useState<AdminUser[]>([]);
+  const [logisticsProviders, setLogisticsProviders] = useState<LogisticsProvider[]>([]);
   const [stats, setStats] = useState<Stats>({ totalUsers: 0, totalOrders: 0, totalParcels: 0 });
   const [searchQuery, setSearchQuery] = useState('');
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
@@ -103,11 +105,13 @@ export default function AdminDashboard() {
   const [parcelStartDate, setParcelStartDate] = useState('');
   const [parcelEndDate, setParcelEndDate] = useState('');
   const [adminSearchQuery, setAdminSearchQuery] = useState('');
+  const [logisticsSearchQuery, setLogisticsSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [smsLoading, setSmsLoading] = useState(false);
   const [parcelsLoading, setParcelsLoading] = useState(false);
   const [adminsLoading, setAdminsLoading] = useState(false);
+  const [logisticsLoading, setLogisticsLoading] = useState(false);
   const [error, setError] = useState('');
   const [messageApi, messageContextHolder] = message.useMessage();
   useEffect(() => {
@@ -136,11 +140,15 @@ export default function AdminDashboard() {
   const [adminPageSize, setAdminPageSize] = useState(50);
   const [adminTotalPages, setAdminTotalPages] = useState(1);
   const [adminTotalItems, setAdminTotalItems] = useState(0);
+  const [logisticsPage, setLogisticsPage] = useState(1);
+  const [logisticsPageSize, setLogisticsPageSize] = useState(50);
+  const [logisticsTotalItems, setLogisticsTotalItems] = useState(0);
   const [userSort, setUserSort] = useState<SortConfig<'id' | 'username' | 'phone' | 'email' | 'real_name' | 'address' | 'created_at' | 'updated_at'>>({ key: 'created_at', direction: 'desc' });
   const [orderSort, setOrderSort] = useState<SortConfig<'id' | 'user_id' | 'total_amount' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [smsSort, setSmsSort] = useState<SortConfig<'id' | 'phone' | 'code' | 'verified' | 'expires_at' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [parcelSort, setParcelSort] = useState<SortConfig<'id' | 'user_id' | 'tracking_number' | 'origin' | 'destination' | 'weight' | 'length_cm' | 'width_cm' | 'height_cm' | 'volume' | 'status' | 'estimated_delivery' | 'created_at' | 'username'>>({ key: 'created_at', direction: 'desc' });
   const [adminSort, setAdminSort] = useState<SortConfig<'id' | 'username' | 'email' | 'role' | 'status' | 'last_login' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
+  const [logisticsSort, setLogisticsSort] = useState<SortConfig<'id' | 'name' | 'code' | 'contact_name' | 'contact_phone' | 'email' | 'website' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [userColumnFilters, setUserColumnFilters] = useState<Record<string, string>>({});
@@ -153,6 +161,8 @@ export default function AdminDashboard() {
   const [parcelDateFilters, setParcelDateFilters] = useState<Record<string, [string, string]>>({});
   const [adminColumnFilters, setAdminColumnFilters] = useState<Record<string, string>>({});
   const [adminDateFilters, setAdminDateFilters] = useState<Record<string, [string, string]>>({});
+  const [logisticsColumnFilters, setLogisticsColumnFilters] = useState<Record<string, string>>({});
+  const [logisticsDateFilters, setLogisticsDateFilters] = useState<Record<string, [string, string]>>({});
 
   const ensureAuthorized = (response: Response): boolean => {
     if (response.status === 401) {
@@ -177,6 +187,9 @@ export default function AdminDashboard() {
     }
     if (activeTab === 'admins') {
       fetchAdmins();
+    }
+    if (activeTab === 'logistics') {
+      fetchLogistics();
     }
   }, [activeTab]);
 
@@ -429,6 +442,140 @@ export default function AdminDashboard() {
     setAdminPageSize(newSize);
     setAdminPage(1);
     fetchAdmins(1, newSize);
+  };
+
+  const fetchLogistics = async (
+    page: number = 1,
+    size: number = logisticsPageSize,
+    sortKey?: string,
+    sortDir?: string,
+    colFilters?: Record<string, string>,
+    dtFilters?: Record<string, [string, string]>
+  ) => {
+    const sk = sortKey || logisticsSort.key;
+    const sd = sortDir || logisticsSort.direction;
+    const cf = colFilters !== undefined ? colFilters : logisticsColumnFilters;
+    const df = dtFilters !== undefined ? dtFilters : logisticsDateFilters;
+    try {
+      setLogisticsLoading(true);
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(size),
+        sortKey: sk,
+        sortOrder: sd,
+      });
+      if (Object.keys(cf).length > 0) params.set('columnFilters', JSON.stringify(cf));
+      if (Object.keys(df).length > 0) params.set('dateFilters', JSON.stringify(df));
+      const response = await adminFetch(`/admin/logistics?${params.toString()}`);
+      if (!ensureAuthorized(response)) return;
+      if (!response.ok) throw new Error('fetch logistics failed');
+      const data = await response.json();
+      setLogisticsProviders(data.data || []);
+      setLogisticsPage(page);
+      setLogisticsPageSize(size);
+      setLogisticsTotalItems(data.pagination?.total || 0);
+    } catch (err) {
+      setError('读取物流商失败');
+    } finally {
+      setLogisticsLoading(false);
+    }
+  };
+
+  const handleLogisticsPageSizeChange = (newSize: number) => {
+    setLogisticsPageSize(newSize);
+    setLogisticsPage(1);
+    fetchLogistics(1, newSize);
+  };
+
+  const searchLogistics = async () => {
+    if (!logisticsSearchQuery.trim()) {
+      setLogisticsPage(1);
+      fetchLogistics(1, logisticsPageSize);
+      return;
+    }
+    try {
+      setLogisticsLoading(true);
+      setLogisticsPage(1);
+      const response = await adminFetch(`/admin/logistics/search?q=${encodeURIComponent(logisticsSearchQuery)}`);
+      if (!ensureAuthorized(response)) return;
+      if (!response.ok) throw new Error('search logistics failed');
+      const data = await response.json();
+      setLogisticsProviders(data.data || []);
+      setLogisticsTotalItems(data.count || (data.data || []).length || 0);
+    } catch (err) {
+      setError('搜索物流商失败');
+    } finally {
+      setLogisticsLoading(false);
+    }
+  };
+
+  const resetLogisticsSearch = () => {
+    setLogisticsSearchQuery('');
+    setLogisticsPage(1);
+    fetchLogistics(1, logisticsPageSize);
+  };
+
+  const createLogistics = async (payload: LogisticsPayload): Promise<boolean> => {
+    try {
+      const response = await adminFetch('/admin/logistics', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchLogistics(1, logisticsPageSize);
+        return true;
+      }
+      const data = await response.json();
+      setError(data.error || '创建物流商失败');
+      return false;
+    } catch {
+      setError('创建物流商失败');
+      return false;
+    }
+  };
+
+  const updateLogistics = async (id: number, payload: LogisticsPayload): Promise<boolean> => {
+    try {
+      const response = await adminFetch(`/admin/logistics/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchLogistics(logisticsPage, logisticsPageSize);
+        return true;
+      }
+      const data = await response.json();
+      setError(data.error || '更新物流商失败');
+      return false;
+    } catch {
+      setError('更新物流商失败');
+      return false;
+    }
+  };
+
+  const deleteLogistics = async (id: number) => {
+    try {
+      const response = await adminFetch(`/admin/logistics/${id}`, { method: 'DELETE' });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) {
+        fetchLogistics(logisticsPage, logisticsPageSize);
+      } else {
+        setError('删除物流商失败');
+      }
+    } catch { setError('删除失败'); }
+  };
+
+  const batchDeleteLogistics = async (ids: number[]) => {
+    try {
+      const response = await adminFetch('/admin/logistics/batch-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) { fetchLogistics(logisticsPage, logisticsPageSize); } else { setError('批量删除物流商失败'); }
+    } catch { setError('批量删除失败'); }
   };
 
   const searchUsers = async (
@@ -935,6 +1082,15 @@ export default function AdminDashboard() {
         setAdminDateFilters({});
         fetchAdmins(1, 50, 'created_at', 'desc', {}, {});
         break;
+      case 'logistics':
+        setLogisticsSearchQuery('');
+        setLogisticsSort({ key: 'created_at', direction: 'desc' });
+        setLogisticsPage(1);
+        setLogisticsPageSize(50);
+        setLogisticsColumnFilters({});
+        setLogisticsDateFilters({});
+        fetchLogistics(1, 50, 'created_at', 'desc', {}, {});
+        break;
     }
   };
 
@@ -1116,6 +1272,40 @@ export default function AdminDashboard() {
                 setAdminColumnFilters(cf);
                 setAdminDateFilters(df);
                 fetchAdmins(1, adminPageSize, adminSort.key, adminSort.direction, cf, df);
+              }}
+            />
+          )}
+
+          {/* 物流商管理页面 */}
+          {activeTab === 'logistics' && (
+            <LogisticsTab
+              providers={logisticsProviders}
+              loading={logisticsLoading}
+              searchQuery={logisticsSearchQuery}
+              onSearchQueryChange={setLogisticsSearchQuery}
+              onSearch={searchLogistics}
+              onReset={resetLogisticsSearch}
+              currentPage={logisticsPage}
+              pageSize={logisticsPageSize}
+              totalItems={logisticsTotalItems}
+              onPageChange={fetchLogistics}
+              onPageSizeChange={handleLogisticsPageSizeChange}
+              sortKey={logisticsSort.key}
+              sortDirection={logisticsSort.direction}
+              onSortChange={(key, direction) => {
+                setLogisticsSort({ key, direction });
+                fetchLogistics(logisticsPage, logisticsPageSize, key, direction);
+              }}
+              onCreate={createLogistics}
+              onUpdate={updateLogistics}
+              onDelete={deleteLogistics}
+              onBatchDelete={batchDeleteLogistics}
+              canManage={adminUser?.role === 'super_admin'}
+              refreshKey={refreshKey}
+              onColumnFilterChange={(cf, df) => {
+                setLogisticsColumnFilters(cf);
+                setLogisticsDateFilters(df);
+                fetchLogistics(1, logisticsPageSize, logisticsSort.key, logisticsSort.direction, cf, df);
               }}
             />
           )}

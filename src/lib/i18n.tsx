@@ -24,6 +24,7 @@ const dictionaries: Record<LangCode, Dictionary> = {
     'menu.orders': '订单管理',
     'menu.sms': '简讯资讯',
     'menu.parcels': '包裹管理',
+    'menu.logistics': '物流商管理',
     'menu.admins': '系统管理员',
 
     'login.username': '管理员用户名',
@@ -66,6 +67,7 @@ const dictionaries: Record<LangCode, Dictionary> = {
 
     'menu.overview': '首頁',
     'menu.users': '會員管理',
+    'menu.logistics': '物流商管理',
     'menu.orders': '訂單管理',
     'menu.sms': '簡訊資訊',
     'menu.parcels': '包裹管理',
@@ -111,6 +113,7 @@ const dictionaries: Record<LangCode, Dictionary> = {
 
     'menu.overview': 'Overview',
     'menu.users': 'Users',
+    'menu.logistics': 'Logistics Providers',
     'menu.orders': 'Orders',
     'menu.sms': 'SMS',
     'menu.parcels': 'Parcels',
@@ -156,6 +159,7 @@ const dictionaries: Record<LangCode, Dictionary> = {
 
     'menu.overview': 'Utama',
     'menu.users': 'Pengguna',
+    'menu.logistics': 'Penyedia Logistik',
     'menu.orders': 'Pesanan',
     'menu.sms': 'SMS',
     'menu.parcels': 'Bungkusan',

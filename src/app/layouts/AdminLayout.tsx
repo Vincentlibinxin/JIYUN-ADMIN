@@ -10,6 +10,7 @@ import {
   ShoppingCartOutlined,
   MessageOutlined,
   CodeSandboxOutlined,
+  CarOutlined,
   SafetyCertificateOutlined,
   GlobalOutlined,
   ReloadOutlined,
@@ -53,6 +54,7 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
   const menuItems = [
     { key: 'overview', icon: <DashboardOutlined />, label: t('menu.overview') },
     { key: 'parcels', icon: <CodeSandboxOutlined />, label: t('menu.parcels') },
+    { key: 'logistics', icon: <CarOutlined />, label: t('menu.logistics') },
     { key: 'orders', icon: <ShoppingCartOutlined />, label: t('menu.orders') },
     { key: 'sms', icon: <MessageOutlined />, label: t('menu.sms') },
     { key: 'users', icon: <TeamOutlined />, label: t('menu.users') },

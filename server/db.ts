@@ -289,6 +289,9 @@ export const initDb = async (): Promise<void> => {
     if (!existingCols.has('status_updated_at')) {
       await connection.execute(`ALTER TABLE parcels ADD COLUMN status_updated_at DATETIME DEFAULT NULL AFTER status_remark`);
     }
+    if (!existingCols.has('logistics_provider_id')) {
+      await connection.execute(`ALTER TABLE parcels ADD COLUMN logistics_provider_id INT DEFAULT NULL AFTER shelf_location`);
+    }
 
     // Add indexes for status columns if not exist
     const [parcelIndexes] = await connection.execute<mysql.RowDataPacket[]>(
@@ -334,6 +337,25 @@ export const initDb = async (): Promise<void> => {
         INDEX idx_orders_user (user_id),
         INDEX idx_orders_parcel (parcel_id),
         INDEX idx_orders_status (status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS logistics_providers (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(128) NOT NULL,
+        code VARCHAR(64) DEFAULT NULL,
+        contact_name VARCHAR(64) DEFAULT NULL,
+        contact_phone VARCHAR(32) DEFAULT NULL,
+        email VARCHAR(255) DEFAULT NULL,
+        website VARCHAR(255) DEFAULT NULL,
+        status VARCHAR(32) DEFAULT 'active',
+        remark VARCHAR(255) DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        deleted_at DATETIME DEFAULT NULL,
+        INDEX idx_logistics_name (name),
+        INDEX idx_logistics_status (status)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
@@ -670,6 +692,11 @@ export const getParcelsPaged = async (
     itemsFilter = parcelColFilters['items'];
     delete parcelColFilters['items'];
   }
+  let logisticsFilter: string | undefined;
+  if (parcelColFilters && parcelColFilters['logistics_provider']) {
+    logisticsFilter = parcelColFilters['logistics_provider'];
+    delete parcelColFilters['logistics_provider'];
+  }
 
   const dateRange = buildCreatedAtFilter(startDate, endDate, 'p.');
   const { clause: deletedClause, cleanedFilters } = buildDeletedFilter(parcelColFilters, 'p.');
@@ -693,6 +720,10 @@ export const getParcelsPaged = async (
     );
     allParams.push(`%${itemsFilter.trim()}%`);
   }
+  if (logisticsFilter) {
+    allClauses.push(`CAST(lp.name AS CHAR) LIKE ?`);
+    allParams.push(`%${logisticsFilter.trim()}%`);
+  }
 
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
   const safeSort = sortKey === PARCELS_USERNAME_COL ? 'u.username' : undefined;
@@ -705,11 +736,13 @@ export const getParcelsPaged = async (
             p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images,
             p.status, p.sub_status, p.status_remark, p.status_updated_at,
             p.estimated_delivery, p.created_at, p.deleted_at,
+            p.logistics_provider_id, lp.name AS logistics_provider_name,
             u.username AS username,
             (SELECT pi.name FROM parcel_items pi WHERE pi.parcel_id = p.id ORDER BY pi.id LIMIT 1) AS first_item_name,
             (SELECT COUNT(*) FROM parcel_items pi WHERE pi.parcel_id = p.id) AS item_count
      FROM parcels p
      LEFT JOIN users u ON p.user_id = u.id
+     LEFT JOIN logistics_providers lp ON p.logistics_provider_id = lp.id
      ${whereSql}
      ORDER BY ${orderBy}
      LIMIT ${safeLimit} OFFSET ${offset}`,
@@ -720,6 +753,7 @@ export const getParcelsPaged = async (
     `SELECT COUNT(*) as count
      FROM parcels p
      LEFT JOIN users u ON p.user_id = u.id
+     LEFT JOIN logistics_providers lp ON p.logistics_provider_id = lp.id
      ${whereSql}`,
     allParams
   );
@@ -824,11 +858,13 @@ export const searchParcels = async (keyword: string, startDate?: string, endDate
             p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images,
             p.status, p.sub_status, p.status_remark, p.status_updated_at,
             p.estimated_delivery, p.created_at,
+            p.logistics_provider_id, lp.name AS logistics_provider_name,
             u.username AS username,
             (SELECT pi.name FROM parcel_items pi WHERE pi.parcel_id = p.id ORDER BY pi.id LIMIT 1) AS first_item_name,
             (SELECT COUNT(*) FROM parcel_items pi WHERE pi.parcel_id = p.id) AS item_count
      FROM parcels p
      LEFT JOIN users u ON p.user_id = u.id
+     LEFT JOIN logistics_providers lp ON p.logistics_provider_id = lp.id
      ${whereSql}
      ORDER BY p.created_at DESC`,
     [like, like, like, like, like, like, like, ...params]
@@ -900,9 +936,10 @@ export const createParcelInbound = async (payload: {
   volume: number;
   images?: string;
   shelf_location?: string;
+  logistics_provider_id?: number | null;
   items: { name: string; value: number; quantity: number }[];
 }): Promise<number> => {
-  const { tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, items } = payload;
+  const { tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, logistics_provider_id, items } = payload;
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -919,19 +956,19 @@ export const createParcelInbound = async (payload: {
       parcelId = existing[0].id;
       await conn.execute(
         `UPDATE parcels SET weight = ?, length_cm = ?, width_cm = ?, height_cm = ?, volume = ?,
-         images = ?, shelf_location = ?, status = 'arrived', status_updated_at = NOW(),
+         images = ?, shelf_location = ?, logistics_provider_id = ?, status = 'arrived', status_updated_at = NOW(),
          deleted_at = NULL, updated_at = NOW()
          WHERE id = ?`,
-        [weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, parcelId]
+        [weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, logistics_provider_id || null, parcelId]
       );
       // Remove old items, will re-insert below
       await conn.execute('DELETE FROM parcel_items WHERE parcel_id = ?', [parcelId]);
     } else {
       // Insert new parcel
       const [result] = await conn.execute<mysql.ResultSetHeader>(
-        `INSERT INTO parcels (tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, origin, destination, status, status_updated_at, user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '', 'arrived', NOW(), NULL)`,
-        [tracking_number, weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null]
+        `INSERT INTO parcels (tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, logistics_provider_id, origin, destination, status, status_updated_at, user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 'arrived', NOW(), NULL)`,
+        [tracking_number, weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, logistics_provider_id || null]
       );
       parcelId = result.insertId;
     }
@@ -977,9 +1014,10 @@ export const updateParcel = async (parcelId: number, payload: {
   sub_status?: string;
   status_remark?: string;
   images?: string;
+  logistics_provider_id?: number | null;
   items: { name: string; value: number; quantity: number }[];
 }): Promise<boolean> => {
-  const { weight, length_cm, width_cm, height_cm, volume, origin, destination, status, sub_status, status_remark, images, items } = payload;
+  const { weight, length_cm, width_cm, height_cm, volume, origin, destination, status, sub_status, status_remark, images, logistics_provider_id, items } = payload;
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -991,6 +1029,7 @@ export const updateParcel = async (parcelId: number, payload: {
     if (sub_status !== undefined) { sets.push('sub_status = ?'); params.push(sub_status || null); }
     if (status_remark !== undefined) { sets.push('status_remark = ?'); params.push(status_remark || null); }
     if (images !== undefined) { sets.push('images = ?'); params.push(images || null); }
+    if (logistics_provider_id !== undefined) { sets.push('logistics_provider_id = ?'); params.push(logistics_provider_id || null); }
     params.push(parcelId);
     const [result] = await conn.execute<mysql.ResultSetHeader>(
       `UPDATE parcels SET ${sets.join(', ')} WHERE id = ?`,
@@ -1216,6 +1255,147 @@ export const batchDeleteAdmins = async (ids: number[]): Promise<number> => {
   if (!ids.length) return 0;
   const placeholders = ids.map(() => '?').join(',');
   const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE admin_users SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`, ids);
+  return result.affectedRows;
+};
+
+const LOGISTICS_SORT_COLUMNS = new Set(['id', 'name', 'code', 'contact_name', 'contact_phone', 'email', 'website', 'status', 'created_at']);
+
+export const getLogisticsProvidersPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>
+) => {
+  const orderBy = toSafeOrderBy(sortKey, sortOrder, LOGISTICS_SORT_COLUMNS, 'created_at');
+  const { clause: deletedClause, cleanedFilters } = buildDeletedFilter(columnFilters);
+  const { clauses, params } = buildColumnFilters(cleanedFilters, dateFilters, LOGISTICS_SORT_COLUMNS);
+  const allClauses = [deletedClause, ...clauses];
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
+
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, name, code, contact_name, contact_phone, email, website, status, remark, created_at, updated_at, deleted_at
+     FROM logistics_providers
+     ${whereSql}
+     ORDER BY ${orderBy}
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
+  );
+
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count FROM logistics_providers ${whereSql}`,
+    params
+  );
+
+  const total = Number(countRows?.[0]?.count || 0);
+  return {
+    data: rows as any[],
+    total,
+    pages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+};
+
+export const searchLogisticsProviders = async (keyword: string): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, name, code, contact_name, contact_phone, email, website, status, remark, created_at, updated_at
+     FROM logistics_providers
+     WHERE deleted_at IS NULL AND (
+       CAST(id AS CHAR) LIKE ?
+       OR name LIKE ?
+       OR code LIKE ?
+       OR contact_name LIKE ?
+       OR contact_phone LIKE ?
+       OR status LIKE ?
+     )
+     ORDER BY created_at DESC`,
+    [like, like, like, like, like, like]
+  );
+  return rows as any[];
+};
+
+export const getActiveLogisticsProviders = async (): Promise<any[]> => {
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, name, code FROM logistics_providers
+     WHERE deleted_at IS NULL AND status = 'active'
+     ORDER BY name ASC`
+  );
+  return rows as any[];
+};
+
+export const createLogisticsProvider = async (payload: {
+  name: string;
+  code?: string;
+  contact_name?: string;
+  contact_phone?: string;
+  email?: string;
+  website?: string;
+  status?: string;
+  remark?: string;
+}) => {
+  const status = payload.status === 'inactive' ? 'inactive' : 'active';
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `INSERT INTO logistics_providers (name, code, contact_name, contact_phone, email, website, status, remark)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      payload.name,
+      payload.code || null,
+      payload.contact_name || null,
+      payload.contact_phone || null,
+      payload.email || null,
+      payload.website || null,
+      status,
+      payload.remark || null,
+    ]
+  );
+  return { id: result.insertId, ...payload, status };
+};
+
+export const updateLogisticsProvider = async (id: number, payload: {
+  name?: string;
+  code?: string;
+  contact_name?: string;
+  contact_phone?: string;
+  email?: string;
+  website?: string;
+  status?: string;
+  remark?: string;
+}): Promise<boolean> => {
+  const sets: string[] = ['updated_at = NOW()'];
+  const params: any[] = [];
+  if (payload.name !== undefined) { sets.push('name = ?'); params.push(payload.name); }
+  if (payload.code !== undefined) { sets.push('code = ?'); params.push(payload.code || null); }
+  if (payload.contact_name !== undefined) { sets.push('contact_name = ?'); params.push(payload.contact_name || null); }
+  if (payload.contact_phone !== undefined) { sets.push('contact_phone = ?'); params.push(payload.contact_phone || null); }
+  if (payload.email !== undefined) { sets.push('email = ?'); params.push(payload.email || null); }
+  if (payload.website !== undefined) { sets.push('website = ?'); params.push(payload.website || null); }
+  if (payload.status !== undefined) { sets.push('status = ?'); params.push(payload.status === 'inactive' ? 'inactive' : 'active'); }
+  if (payload.remark !== undefined) { sets.push('remark = ?'); params.push(payload.remark || null); }
+  params.push(id);
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `UPDATE logistics_providers SET ${sets.join(', ')} WHERE id = ? AND deleted_at IS NULL`,
+    params
+  );
+  return result.affectedRows > 0;
+};
+
+export const deleteLogisticsProvider = async (id: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    'UPDATE logistics_providers SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL',
+    [id]
+  );
+  return result.affectedRows > 0;
+};
+
+export const batchDeleteLogisticsProviders = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE logistics_providers SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`, ids);
   return result.affectedRows;
 };
 

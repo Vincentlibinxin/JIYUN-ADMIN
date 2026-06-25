@@ -45,6 +45,13 @@ import {
   updateOrderStatus,
   updateParcel,
   updateParcelStatus,
+  getLogisticsProvidersPaged,
+  searchLogisticsProviders,
+  getActiveLogisticsProviders,
+  createLogisticsProvider,
+  updateLogisticsProvider,
+  deleteLogisticsProvider,
+  batchDeleteLogisticsProviders,
 } from '../db';
 
 const router = Router();
@@ -775,7 +782,7 @@ const parcelUpload = multer({
 });
 
 router.post('/parcels/inbound', adminAuth, csrfGuard, parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
-  const { tracking_number, weight, length_cm, width_cm, height_cm, shelf_location, items: itemsJson } = req.body;
+  const { tracking_number, weight, length_cm, width_cm, height_cm, shelf_location, logistics_provider_id, items: itemsJson } = req.body;
   if (!tracking_number || typeof tracking_number !== 'string' || !tracking_number.trim()) {
     res.status(400).json({ error: '包裹单号不能为空' });
     return;
@@ -820,6 +827,9 @@ router.post('/parcels/inbound', adminAuth, csrfGuard, parcelUpload.array('files'
       volume,
       images: imageUrls || undefined,
       shelf_location: typeof shelf_location === 'string' ? shelf_location.trim() || undefined : undefined,
+      logistics_provider_id: logistics_provider_id !== undefined && logistics_provider_id !== ''
+        ? (Number(logistics_provider_id) > 0 ? Number(logistics_provider_id) : null)
+        : undefined,
       items: items.map(it => ({ name: it.name.trim(), value: it.value, quantity: it.quantity })),
     });
     res.json({ message: '入库成功', parcelId: insertId });
@@ -836,7 +846,7 @@ router.get('/parcels/:id/items', adminAuth, async (req: AdminRequest, res: Respo
 
 router.put('/parcels/:id', adminAuth, csrfGuard, parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
   const parcelId = Number(req.params.id);
-  const { weight, length_cm, width_cm, height_cm, origin, destination, status, sub_status, status_remark, items: itemsJson, existing_images } = req.body;
+  const { weight, length_cm, width_cm, height_cm, origin, destination, status, sub_status, status_remark, items: itemsJson, existing_images, logistics_provider_id } = req.body;
   const w = Number(weight);
   const l = Number(length_cm);
   const wi = Number(width_cm);
@@ -881,6 +891,9 @@ router.put('/parcels/:id', adminAuth, csrfGuard, parcelUpload.array('files', 10)
       sub_status: typeof sub_status === 'string' ? sub_status.trim() : undefined,
       status_remark: typeof status_remark === 'string' ? status_remark.trim() : undefined,
       images: allImages || undefined,
+      logistics_provider_id: logistics_provider_id !== undefined && logistics_provider_id !== ''
+        ? (Number(logistics_provider_id) > 0 ? Number(logistics_provider_id) : null)
+        : undefined,
       items: items.map(it => ({ name: it.name.trim(), value: it.value, quantity: it.quantity })),
     });
     if (!ok) {
@@ -1156,6 +1169,151 @@ router.post('/admins/batch-delete', adminAuth, csrfGuard, requireSuperAdmin, asy
     return;
   }
   const deleted = await batchDeleteAdmins(safeIds);
+  res.json({ message: `已删除 ${deleted} 条记录`, deleted });
+});
+
+// ==================== 物流商管理 ====================
+const LOGISTICS_STATUS_SET = new Set(['active', 'inactive']);
+
+router.get('/logistics', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 10));
+  const sortKey = String(req.query.sortKey || '').trim() || undefined;
+  const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
+  const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
+  const result = await getLogisticsProvidersPaged(page, limit, sortKey, sortOrder, columnFilters, dateFilters);
+  res.json({
+    data: result.data,
+    pagination: {
+      page,
+      limit,
+      total: result.total,
+      pages: result.pages,
+    },
+  });
+});
+
+router.get('/logistics/search', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+  const keyword = String(req.query.q || '').trim();
+  if (!keyword) {
+    res.status(400).json({ error: '搜索关键词不能为空' });
+    return;
+  }
+  const data = await searchLogisticsProviders(keyword);
+  res.json({ data, count: data.length });
+});
+
+router.get('/logistics/options', adminAuth, async (_req: AdminRequest, res: Response): Promise<void> => {
+  const data = await getActiveLogisticsProviders();
+  res.json({ data });
+});
+
+router.post('/logistics', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+  const { name, code, contact_name, contact_phone, email, website, status, remark } = req.body as Record<string, string>;
+  if (!name || !name.trim()) {
+    res.status(400).json({ error: '物流商名称不能为空' });
+    return;
+  }
+  const normalizedStatus = LOGISTICS_STATUS_SET.has(String(status)) ? String(status) : 'active';
+  const provider = await createLogisticsProvider({
+    name: name.trim(),
+    code: typeof code === 'string' ? code.trim() : undefined,
+    contact_name: typeof contact_name === 'string' ? contact_name.trim() : undefined,
+    contact_phone: typeof contact_phone === 'string' ? contact_phone.trim() : undefined,
+    email: typeof email === 'string' ? email.trim() : undefined,
+    website: typeof website === 'string' ? website.trim() : undefined,
+    status: normalizedStatus,
+    remark: typeof remark === 'string' ? remark.trim() : undefined,
+  });
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'logistics.create',
+    targetType: 'logistics_provider',
+    targetId: provider.id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: `created_name=${provider.name}`,
+  });
+  res.status(201).json({ message: '物流商已创建', provider });
+});
+
+router.put('/logistics/:id', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '物流商ID不合法' });
+    return;
+  }
+  const { name, code, contact_name, contact_phone, email, website, status, remark } = req.body as Record<string, string>;
+  if (name !== undefined && !String(name).trim()) {
+    res.status(400).json({ error: '物流商名称不能为空' });
+    return;
+  }
+  if (status !== undefined && !LOGISTICS_STATUS_SET.has(String(status))) {
+    res.status(400).json({ error: '物流商状态不合法' });
+    return;
+  }
+  const ok = await updateLogisticsProvider(id, {
+    name: name !== undefined ? String(name).trim() : undefined,
+    code: code !== undefined ? String(code).trim() : undefined,
+    contact_name: contact_name !== undefined ? String(contact_name).trim() : undefined,
+    contact_phone: contact_phone !== undefined ? String(contact_phone).trim() : undefined,
+    email: email !== undefined ? String(email).trim() : undefined,
+    website: website !== undefined ? String(website).trim() : undefined,
+    status: status !== undefined ? String(status) : undefined,
+    remark: remark !== undefined ? String(remark).trim() : undefined,
+  });
+  if (!ok) {
+    res.status(404).json({ error: '物流商不存在' });
+    return;
+  }
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'logistics.update',
+    targetType: 'logistics_provider',
+    targetId: id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: 'logistics_updated',
+  });
+  res.json({ message: '物流商已更新', id });
+});
+
+router.delete('/logistics/:id', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '物流商ID不合法' });
+    return;
+  }
+  const ok = await deleteLogisticsProvider(id);
+  if (!ok) {
+    res.status(404).json({ error: '物流商不存在' });
+    return;
+  }
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'logistics.delete',
+    targetType: 'logistics_provider',
+    targetId: id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: 'logistics_deleted',
+  });
+  res.json({ message: '物流商已删除', id });
+});
+
+router.post('/logistics/batch-delete', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: '请提供要删除的ID列表' });
+    return;
+  }
+  const numIds = ids.map(Number).filter(n => Number.isInteger(n) && n > 0);
+  if (numIds.length === 0) {
+    res.status(400).json({ error: 'ID列表不合法' });
+    return;
+  }
+  const deleted = await batchDeleteLogisticsProviders(numIds);
   res.json({ message: `已删除 ${deleted} 条记录`, deleted });
 });
 
