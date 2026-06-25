@@ -397,6 +397,8 @@ export default function ParcelsTab({
       <DatePicker.RangePicker
         size="small"
         style={{ width: '100%' }}
+        format="MM-DD"
+        placeholder={['开始', '结束']}
         onChange={(_, dateStrings) => handleDateSearch(key, dateStrings)}
         key={`date-picker-${key}-${resetKey}`}
         allowClear
@@ -536,7 +538,13 @@ export default function ParcelsTab({
           title: renderSearchInput('volume', '体积'),
           key: 'volume_child',
           width: 100,
-          render: (_, record) => (record.volume != null ? record.volume : ''),
+          render: (_, record) => {
+            if (record.volume == null || record.volume === '') return '';
+            // 兼容字符串/数字，转为数字后用千分符格式化
+            const num = Number(record.volume);
+            if (Number.isNaN(num)) return String(record.volume);
+            return num.toLocaleString('en-US');
+          },
         },
       ],
     },
@@ -588,53 +596,6 @@ export default function ParcelsTab({
       ],
     },
     {
-      title: '来源',
-      key: 'origin',
-      width: 140,
-      sorter: true,
-      sortOrder: sortKey === 'origin' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
-      children: [
-        {
-          title: renderSearchInput('origin', '来源'),
-          dataIndex: 'origin',
-          key: 'origin_child',
-          width: 140,
-          ellipsis: true,
-        },
-      ],
-    },
-    {
-      title: '目的地',
-      key: 'destination',
-      width: 140,
-      sorter: true,
-      sortOrder: sortKey === 'destination' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
-      children: [
-        {
-          title: renderSearchInput('destination', '目的地'),
-          dataIndex: 'destination',
-          key: 'destination_child',
-          width: 140,
-          ellipsis: true,
-        },
-      ],
-    },
-    {
-      title: '预计送达',
-      key: 'estimated_delivery',
-      width: 180,
-      sorter: true,
-      sortOrder: sortKey === 'estimated_delivery' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
-      children: [
-        {
-          title: renderDateRangeInput('estimated_delivery'),
-          key: 'estimated_delivery_child',
-          width: 180,
-          render: (_, record) => (record.estimated_delivery ? new Date(record.estimated_delivery).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : ''),
-        },
-      ],
-    },
-    {
       title: '状态',
       key: 'status',
       width: 160,
@@ -663,39 +624,6 @@ export default function ParcelsTab({
               ]}
             />
           ),
-        },
-      ],
-    },
-    {
-      title: '子状态',
-      key: 'sub_status',
-      width: 130,
-      children: [
-        {
-          title: renderSearchInput('sub_status', '子状态'),
-          key: 'sub_status_child',
-          width: 130,
-          render: (_: any, record: Parcel) => {
-            const subStatusLabels: Record<string, string> = {
-              awaiting_shelving: '待上架',
-              packing: '打包中',
-              awaiting_dispatch: '待出库',
-              export_declaring: '出口申报中',
-              export_clearing: '出口清关中',
-              import_clearing: '进口清关中',
-              customs_released: '海关放行',
-              linehaul_in_transit: '干线运输中',
-              arrived_destination: '到达目的地',
-              out_for_delivery: '派送中',
-              delivery_failed: '派送失败',
-              address_issue: '地址异常',
-              customs_issue: '清关异常',
-              lost: '包裹丢失',
-              damaged: '包裹破损',
-              return_processing: '退回中',
-            };
-            return record.sub_status ? (subStatusLabels[record.sub_status] || record.sub_status) : '';
-          },
         },
       ],
     },
@@ -1110,9 +1038,10 @@ export default function ParcelsTab({
           pagination={false}
           size="small"
           sticky
+          tableLayout="fixed"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
-          scroll={{ x: 1800, y: tableScrollY }}
+          scroll={{ x: 'max-content', y: tableScrollY }}
           locale={{ emptyText: '没有包裹记录' }}
           onChange={(_, __, sorter) => {
             if (Array.isArray(sorter)) {
