@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Button, Card, Input, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tooltip, DatePicker, Checkbox } from 'antd';
+import { Button, Card, Input, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tooltip, DatePicker, Checkbox, Modal, Form, Descriptions, message } from 'antd';
 import { ReloadOutlined, DeleteOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { adminFetch } from '../../lib/api';
 
 interface User {
   id: number;
@@ -10,6 +11,8 @@ interface User {
   email: string | null;
   real_name: string | null;
   address: string | null;
+  logistics_provider_id: number | null;
+  logistics_provider_name: string | null;
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;
@@ -27,6 +30,7 @@ interface UsersTabProps {
   onReset: () => void;
   onDelete: (id: number) => void;
   onBatchDelete: (ids: number[]) => void;
+  onUpdate?: (id: number, payload: { logistics_provider_id: number | null }) => Promise<boolean>;
   currentPage: number;
   pageSize: number;
   totalItems: number;
@@ -48,6 +52,7 @@ export default function UsersTab({
   onReset,
   onDelete,
   onBatchDelete,
+  onUpdate,
   currentPage,
   pageSize,
   totalItems,
@@ -61,6 +66,62 @@ export default function UsersTab({
 }: UsersTabProps) {
   const tableHostRef = useRef<HTMLDivElement>(null);
   const [tableScrollY, setTableScrollY] = useState(240);
+
+  // 物流商下拉选项
+  const [logisticsOptions, setLogisticsOptions] = useState<{ id: number; name: string; code: string | null }[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await adminFetch('/admin/logistics/options');
+        if (res.ok) {
+          const j = await res.json();
+          setLogisticsOptions(j.data || []);
+        }
+      } catch { /* ignore */ }
+    })();
+  }, []);
+  const logisticsSelectOptions = logisticsOptions.map((o) => ({
+    label: o.code ? `${o.name}（${o.code}）` : o.name,
+    value: o.id,
+  }));
+
+  // 查看/修改弹窗
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<'view' | 'edit'>('view');
+  const [activeUser, setActiveUser] = useState<User | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [editForm] = Form.useForm();
+
+  const openView = (record: User) => {
+    setActiveUser(record);
+    setModalMode('view');
+    setModalOpen(true);
+  };
+  const openEdit = (record: User) => {
+    setActiveUser(record);
+    setModalMode('edit');
+    editForm.setFieldsValue({ logistics_provider_id: record.logistics_provider_id ?? undefined });
+    setModalOpen(true);
+  };
+  const handleModalSubmit = async () => {
+    if (!activeUser || !onUpdate) return;
+    const values = await editForm.validateFields();
+    setSubmitting(true);
+    try {
+      const ok = await onUpdate(activeUser.id, {
+        logistics_provider_id: values.logistics_provider_id != null ? Number(values.logistics_provider_id) : null,
+      });
+      if (ok) {
+        message.success('修改成功');
+        setModalOpen(false);
+      } else {
+        message.error('修改失败');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
 
   // 减去表头高度，避免表格内容区超高导致最后一行被覆盖 (双层表头大约是 86px)
   useLayoutEffect(() => {
@@ -325,6 +386,21 @@ export default function UsersTab({
       ]
     },
     {
+      title: '物流商',
+      key: 'logistics_provider',
+      width: 160,
+      children: [
+        {
+          title: renderSearchInput('logistics_provider', '物流商'),
+          dataIndex: 'logistics_provider_name',
+          key: 'logistics_provider_child',
+          width: 160,
+          ellipsis: true,
+          render: (_, record) => record.logistics_provider_name || '',
+        }
+      ]
+    },
+    {
       title: '注册日期',
       key: 'created_at',
       width: 180,
@@ -394,10 +470,10 @@ export default function UsersTab({
           render: (_, record) => (
             <Space size={4}>
               <Tooltip title="查看">
-                <Button size="small" type="text" icon={<EyeOutlined />} />
+                <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => openView(record)} />
               </Tooltip>
               <Tooltip title="修改">
-                <Button size="small" type="text" icon={<EditOutlined />} />
+                <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(record)} />
               </Tooltip>
               <Popconfirm
                 title="确定删除该会员？"
@@ -508,6 +584,46 @@ export default function UsersTab({
           onShowSizeChange={(_, size) => onPageSizeChange(size)}
         />
       </div>
+
+      <Modal
+        title={modalMode === 'view' ? '会员详情' : '修改会员物流商'}
+        open={modalOpen}
+        onCancel={() => setModalOpen(false)}
+        onOk={modalMode === 'edit' ? handleModalSubmit : () => setModalOpen(false)}
+        okText={modalMode === 'edit' ? '保存' : '关闭'}
+        cancelText="取消"
+        confirmLoading={submitting}
+        cancelButtonProps={modalMode === 'view' ? { style: { display: 'none' } } : undefined}
+        destroyOnClose
+      >
+        {activeUser && modalMode === 'view' && (
+          <Descriptions column={1} size="small" bordered>
+            <Descriptions.Item label="用户名">{activeUser.username}</Descriptions.Item>
+            <Descriptions.Item label="手机">{activeUser.phone || '-'}</Descriptions.Item>
+            <Descriptions.Item label="电子邮件">{activeUser.email || '-'}</Descriptions.Item>
+            <Descriptions.Item label="姓名">{activeUser.real_name || '-'}</Descriptions.Item>
+            <Descriptions.Item label="地址">{activeUser.address || '-'}</Descriptions.Item>
+            <Descriptions.Item label="物流商">{activeUser.logistics_provider_name || '-'}</Descriptions.Item>
+            <Descriptions.Item label="注册日期">{new Date(activeUser.created_at).toLocaleString('zh-CN', { hour12: false })}</Descriptions.Item>
+          </Descriptions>
+        )}
+        {activeUser && modalMode === 'edit' && (
+          <Form form={editForm} layout="vertical">
+            <Form.Item label="会员">
+              <Input value={`${activeUser.username}${activeUser.phone ? `（${activeUser.phone}）` : ''}`} disabled />
+            </Form.Item>
+            <Form.Item name="logistics_provider_id" label="物流商">
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="请选择物流商（可选）"
+                options={logisticsSelectOptions}
+              />
+            </Form.Item>
+          </Form>
+        )}
+      </Modal>
     </Card>
   );
 }

@@ -39,6 +39,7 @@ import {
   getSmsPaged,
   getUsersPaged,
   searchUsersPaged,
+  updateUser,
   logAdminAudit,
   updateAdminLastLogin,
   updateAdminStatus,
@@ -532,6 +533,26 @@ router.get('/users/search', adminAuth, async (req: AdminRequest, res: Response):
       pages: result.pages,
     },
   });
+});
+
+router.put('/users/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+  const userId = Number(req.params.id);
+  const { logistics_provider_id } = req.body || {};
+  try {
+    const ok = await updateUser(userId, {
+      logistics_provider_id: logistics_provider_id !== undefined && logistics_provider_id !== ''
+        ? (Number(logistics_provider_id) > 0 ? Number(logistics_provider_id) : null)
+        : undefined,
+    });
+    if (!ok) {
+      res.status(404).json({ error: '会员不存在或无可更新内容' });
+      return;
+    }
+    res.json({ message: '修改成功' });
+  } catch (err: any) {
+    console.error('[修改会员失败]', err);
+    res.status(500).json({ error: '修改失败，请稍后重试' });
+  }
 });
 
 router.delete('/users/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {

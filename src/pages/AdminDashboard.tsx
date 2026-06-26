@@ -771,6 +771,25 @@ export default function AdminDashboard() {
     }
   };
 
+  const updateUser = async (id: number, payload: { logistics_provider_id: number | null }): Promise<boolean> => {
+    try {
+      const response = await adminFetch(`/admin/users/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchUsers(currentPage);
+        return true;
+      }
+      setError('修改会员失败');
+      return false;
+    } catch {
+      setError('修改失败');
+      return false;
+    }
+  };
+
   const deleteOrder = async (id: number) => {
     try {
       const response = await adminFetch(`/admin/orders/${id}`, { method: 'DELETE' });
@@ -1120,6 +1139,7 @@ export default function AdminDashboard() {
               }}
               onDelete={deleteUser}
               onBatchDelete={batchDeleteUsers}
+              onUpdate={updateUser}
               currentPage={currentPage}
               pageSize={pageSize}
               totalItems={userTotalItems}

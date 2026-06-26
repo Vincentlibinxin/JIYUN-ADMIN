@@ -202,10 +202,20 @@ export const initDb = async (): Promise<void> => {
         email VARCHAR(255),
         real_name VARCHAR(255),
         address VARCHAR(255),
+        logistics_provider_id INT DEFAULT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    // Migration: ensure users.logistics_provider_id exists on older databases
+    const [userCols] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'`
+    );
+    const existingUserCols = new Set((userCols as any[]).map((r: any) => r.COLUMN_NAME));
+    if (!existingUserCols.has('logistics_provider_id')) {
+      await connection.execute(`ALTER TABLE users ADD COLUMN logistics_provider_id INT DEFAULT NULL AFTER address`);
+    }
 
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS otp_codes (
@@ -436,10 +446,23 @@ export const getUsersPaged = async (
   columnFilters?: Record<string, string>,
   dateFilters?: Record<string, [string, string]>
 ) => {
-  const orderBy = toSafeOrderBy(sortKey, sortOrder, USERS_SORT_COLUMNS, 'created_at');
-  const { clause: deletedClause, cleanedFilters } = buildDeletedFilter(columnFilters);
-  const { clauses, params } = buildColumnFilters(cleanedFilters, dateFilters, USERS_SORT_COLUMNS);
+  const orderBy = `u.${toSafeOrderBy(sortKey, sortOrder, USERS_SORT_COLUMNS, 'created_at')}`;
+
+  // Extract logistics_provider filter before passing to buildColumnFilters (joined column)
+  const userColFilters = columnFilters ? { ...columnFilters } : undefined;
+  let logisticsFilter: string | undefined;
+  if (userColFilters && userColFilters['logistics_provider']) {
+    logisticsFilter = userColFilters['logistics_provider'];
+    delete userColFilters['logistics_provider'];
+  }
+
+  const { clause: deletedClause, cleanedFilters } = buildDeletedFilter(userColFilters, 'u.');
+  const { clauses, params } = buildColumnFilters(cleanedFilters, dateFilters, USERS_SORT_COLUMNS, 'u.');
   const allClauses = [deletedClause, ...clauses];
+  if (logisticsFilter) {
+    allClauses.push(`CAST(lp.name AS CHAR) LIKE ?`);
+    params.push(`%${logisticsFilter.trim()}%`);
+  }
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
 
   const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
@@ -447,8 +470,11 @@ export const getUsersPaged = async (
   const offset = (safePage - 1) * safeLimit;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, username, phone, email, real_name, address, created_at, updated_at, deleted_at
-     FROM users
+    `SELECT u.id, u.username, u.phone, u.email, u.real_name, u.address,
+            u.logistics_provider_id, lp.name AS logistics_provider_name,
+            u.created_at, u.updated_at, u.deleted_at
+     FROM users u
+     LEFT JOIN logistics_providers lp ON u.logistics_provider_id = lp.id
      ${whereSql}
      ORDER BY ${orderBy}
      LIMIT ${safeLimit} OFFSET ${offset}`,
@@ -456,7 +482,9 @@ export const getUsersPaged = async (
   );
 
   const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT COUNT(*) as count FROM users ${whereSql}`,
+    `SELECT COUNT(*) as count FROM users u
+     LEFT JOIN logistics_providers lp ON u.logistics_provider_id = lp.id
+     ${whereSql}`,
     params
   );
 
@@ -470,15 +498,18 @@ export const getUsersPaged = async (
 
 export const searchUsersPaged = async (keyword: string, page: number, limit: number, sortKey?: string, sortOrder?: string) => {
   const like = `%${keyword}%`;
-  const orderBy = toSafeOrderBy(sortKey, sortOrder, USERS_SORT_COLUMNS, 'created_at');
+  const orderBy = `u.${toSafeOrderBy(sortKey, sortOrder, USERS_SORT_COLUMNS, 'created_at')}`;
   return toPagedResult(
     page,
     limit,
     async (safeLimit, offset) => {
       const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-        `SELECT id, username, phone, email, real_name, address, created_at, updated_at
-         FROM users
-         WHERE deleted_at IS NULL AND (username LIKE ? OR phone LIKE ? OR email LIKE ? OR real_name LIKE ?)
+        `SELECT u.id, u.username, u.phone, u.email, u.real_name, u.address,
+                u.logistics_provider_id, lp.name AS logistics_provider_name,
+                u.created_at, u.updated_at
+         FROM users u
+         LEFT JOIN logistics_providers lp ON u.logistics_provider_id = lp.id
+         WHERE u.deleted_at IS NULL AND (u.username LIKE ? OR u.phone LIKE ? OR u.email LIKE ? OR u.real_name LIKE ?)
          ORDER BY ${orderBy}
          LIMIT ${safeLimit} OFFSET ${offset}`,
         [like, like, like, like]
@@ -488,13 +519,29 @@ export const searchUsersPaged = async (keyword: string, page: number, limit: num
     async () => {
       const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
         `SELECT COUNT(*) as count
-         FROM users
-         WHERE deleted_at IS NULL AND (username LIKE ? OR phone LIKE ? OR email LIKE ? OR real_name LIKE ?)`,
+         FROM users u
+         WHERE u.deleted_at IS NULL AND (u.username LIKE ? OR u.phone LIKE ? OR u.email LIKE ? OR u.real_name LIKE ?)`,
         [like, like, like, like]
       );
       return Number(countRows?.[0]?.count || 0);
     }
   );
+};
+
+export const updateUser = async (userId: number, payload: { logistics_provider_id?: number | null }): Promise<boolean> => {
+  const sets: string[] = ['updated_at = NOW()'];
+  const params: any[] = [];
+  if (payload.logistics_provider_id !== undefined) {
+    sets.push('logistics_provider_id = ?');
+    params.push(payload.logistics_provider_id || null);
+  }
+  if (sets.length === 1) return false;
+  params.push(userId);
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `UPDATE users SET ${sets.join(', ')} WHERE id = ? AND deleted_at IS NULL`,
+    params
+  );
+  return result.affectedRows > 0;
 };
 
 export const deleteUser = async (userId: number): Promise<boolean> => {
