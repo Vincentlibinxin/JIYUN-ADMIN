@@ -66,6 +66,10 @@ main form details {
 .ant-table-cell-fix-end {
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+  /* Clip any compositor "ghost" painting (e.g. action icons from the fixed
+   * 操作 column) strictly to the cell's own box, so selecting all rows no
+   * longer leaks a delete icon onto the fixed 序号 column header. */
+  clip-path: inset(0);
 }
 
 /* Normal body cells sit below fixed cells */
@@ -102,6 +106,7 @@ main form details {
   z-index: 5 !important;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+  clip-path: inset(0);
 }
 
 /* 空白单元格统一显示 "-"（最后一列的占位列除外） */
