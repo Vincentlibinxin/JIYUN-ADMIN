@@ -89,3 +89,28 @@ Unregister-ScheduledTask -TaskName 'JiyunAdminAutoStart' -Confirm:$false
 - `logs/autostart.log`
 - `logs/api.out.log`、`logs/api.err.log`
 - `logs/web.out.log`、`logs/web.err.log`
+
+## GitHub 自动部署（Windows 自托管 Runner）
+
+仓库已提供工作流：`.github/workflows/deploy-production-windows.yml`。
+
+使用方式：
+
+1. 在生产服务器安装并注册 GitHub self-hosted runner（Windows）。
+2. 在 GitHub 仓库 `Settings -> Secrets and variables -> Actions` 添加 Secrets：
+	- `PROD_ENV_API`（必填）：完整 `.env.api` 文件内容
+	- `PROD_ENV_WEB`（可选）：完整 `.env` 文件内容
+3. 推送到 `main` 分支，或手动触发 `Deploy Production (Windows)` 工作流。
+
+工作流执行内容：
+
+1. 检出代码
+2. 写入 `.env.api`/`.env`
+3. 执行 `npm ci`
+4. 执行 `scripts/start-services.ps1`（构建并拉起 3001/3002）
+5. 进行本机健康检查
+
+说明：
+
+- `.env`、`.env.api` 已被 `.gitignore` 忽略，不会提交到仓库。
+- 建议生产服务器仅对外开放网关端口（如 443），3001/3002 仅内网或本机可访问。

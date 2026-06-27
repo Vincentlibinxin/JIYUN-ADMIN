@@ -1,0 +1,61 @@
+name: Deploy Production (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on:
+      - self-hosted
+      - windows
+
+    env:
+      PROD_ENV_API: ${{ secrets.PROD_ENV_API }}
+      PROD_ENV_WEB: ${{ secrets.PROD_ENV_WEB }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Write environment files
+        shell: powershell
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PROD_ENV_API)) {
+            throw 'Missing required secret: PROD_ENV_API'
+          }
+
+          [System.IO.File]::WriteAllText((Join-Path $PWD '.env.api'), $env:PROD_ENV_API)
+
+          if (-not [string]::IsNullOrWhiteSpace($env:PROD_ENV_WEB)) {
+            [System.IO.File]::WriteAllText((Join-Path $PWD '.env'), $env:PROD_ENV_WEB)
+          }
+
+      - name: Install dependencies
+        shell: powershell
+        run: npm ci
+
+      - name: Build and start services
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-services.ps1
+
+      - name: Smoke test
+        shell: powershell
+        run: |
+          $health = Invoke-WebRequest -Uri 'http://127.0.0.1:3001/api/health' -UseBasicParsing -TimeoutSec 15
+          if ($health.StatusCode -ne 200) {
+            throw "API health check failed with status $($health.StatusCode)"
+          }
+
+          $home = Invoke-WebRequest -Uri 'http://127.0.0.1:3002/' -UseBasicParsing -TimeoutSec 20
+          if ($home.StatusCode -ne 200) {
+            throw "Web check failed with status $($home.StatusCode)"
+          }

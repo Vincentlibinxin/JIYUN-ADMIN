@@ -2,8 +2,10 @@ $ErrorActionPreference = 'Stop'
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptDir
-$nodeDir = 'C:\Program Files\nodejs'
-$npmCmd = Join-Path $nodeDir 'npm.cmd'
+$npmCmd = (Get-Command npm.cmd -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)
+if (-not $npmCmd) {
+  $npmCmd = (Get-Command npm -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)
+}
 $logDir = Join-Path $repoRoot 'logs'
 $logFile = Join-Path $logDir 'autostart.log'
 
@@ -11,9 +13,9 @@ if (!(Test-Path $logDir)) {
   New-Item -ItemType Directory -Path $logDir | Out-Null
 }
 
-if (!(Test-Path $npmCmd)) {
-  Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] ERROR: npm.cmd not found at $npmCmd"
-  throw "npm.cmd not found at $npmCmd"
+if (-not $npmCmd -or !(Test-Path $npmCmd)) {
+  Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] ERROR: npm command not found in PATH"
+  throw 'npm command not found in PATH'
 }
 
 function Stop-PortListeners([int[]]$ports) {
