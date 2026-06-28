@@ -1,6 +1,7 @@
 ﻿import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
+import { ALL_PERMISSION_CODES, DEFAULT_ROLE_PERMISSIONS, type PermissionCode } from './permissions';
 
 dotenv.config({ path: '.env.api' });
 dotenv.config();
@@ -246,6 +247,29 @@ export const initDb = async (): Promise<void> => {
     `);
 
     await connection.execute(`
+      CREATE TABLE IF NOT EXISTS admin_roles (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        code VARCHAR(32) NOT NULL,
+        name VARCHAR(64) NOT NULL,
+        is_system TINYINT(1) NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_role_code (code)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS admin_role_permissions (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        role VARCHAR(32) NOT NULL,
+        permission_code VARCHAR(64) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_role_permission (role, permission_code),
+        INDEX idx_role (role)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await connection.execute(`
       CREATE TABLE IF NOT EXISTS parcels (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
@@ -419,6 +443,37 @@ export const initDb = async (): Promise<void> => {
          )`
       );
     }
+
+      for (const [role, defaultPermissions] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
+        const [rows] = await connection.execute<mysql.RowDataPacket[]>(
+          'SELECT COUNT(*) as count FROM admin_role_permissions WHERE role = ?',
+          [role]
+        );
+        const count = Number(rows?.[0]?.count || 0);
+        if (count > 0) continue;
+        for (const permissionCode of defaultPermissions) {
+          await connection.execute(
+            'INSERT INTO admin_role_permissions (role, permission_code) VALUES (?, ?)',
+            [role, permissionCode]
+          );
+        }
+      }
+
+      const DEFAULT_ROLE_NAMES: Record<string, string> = {
+        super_admin: '超级管理员',
+        admin: '管理员',
+      };
+      for (const role of Object.keys(DEFAULT_ROLE_PERMISSIONS)) {
+        const [roleRows] = await connection.execute<mysql.RowDataPacket[]>(
+          'SELECT id FROM admin_roles WHERE code = ? LIMIT 1',
+          [role]
+        );
+        if (roleRows && roleRows.length > 0) continue;
+        await connection.execute(
+          'INSERT INTO admin_roles (code, name, is_system) VALUES (?, ?, 1)',
+          [role, DEFAULT_ROLE_NAMES[role] || role]
+        );
+      }
   } finally {
     connection.release();
   }
@@ -430,6 +485,197 @@ export const getAdminByUsername = async (username: string): Promise<any | null> 
 
 export const getAdminById = async (adminId: number): Promise<any | null> => {
   return querySingle<any>('SELECT * FROM admin_users WHERE id = ? AND deleted_at IS NULL LIMIT 1', [adminId]);
+};
+
+export const getPermissionsForRoleFromDb = async (role: string | undefined | null): Promise<PermissionCode[]> => {
+  if (!role) return [];
+  // 超级管理员始终拥有全部权限，防止误配置导致系统失控
+  if (role === 'super_admin') return [...ALL_PERMISSION_CODES];
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    'SELECT permission_code FROM admin_role_permissions WHERE role = ? ORDER BY permission_code ASC',
+    [role]
+  );
+  if (!rows || rows.length === 0) {
+    return DEFAULT_ROLE_PERMISSIONS[role] || [];
+  }
+  const validSet = new Set<string>(ALL_PERMISSION_CODES);
+  return rows
+    .map((row: any) => String(row.permission_code || '').trim())
+    .filter((code): code is PermissionCode => validSet.has(code));
+};
+
+export const getRolePermissionsConfig = async (): Promise<Record<string, PermissionCode[]>> => {
+  const roleMap: Record<string, PermissionCode[]> = {};
+  for (const role of Object.keys(DEFAULT_ROLE_PERMISSIONS)) {
+    roleMap[role] = await getPermissionsForRoleFromDb(role);
+  }
+  return roleMap;
+};
+
+export const replaceRolePermissions = async (role: string, permissions: string[]): Promise<void> => {
+  const validSet = new Set<string>(ALL_PERMISSION_CODES);
+  const deduped = Array.from(new Set(permissions.map((p) => String(p || '').trim()).filter((p) => validSet.has(p)))) as PermissionCode[];
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.execute('DELETE FROM admin_role_permissions WHERE role = ?', [role]);
+    for (const permissionCode of deduped) {
+      await connection.execute(
+        'INSERT INTO admin_role_permissions (role, permission_code) VALUES (?, ?)',
+        [role, permissionCode]
+      );
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+// ====== 角色（RBAC）CRUD ======
+
+export interface RoleWithPermissions {
+  code: string;
+  name: string;
+  is_system: boolean;
+  permissions: PermissionCode[];
+  admin_count: number;
+}
+
+export const roleExists = async (code: string): Promise<boolean> => {
+  const row = await querySingle<{ id: number }>('SELECT id FROM admin_roles WHERE code = ? LIMIT 1', [code]);
+  return !!row;
+};
+
+export const countAdminsByRole = async (code: string): Promise<number> => {
+  const row = await querySingle<{ count: number }>(
+    'SELECT COUNT(*) as count FROM admin_users WHERE role = ? AND deleted_at IS NULL',
+    [code]
+  );
+  return row ? Number(row.count) : 0;
+};
+
+export const listRolesWithPermissions = async (): Promise<RoleWithPermissions[]> => {
+  const [roles] = await pool.execute<mysql.RowDataPacket[]>(
+    'SELECT code, name, is_system FROM admin_roles ORDER BY is_system DESC, created_at ASC'
+  );
+  const result: RoleWithPermissions[] = [];
+  for (const r of roles as any[]) {
+    const permissions = await getPermissionsForRoleFromDb(r.code);
+    const adminCount = await countAdminsByRole(r.code);
+    result.push({
+      code: r.code,
+      name: r.name,
+      is_system: !!r.is_system,
+      permissions,
+      admin_count: adminCount,
+    });
+  }
+  return result;
+};
+
+export const createRoleWithPermissions = async (params: {
+  code: string;
+  name: string;
+  permissions: string[];
+}): Promise<'created' | 'duplicate'> => {
+  const exists = await roleExists(params.code);
+  if (exists) return 'duplicate';
+
+  const validSet = new Set<string>(ALL_PERMISSION_CODES);
+  const deduped = Array.from(
+    new Set(params.permissions.map((p) => String(p || '').trim()).filter((p) => validSet.has(p)))
+  );
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.execute('INSERT INTO admin_roles (code, name, is_system) VALUES (?, ?, 0)', [
+      params.code,
+      params.name,
+    ]);
+    for (const permissionCode of deduped) {
+      await connection.execute('INSERT INTO admin_role_permissions (role, permission_code) VALUES (?, ?)', [
+        params.code,
+        permissionCode,
+      ]);
+    }
+    await connection.commit();
+    return 'created';
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+export const updateRoleWithPermissions = async (
+  code: string,
+  params: { name?: string; permissions?: string[] }
+): Promise<'updated' | 'not_found'> => {
+  const exists = await roleExists(code);
+  if (!exists) return 'not_found';
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    if (params.name !== undefined) {
+      await connection.execute('UPDATE admin_roles SET name = ?, updated_at = NOW() WHERE code = ?', [
+        params.name,
+        code,
+      ]);
+    }
+    // 超级管理员权限恒为全部，不允许通过此处修改
+    if (params.permissions !== undefined && code !== 'super_admin') {
+      const validSet = new Set<string>(ALL_PERMISSION_CODES);
+      const deduped = Array.from(
+        new Set(params.permissions.map((p) => String(p || '').trim()).filter((p) => validSet.has(p)))
+      );
+      await connection.execute('DELETE FROM admin_role_permissions WHERE role = ?', [code]);
+      for (const permissionCode of deduped) {
+        await connection.execute('INSERT INTO admin_role_permissions (role, permission_code) VALUES (?, ?)', [
+          code,
+          permissionCode,
+        ]);
+      }
+    }
+    await connection.commit();
+    return 'updated';
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+export const deleteRole = async (code: string): Promise<'deleted' | 'system' | 'in_use' | 'not_found'> => {
+  const role = await querySingle<{ is_system: number }>(
+    'SELECT is_system FROM admin_roles WHERE code = ? LIMIT 1',
+    [code]
+  );
+  if (!role) return 'not_found';
+  if (Number(role.is_system) === 1) return 'system';
+  const count = await countAdminsByRole(code);
+  if (count > 0) return 'in_use';
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.execute('DELETE FROM admin_role_permissions WHERE role = ?', [code]);
+    await connection.execute('DELETE FROM admin_roles WHERE code = ?', [code]);
+    await connection.commit();
+    return 'deleted';
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 };
 
 export const updateAdminLastLogin = async (adminId: number): Promise<void> => {

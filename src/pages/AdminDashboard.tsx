@@ -13,6 +13,7 @@ import SmsTab from './dashboard/SmsTab';
 import ParcelsTab from './dashboard/ParcelsTab';
 import AdminsTab from './dashboard/AdminsTab';
 import LogisticsTab, { LogisticsProvider, LogisticsPayload } from './dashboard/LogisticsTab';
+import RolesTab from './dashboard/RolesTab';
 import { exportParcelsToTemplate } from '../lib/parcelExport';
 
 interface User {
@@ -1161,6 +1162,16 @@ export default function AdminDashboard() {
     <AdminLayout activeMenu={activeMenu} onMenuClick={(key) => { setActiveMenu(key); setActiveTab(key); }} onRefresh={handleRefresh}>
           {messageContextHolder}
           <div key={refreshKey} style={{ display: 'contents' }}>
+
+          {/* 系统管理权限（角色 CRUD）页面 */}
+          {activeTab === 'system-admin-permissions' && (
+            <RolesTab
+              canCreate={hasPermission(PERMISSIONS.ADMIN_CREATE)}
+              canUpdate={hasPermission(PERMISSIONS.ADMIN_UPDATE)}
+              canDelete={hasPermission(PERMISSIONS.ADMIN_DELETE)}
+              refreshKey={refreshKey}
+            />
+          )}
 
           {/* 概覽頁面 */}
           {activeTab === 'overview' && (

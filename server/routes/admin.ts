@@ -7,7 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { uploadToOss, signParcelImages } from '../oss';
-import { PERMISSIONS, PermissionCode, getPermissionsForRole, hasPermission as roleHasPermission } from '../permissions';
+import { ALL_PERMISSION_CODES, PERMISSIONS, PermissionCode } from '../permissions';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import {
@@ -26,6 +26,12 @@ import {
   getAdminById,
   deleteUser,
   getAdminByUsername,
+  getPermissionsForRoleFromDb,
+  roleExists,
+  listRolesWithPermissions,
+  createRoleWithPermissions,
+  updateRoleWithPermissions,
+  deleteRole,
   getAdminsPaged,
   getOrdersPaged,
   getParcelItems,
@@ -114,7 +120,6 @@ if (!JWT_SECRET || JWT_SECRET.length < 32 || JWT_SECRET === 'please-change-this-
   throw new Error('[API] JWT_SECRET is missing or too weak.');
 }
 
-const ROLE_SET = new Set(['admin', 'super_admin']);
 const ADMIN_STATUS_SET = new Set(['active', 'disabled']);
 const ORDER_STATUS_SET = new Set(['pending', 'paid', 'processing', 'shipped', 'completed', 'cancelled']);
 const PARCEL_STATUS_SET = new Set(['pending', 'received', 'in_transit', 'arrived', 'pickup_pending', 'delivered', 'exception']);
@@ -349,7 +354,8 @@ const requirePermission = (code: PermissionCode) => {
       res.status(401).json({ error: '管理员状态异常' });
       return;
     }
-    if (!roleHasPermission(admin.role, code)) {
+    const permissions = await getPermissionsForRoleFromDb(admin.role);
+    if (!permissions.includes(code)) {
       await logAdminAudit({
         adminId: req.adminId,
         action: 'admin.permission_check',
@@ -457,7 +463,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         username: admin.username,
         email: admin.email,
         role: admin.role,
-        permissions: getPermissionsForRole(admin.role),
+        permissions: await getPermissionsForRoleFromDb(admin.role),
       },
     });
   } catch (error) {
@@ -493,7 +499,7 @@ router.get('/session', adminAuth, async (req: AdminRequest, res: Response): Prom
       username: admin.username,
       email: admin.email,
       role: admin.role,
-      permissions: getPermissionsForRole(admin.role),
+      permissions: await getPermissionsForRoleFromDb(admin.role),
     },
     csrfToken,
   });
@@ -529,6 +535,121 @@ router.get('/audit-logs', adminAuth, requirePermission(PERMISSIONS.AUDIT_VIEW), 
       pages: result.pages,
     },
   });
+});
+
+router.get('/roles', adminAuth, requirePermission(PERMISSIONS.ADMIN_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const roles = await listRolesWithPermissions();
+  res.json({
+    roles,
+    allPermissions: ALL_PERMISSION_CODES,
+  });
+});
+
+router.post('/roles', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_CREATE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+  const code = String(req.body?.code || '').trim().toLowerCase();
+  const name = String(req.body?.name || '').trim();
+  const permissions = Array.isArray(req.body?.permissions) ? req.body.permissions : [];
+
+  if (!/^[a-z][a-z0-9_]{1,31}$/.test(code)) {
+    res.status(400).json({ error: '角色标识不合法（小写字母开头，仅含小写字母/数字/下划线，长度 2-32 位）' });
+    return;
+  }
+  if (!name) {
+    res.status(400).json({ error: '角色名称不能为空' });
+    return;
+  }
+  if (code === 'super_admin' || code === 'admin') {
+    res.status(409).json({ error: '系统内置角色已存在' });
+    return;
+  }
+
+  const result = await createRoleWithPermissions({ code, name, permissions });
+  if (result === 'duplicate') {
+    await logAdminAudit({
+      adminId: req.adminId,
+      action: 'admin.role.create',
+      result: 'failed',
+      ip: getRequestIp(req),
+      detail: `duplicate_code=${code}`,
+    });
+    res.status(409).json({ error: '角色标识已存在' });
+    return;
+  }
+
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'admin.role.create',
+    targetType: 'admin_role',
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: `code=${code}`,
+  });
+  res.status(201).json({ message: '角色已创建' });
+});
+
+router.put('/roles/:code', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_UPDATE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+  const code = String(req.params.code || '').trim();
+  const payload: { name?: string; permissions?: string[] } = {};
+
+  if (typeof req.body?.name === 'string') {
+    const n = req.body.name.trim();
+    if (!n) {
+      res.status(400).json({ error: '角色名称不能为空' });
+      return;
+    }
+    payload.name = n;
+  }
+  if (Array.isArray(req.body?.permissions)) {
+    payload.permissions = req.body.permissions;
+  }
+  if (payload.name === undefined && payload.permissions === undefined) {
+    res.status(400).json({ error: '没有可更新的内容' });
+    return;
+  }
+
+  const result = await updateRoleWithPermissions(code, payload);
+  if (result === 'not_found') {
+    res.status(404).json({ error: '角色不存在' });
+    return;
+  }
+
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'admin.role.update',
+    targetType: 'admin_role',
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: `code=${code}`,
+  });
+  res.json({ message: '角色已更新' });
+});
+
+router.delete('/roles/:code', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_DELETE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+  const code = String(req.params.code || '').trim();
+  const result = await deleteRole(code);
+
+  if (result === 'not_found') {
+    res.status(404).json({ error: '角色不存在' });
+    return;
+  }
+  if (result === 'system') {
+    res.status(400).json({ error: '系统内置角色不可删除' });
+    return;
+  }
+  if (result === 'in_use') {
+    res.status(409).json({ error: '该角色下仍有管理员，无法删除' });
+    return;
+  }
+
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'admin.role.delete',
+    targetType: 'admin_role',
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: `code=${code}`,
+  });
+  res.json({ message: '角色已删除' });
 });
 
 router.get('/users', adminAuth, requirePermission(PERMISSIONS.USER_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
@@ -1048,7 +1169,7 @@ router.post('/admins', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN
   }
 
   const normalizedRole = String(role || 'admin').trim();
-  if (!ROLE_SET.has(normalizedRole)) {
+  if (!(await roleExists(normalizedRole))) {
     await logAdminAudit({
       adminId: req.adminId,
       action: 'admin.create',
@@ -1193,7 +1314,7 @@ router.put('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.AD
   }
   if (typeof role === 'string') {
     const v = role.trim();
-    if (!ROLE_SET.has(v)) {
+    if (!(await roleExists(v))) {
       res.status(400).json({ error: '管理员角色不合法' });
       return;
     }

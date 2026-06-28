@@ -1,0 +1,386 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Button, Checkbox, Form, Input, Modal, Popconfirm, Space, Table, Tag, message } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
+import type { ColumnsType } from 'antd/es/table';
+import { adminFetch } from '../../lib/api';
+import { PERMISSIONS } from '../../lib/permissions';
+
+interface RoleItem {
+  code: string;
+  name: string;
+  is_system: boolean;
+  permissions: string[];
+  admin_count: number;
+}
+
+interface RolesTabProps {
+  canCreate?: boolean;
+  canUpdate?: boolean;
+  canDelete?: boolean;
+  refreshKey?: number;
+}
+
+const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; label: string }> }> = [
+  {
+    group: '系统管理员',
+    items: [
+      { code: PERMISSIONS.ADMIN_VIEW, label: '查看管理员' },
+      { code: PERMISSIONS.ADMIN_CREATE, label: '新增管理员' },
+      { code: PERMISSIONS.ADMIN_UPDATE, label: '修改管理员信息' },
+      { code: PERMISSIONS.ADMIN_UPDATE_STATUS, label: '启用/禁用管理员' },
+      { code: PERMISSIONS.ADMIN_DELETE, label: '删除管理员' },
+    ],
+  },
+  {
+    group: '会员',
+    items: [
+      { code: PERMISSIONS.USER_VIEW, label: '查看会员' },
+      { code: PERMISSIONS.USER_UPDATE, label: '修改会员' },
+      { code: PERMISSIONS.USER_DELETE, label: '删除会员' },
+    ],
+  },
+  {
+    group: '包裹',
+    items: [
+      { code: PERMISSIONS.PARCEL_VIEW, label: '查看包裹' },
+      { code: PERMISSIONS.PARCEL_CREATE, label: '包裹入库' },
+      { code: PERMISSIONS.PARCEL_UPDATE, label: '编辑包裹' },
+      { code: PERMISSIONS.PARCEL_UPDATE_STATUS, label: '变更包裹状态' },
+      { code: PERMISSIONS.PARCEL_DELETE, label: '删除包裹' },
+      { code: PERMISSIONS.PARCEL_EXPORT, label: '导出包裹' },
+    ],
+  },
+  {
+    group: '订单',
+    items: [
+      { code: PERMISSIONS.ORDER_VIEW, label: '查看订单' },
+      { code: PERMISSIONS.ORDER_UPDATE_STATUS, label: '变更订单状态' },
+      { code: PERMISSIONS.ORDER_DELETE, label: '删除订单' },
+    ],
+  },
+  {
+    group: '物流商',
+    items: [
+      { code: PERMISSIONS.LOGISTICS_VIEW, label: '查看物流商' },
+      { code: PERMISSIONS.LOGISTICS_CREATE, label: '新增物流商' },
+      { code: PERMISSIONS.LOGISTICS_UPDATE, label: '修改物流商' },
+      { code: PERMISSIONS.LOGISTICS_DELETE, label: '删除物流商' },
+    ],
+  },
+  {
+    group: '短信与审计',
+    items: [
+      { code: PERMISSIONS.SMS_VIEW, label: '查看短信记录' },
+      { code: PERMISSIONS.SMS_DELETE, label: '删除短信记录' },
+      { code: PERMISSIONS.AUDIT_VIEW, label: '查看审计日志' },
+      { code: PERMISSIONS.OVERVIEW_VIEW, label: '查看概览' },
+    ],
+  },
+];
+
+const ALL_PERMISSION_CODES = PERMISSION_GROUPS.flatMap((g) => g.items.map((i) => i.code));
+
+export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }: RolesTabProps) {
+  const [roles, setRoles] = useState<RoleItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
+  const [editingRole, setEditingRole] = useState<RoleItem | null>(null);
+  const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [messageApi, messageContextHolder] = message.useMessage();
+  const [form] = Form.useForm();
+
+  const isSuperAdminEditing = modalMode === 'edit' && editingRole?.code === 'super_admin';
+
+  const fetchRoles = async () => {
+    try {
+      setLoading(true);
+      const response = await adminFetch('/admin/roles');
+      if (response.status === 401) return;
+      if (!response.ok) throw new Error('fetch roles failed');
+      const data = await response.json();
+      setRoles(Array.isArray(data?.roles) ? data.roles : []);
+    } catch {
+      messageApi.error('读取角色列表失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void fetchRoles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
+
+  const openCreate = () => {
+    setModalMode('create');
+    setEditingRole(null);
+    form.resetFields();
+    setSelectedPermissions([]);
+    setModalOpen(true);
+  };
+
+  const openEdit = (role: RoleItem) => {
+    setModalMode('edit');
+    setEditingRole(role);
+    form.setFieldsValue({ name: role.name, code: role.code });
+    setSelectedPermissions(role.code === 'super_admin' ? [...ALL_PERMISSION_CODES] : [...role.permissions]);
+    setModalOpen(true);
+  };
+
+  const togglePermission = (code: string) => {
+    setSelectedPermissions((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
+  };
+
+  const toggleGroup = (codes: string[], checked: boolean) => {
+    setSelectedPermissions((prev) =>
+      checked ? Array.from(new Set([...prev, ...codes])) : prev.filter((c) => !codes.includes(c))
+    );
+  };
+
+  const handleSubmit = async () => {
+    const values = await form.validateFields();
+    setSubmitting(true);
+    try {
+      if (modalMode === 'create') {
+        const response = await adminFetch('/admin/roles', {
+          method: 'POST',
+          body: JSON.stringify({
+            code: String(values.code || '').trim().toLowerCase(),
+            name: String(values.name || '').trim(),
+            permissions: selectedPermissions,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          messageApi.error(data?.error || '创建角色失败');
+          return;
+        }
+        messageApi.success('角色已创建');
+      } else if (editingRole) {
+        const response = await adminFetch(`/admin/roles/${encodeURIComponent(editingRole.code)}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: String(values.name || '').trim(),
+            permissions: selectedPermissions,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          messageApi.error(data?.error || '更新角色失败');
+          return;
+        }
+        messageApi.success('角色已更新');
+      }
+      setModalOpen(false);
+      await fetchRoles();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (role: RoleItem) => {
+    try {
+      const response = await adminFetch(`/admin/roles/${encodeURIComponent(role.code)}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        messageApi.error(data?.error || '删除角色失败');
+        return;
+      }
+      messageApi.success('角色已删除');
+      await fetchRoles();
+    } catch {
+      messageApi.error('删除角色失败');
+    }
+  };
+
+  const columns: ColumnsType<RoleItem> = useMemo(
+    () => [
+      {
+        title: '角色名称',
+        dataIndex: 'name',
+        key: 'name',
+        width: 180,
+        render: (name: string, record) => (
+          <Space size={6}>
+            <span style={{ fontWeight: 600 }}>{name}</span>
+            {record.is_system && <Tag color="blue">系统内置</Tag>}
+          </Space>
+        ),
+      },
+      {
+        title: '角色标识',
+        dataIndex: 'code',
+        key: 'code',
+        width: 160,
+        render: (code: string) => <Tag>{code}</Tag>,
+      },
+      {
+        title: '关联管理员',
+        dataIndex: 'admin_count',
+        key: 'admin_count',
+        width: 120,
+        render: (count: number) => `${count} 人`,
+      },
+      {
+        title: '权限数',
+        key: 'permission_count',
+        width: 120,
+        render: (_, record) =>
+          record.code === 'super_admin'
+            ? `全部（${ALL_PERMISSION_CODES.length}）`
+            : `${record.permissions.length} / ${ALL_PERMISSION_CODES.length}`,
+      },
+      {
+        title: '操作',
+        key: 'actions',
+        width: 160,
+        render: (_, record) => (
+          <Space size={4}>
+            <Button
+              type="link"
+              size="small"
+              icon={<EditOutlined />}
+              disabled={!canUpdate}
+              onClick={() => openEdit(record)}
+            >
+              {record.code === 'super_admin' ? '查看' : '编辑'}
+            </Button>
+            {canDelete && !record.is_system && (
+              <Popconfirm
+                title="确定删除该角色？"
+                description={record.admin_count > 0 ? '该角色下仍有管理员，需先转移后才能删除。' : '删除后不可恢复。'}
+                okText="删除"
+                okButtonProps={{ danger: true }}
+                cancelText="取消"
+                onConfirm={() => handleDelete(record)}
+              >
+                <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+                  删除
+                </Button>
+              </Popconfirm>
+            )}
+          </Space>
+        ),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canUpdate, canDelete]
+  );
+
+  return (
+    <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 20 }}>
+      {messageContextHolder}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#111827' }}>系统管理权限（角色）</div>
+          <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
+            以角色为单位管理后台权限，支持新增、编辑、删除自定义角色，保存后即时生效。
+          </div>
+        </div>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={() => void fetchRoles()}>
+            刷新
+          </Button>
+          {canCreate && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} style={{ background: '#f58220' }}>
+              新增角色
+            </Button>
+          )}
+        </Space>
+      </div>
+
+      <Table<RoleItem>
+        rowKey="code"
+        loading={loading}
+        columns={columns}
+        dataSource={roles}
+        pagination={false}
+        size="middle"
+      />
+
+      <Modal
+        title={modalMode === 'create' ? '新增角色' : isSuperAdminEditing ? '查看角色（超级管理员）' : '编辑角色'}
+        open={modalOpen}
+        onCancel={() => setModalOpen(false)}
+        onOk={handleSubmit}
+        confirmLoading={submitting}
+        okButtonProps={{ disabled: isSuperAdminEditing, style: { background: '#f58220' } }}
+        okText={modalMode === 'create' ? '创建' : '保存'}
+        cancelText="取消"
+        width={640}
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical" preserve={false}>
+          <Form.Item
+            label="角色名称"
+            name="name"
+            rules={[{ required: true, message: '请输入角色名称' }]}
+          >
+            <Input maxLength={64} placeholder="如：仓库管理员" disabled={isSuperAdminEditing} />
+          </Form.Item>
+          <Form.Item
+            label="角色标识"
+            name="code"
+            rules={
+              modalMode === 'create'
+                ? [
+                    { required: true, message: '请输入角色标识' },
+                    {
+                      pattern: /^[a-z][a-z0-9_]{1,31}$/,
+                      message: '小写字母开头，仅含小写字母/数字/下划线，长度 2-32 位',
+                    },
+                  ]
+                : []
+            }
+            extra={modalMode === 'create' ? '英文唯一标识，创建后不可修改，如 warehouse_admin' : '系统标识不可修改'}
+          >
+            <Input placeholder="如：warehouse_admin" disabled={modalMode === 'edit'} />
+          </Form.Item>
+        </Form>
+
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>
+            权限配置
+            {isSuperAdminEditing && <span style={{ color: '#6b7280', fontWeight: 400, marginLeft: 8 }}>超级管理员恒拥有全部权限，不可修改</span>}
+          </div>
+          <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, maxHeight: 360, overflow: 'auto' }}>
+            {PERMISSION_GROUPS.map((group) => {
+              const codes = group.items.map((i) => i.code);
+              const checkedCount = codes.filter((c) => selectedPermissions.includes(c)).length;
+              const allChecked = checkedCount === codes.length;
+              const indeterminate = checkedCount > 0 && checkedCount < codes.length;
+              return (
+                <div key={group.group} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <div style={{ padding: '8px 12px', background: '#f8fafc' }}>
+                    <Checkbox
+                      checked={allChecked}
+                      indeterminate={indeterminate}
+                      disabled={isSuperAdminEditing}
+                      onChange={(e) => toggleGroup(codes, e.target.checked)}
+                    >
+                      <span style={{ fontWeight: 600 }}>{group.group}</span>
+                    </Checkbox>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4, padding: '8px 12px' }}>
+                    {group.items.map((item) => (
+                      <Checkbox
+                        key={item.code}
+                        checked={selectedPermissions.includes(item.code)}
+                        disabled={isSuperAdminEditing}
+                        onChange={() => togglePermission(item.code)}
+                      >
+                        {item.label}
+                      </Checkbox>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}

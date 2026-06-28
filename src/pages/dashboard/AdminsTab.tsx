@@ -2,6 +2,7 @@
 import { Button, Card, Checkbox, DatePicker, Form, Input, Modal, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tag, Tooltip, message, Descriptions } from 'antd';
 import { DeleteOutlined, EditOutlined, EyeOutlined, LockOutlined, UnlockOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { adminFetch } from '../../lib/api';
 
 interface AdminUser {
   id: number;
@@ -111,6 +112,40 @@ export default function AdminsTab({
   const [activeAdmin, setActiveAdmin] = useState<AdminUser | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
+
+  const [roleOptions, setRoleOptions] = useState<Array<{ label: string; value: string }>>([
+    { label: '管理员 (admin)', value: 'admin' },
+    { label: '超级管理员 (super_admin)', value: 'super_admin' },
+  ]);
+  const [roleNameMap, setRoleNameMap] = useState<Record<string, string>>({
+    admin: '管理员',
+    super_admin: '超级管理员',
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await adminFetch('/admin/roles');
+        if (!response.ok) return;
+        const data = await response.json();
+        const list = Array.isArray(data?.roles) ? data.roles : [];
+        if (cancelled || list.length === 0) return;
+        setRoleOptions(list.map((r: any) => ({ label: `${r.name} (${r.code})`, value: r.code })));
+        setRoleNameMap(
+          list.reduce((acc: Record<string, string>, r: any) => {
+            acc[r.code] = r.name;
+            return acc;
+          }, {})
+        );
+      } catch {
+        // 读取失败时保留默认角色选项
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
 
   const openCreate = () => {
     setActiveAdmin(null);
@@ -363,6 +398,7 @@ export default function AdminsTab({
           dataIndex: 'role',
           key: 'role_child',
           width: 130,
+          render: (role: string) => roleNameMap[role] || role,
         },
       ],
     },
@@ -603,7 +639,7 @@ export default function AdminsTab({
           <Descriptions column={1} size="small" bordered>
             <Descriptions.Item label="账号">{activeAdmin.username}</Descriptions.Item>
             <Descriptions.Item label="电子邮件">{activeAdmin.email}</Descriptions.Item>
-            <Descriptions.Item label="角色">{activeAdmin.role}</Descriptions.Item>
+            <Descriptions.Item label="角色">{roleNameMap[activeAdmin.role] || activeAdmin.role}</Descriptions.Item>
             <Descriptions.Item label="状态">{activeAdmin.status}</Descriptions.Item>
             <Descriptions.Item label="上次登录">
               {activeAdmin.last_login ? new Date(activeAdmin.last_login).toLocaleString('zh-CN', { hour12: false }) : '-'}
@@ -637,12 +673,7 @@ export default function AdminsTab({
               name="role"
               rules={[{ required: true, message: '请选择角色' }]}
             >
-              <Select
-                options={[
-                  { label: '管理员 (admin)', value: 'admin' },
-                  { label: '超级管理员 (super_admin)', value: 'super_admin' },
-                ]}
-              />
+              <Select options={roleOptions} />
             </Form.Item>
 
             <Form.Item

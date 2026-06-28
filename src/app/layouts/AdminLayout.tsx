@@ -54,6 +54,13 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
 
   const currentLangLabel = langOptions.find((item) => item.key === lang)?.label || 'Language';
 
+  const adminChildren = ([
+    { key: 'admins', icon: <SafetyCertificateOutlined />, label: t('menu.adminManage'), perm: PERMISSIONS.ADMIN_VIEW },
+    { key: 'system-admin-permissions', icon: <SafetyCertificateOutlined />, label: t('menu.adminPermissions'), perm: PERMISSIONS.ADMIN_UPDATE },
+  ] as Array<{ key: string; icon: React.ReactNode; label: string; perm: PermissionCode }>)
+    .filter((item) => hasPermission(item.perm))
+    .map(({ key, icon, label }) => ({ key, icon, label }));
+
   const menuItems = ([
     { key: 'overview', icon: <DashboardOutlined />, label: t('menu.overview'), perm: PERMISSIONS.OVERVIEW_VIEW },
     { key: 'parcels', icon: <CodeSandboxOutlined />, label: t('menu.parcels'), perm: PERMISSIONS.PARCEL_VIEW },
@@ -61,10 +68,21 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
     { key: 'sms', icon: <MessageOutlined />, label: t('menu.sms'), perm: PERMISSIONS.SMS_VIEW },
     { key: 'logistics', icon: <CarOutlined />, label: t('menu.logistics'), perm: PERMISSIONS.LOGISTICS_VIEW },
     { key: 'users', icon: <TeamOutlined />, label: t('menu.users'), perm: PERMISSIONS.USER_VIEW },
-    { key: 'admins', icon: <SafetyCertificateOutlined />, label: t('menu.admins'), perm: PERMISSIONS.ADMIN_VIEW },
+    { key: 'admins-group', icon: <SafetyCertificateOutlined />, label: t('menu.admins'), perm: PERMISSIONS.ADMIN_VIEW, children: adminChildren },
   ] as Array<{ key: string; icon: React.ReactNode; label: string; perm: PermissionCode }>)
     .filter((item) => hasPermission(item.perm))
-    .map(({ key, icon, label }) => ({ key, icon, label }));
+    .map(({ key, icon, label, children }) => ({ key, icon, label, children }));
+
+  const findMenuLabel = (items: any[], targetKey: string): string | undefined => {
+    for (const item of items) {
+      if (item.key === targetKey) return item.label;
+      if (Array.isArray(item.children)) {
+        const childLabel = findMenuLabel(item.children, targetKey);
+        if (childLabel) return childLabel;
+      }
+    }
+    return undefined;
+  };
 
   const handleLogout = () => {
     logout();
@@ -155,7 +173,7 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
             <Breadcrumb
               style={{ display: 'inline-block', lineHeight: '45px', marginLeft: 16 }}
               items={[
-                { title: menuItems.find(item => item.key === activeMenu)?.label || activeMenu }
+                { title: findMenuLabel(menuItems, activeMenu) || activeMenu }
               ]}
             />
             <Tooltip title="刷新">

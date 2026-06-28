@@ -46,7 +46,7 @@ export const PERMISSIONS = {
 
 export type PermissionCode = typeof PERMISSIONS[keyof typeof PERMISSIONS];
 
-const ALL_PERMISSIONS: PermissionCode[] = Object.values(PERMISSIONS);
+export const ALL_PERMISSION_CODES: PermissionCode[] = Object.values(PERMISSIONS);
 
 // 普通管理员权限集合：默认可读各模块、可执行常规业务操作；敏感操作（系统管理员管理、删除会员、删除物流商、审计日志等）仅 super_admin。
 const ADMIN_PERMISSIONS: PermissionCode[] = [
@@ -70,14 +70,14 @@ const ADMIN_PERMISSIONS: PermissionCode[] = [
   PERMISSIONS.SMS_VIEW,
 ];
 
-const ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
-  super_admin: ALL_PERMISSIONS,
+export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
+  super_admin: ALL_PERMISSION_CODES,
   admin: ADMIN_PERMISSIONS,
 };
 
 export const getPermissionsForRole = (role: string | undefined | null): PermissionCode[] => {
   if (!role) return [];
-  return ROLE_PERMISSIONS[role] || [];
+  return DEFAULT_ROLE_PERMISSIONS[role] || [];
 };
 
 export const hasPermission = (role: string | undefined | null, code: PermissionCode): boolean => {
