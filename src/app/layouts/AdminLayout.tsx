@@ -18,6 +18,7 @@ import {
 import type { MenuProps } from 'antd';
 import { useAuth } from '../../lib/auth';
 import { useI18n, type LangCode } from '../../lib/i18n';
+import { PERMISSIONS, type PermissionCode } from '../../lib/permissions';
 import styles from './AdminLayout.module.css';
 
 const { Header, Sider, Content } = Layout;
@@ -31,8 +32,10 @@ interface AdminLayoutProps {
 
 export default function AdminLayout({ children, activeMenu, onMenuClick, onRefresh }: AdminLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const { user: adminUser, logout } = useAuth();
+  const { user: adminUser, logout, hasPermission } = useAuth();
   const { lang, setLang, t } = useI18n();
+  const siderWidth = 160;
+  const siderCollapsedWidth = 52;
 
   const langOptions: Array<{ key: LangCode; label: string }> = [
     { key: 'zh-CN', label: t('lang.simplifiedChinese') },
@@ -51,15 +54,17 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
 
   const currentLangLabel = langOptions.find((item) => item.key === lang)?.label || 'Language';
 
-  const menuItems = [
-    { key: 'overview', icon: <DashboardOutlined />, label: t('menu.overview') },
-    { key: 'parcels', icon: <CodeSandboxOutlined />, label: t('menu.parcels') },
-    { key: 'orders', icon: <ShoppingCartOutlined />, label: t('menu.orders') },
-    { key: 'sms', icon: <MessageOutlined />, label: t('menu.sms') },
-    { key: 'logistics', icon: <CarOutlined />, label: t('menu.logistics') },
-    { key: 'users', icon: <TeamOutlined />, label: t('menu.users') },
-    { key: 'admins', icon: <SafetyCertificateOutlined />, label: t('menu.admins') },
-  ];
+  const menuItems = ([
+    { key: 'overview', icon: <DashboardOutlined />, label: t('menu.overview'), perm: PERMISSIONS.OVERVIEW_VIEW },
+    { key: 'parcels', icon: <CodeSandboxOutlined />, label: t('menu.parcels'), perm: PERMISSIONS.PARCEL_VIEW },
+    { key: 'orders', icon: <ShoppingCartOutlined />, label: t('menu.orders'), perm: PERMISSIONS.ORDER_VIEW },
+    { key: 'sms', icon: <MessageOutlined />, label: t('menu.sms'), perm: PERMISSIONS.SMS_VIEW },
+    { key: 'logistics', icon: <CarOutlined />, label: t('menu.logistics'), perm: PERMISSIONS.LOGISTICS_VIEW },
+    { key: 'users', icon: <TeamOutlined />, label: t('menu.users'), perm: PERMISSIONS.USER_VIEW },
+    { key: 'admins', icon: <SafetyCertificateOutlined />, label: t('menu.admins'), perm: PERMISSIONS.ADMIN_VIEW },
+  ] as Array<{ key: string; icon: React.ReactNode; label: string; perm: PermissionCode }>)
+    .filter((item) => hasPermission(item.perm))
+    .map(({ key, icon, label }) => ({ key, icon, label }));
 
   const handleLogout = () => {
     logout();
@@ -83,8 +88,8 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
         collapsible
         collapsed={collapsed}
         theme="dark"
-        width={180}
-        collapsedWidth={56}
+        width={siderWidth}
+        collapsedWidth={siderCollapsedWidth}
         className={styles.sider}
         style={{
           height: '100vh',
@@ -100,13 +105,13 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div className={styles.logo}>
               {collapsed ? (
-                <span style={{ fontSize: '20px', fontWeight: 'bold' }}>CMS</span>
+                <span style={{ fontSize: '18px', fontWeight: 'bold' }}>CMS</span>
               ) : (
-                <span style={{ color: '#fff', fontSize: '20px', fontWeight: 700 }}>CMS跨境系统</span>
+                <span style={{ color: '#fff', fontSize: '18px', fontWeight: 700 }}>CMS跨境系统</span>
               )}
             </div>
             <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
-              <ConfigProvider theme={{ components: { Menu: { darkItemSelectedBg: '#f58220', itemBorderRadius: 0, itemHeight: 36, itemMarginBottom: 2 } } }}>
+              <ConfigProvider theme={{ components: { Menu: { darkItemSelectedBg: '#f58220', itemBorderRadius: 0, itemHeight: 34, itemMarginBottom: 1 } } }}>
                 <Menu
                   className={styles.sideMenu}
                   theme="dark"
@@ -121,10 +126,10 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
           </div>
 
           {/* 底部語言切換 - 緊湊模式設計 - 固定在底部 */}
-          <div style={{ padding: '6px', borderTop: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.1)' }}>
+          <div style={{ padding: '4px', borderTop: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.1)' }}>
             <Dropdown menu={{ items: langMenu, onClick: handleLangChange }} placement="top" trigger={['click']}>
               <div 
-                style={{ padding: '6px 8px', cursor: 'pointer', color: 'rgba(255,255,255,0.85)', display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', borderRadius: 8, transition: 'background 0.3s' }} 
+                style={{ padding: '4px 6px', cursor: 'pointer', color: 'rgba(255,255,255,0.85)', display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', borderRadius: 8, transition: 'background 0.3s' }} 
                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
@@ -139,7 +144,7 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
       </Sider>
 
       {/* 主體區域，左側自適應寬度 margin */}
-      <Layout style={{ marginLeft: collapsed ? 56 : 180, transition: 'all 0.2s', height: '100vh', overflow: 'hidden', borderRadius: 0 }}>
+      <Layout style={{ marginLeft: collapsed ? siderCollapsedWidth : siderWidth, transition: 'all 0.2s', height: '100vh', overflow: 'hidden', borderRadius: 0 }}>
         {/* 頂部導航欄 */}
         <Header className={styles.header} style={{ height: 45, lineHeight: '45px', padding: '0 24px' }}>
           <div className={styles.headerLeft}>

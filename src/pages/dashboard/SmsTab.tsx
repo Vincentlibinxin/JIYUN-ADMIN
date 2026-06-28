@@ -33,6 +33,7 @@ interface SmsTabProps {
   onSortChange: (key: SmsSortKey, direction: SortDirection) => void;
   onDelete: (id: number) => void;
   onBatchDelete: (ids: number[]) => void;
+  canDelete?: boolean;
   refreshKey?: number;
   onColumnFilterChange?: (columnFilters: Record<string, string>, dateFilters: Record<string, [string, string]>) => void;
 }
@@ -54,6 +55,7 @@ export default function SmsTab({
   onSortChange,
   onDelete,
   onBatchDelete,
+  canDelete,
   refreshKey,
   onColumnFilterChange,
 }: SmsTabProps) {
@@ -357,16 +359,18 @@ export default function SmsTab({
               <Tooltip title="修改">
                 <Button size="small" type="text" icon={<EditOutlined />} />
               </Tooltip>
-              <Popconfirm
-                title="确定删除该记录？"
-                okText="删除"
-                cancelText="取消"
-                onConfirm={() => onDelete(record.id)}
-              >
-                <Tooltip title="删除">
-                  <Button danger size="small" type="text" icon={<DeleteOutlined />} />
-                </Tooltip>
-              </Popconfirm>
+              {canDelete && (
+                <Popconfirm
+                  title="确定删除该记录？"
+                  okText="删除"
+                  cancelText="取消"
+                  onConfirm={() => onDelete(record.id)}
+                >
+                  <Tooltip title="删除">
+                    <Button danger size="small" type="text" icon={<DeleteOutlined />} />
+                  </Tooltip>
+                </Popconfirm>
+              )}
             </Space>
           ),
         },
@@ -380,17 +384,19 @@ export default function SmsTab({
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
       <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
         <div style={{ flex: '0 0 auto' }}>
-          <Popconfirm
-            title={`确定删除选中的 ${selectedRowKeys.length} 条记录？`}
-            okText="删除"
-            cancelText="取消"
-            onConfirm={() => { onBatchDelete(selectedRowKeys); setSelectedRowKeys([]); }}
-            disabled={selectedRowKeys.length === 0}
-          >
-            <Button danger disabled={selectedRowKeys.length === 0}>
-              批量删除{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
-            </Button>
-          </Popconfirm>
+          {canDelete && (
+            <Popconfirm
+              title={`确定删除选中的 ${selectedRowKeys.length} 条记录？`}
+              okText="删除"
+              cancelText="取消"
+              onConfirm={() => { onBatchDelete(selectedRowKeys); setSelectedRowKeys([]); }}
+              disabled={selectedRowKeys.length === 0}
+            >
+              <Button danger disabled={selectedRowKeys.length === 0}>
+                批量删除{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
+              </Button>
+            </Popconfirm>
+          )}
         </div>
         <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
           <Input.Search

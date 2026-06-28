@@ -5,6 +5,7 @@ import { Home, Users, User, ShoppingCart, MessageCircle, Package, ClipboardList,
 
 import { adminFetch } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { PERMISSIONS } from '../lib/permissions';
 import OverviewTab from './dashboard/OverviewTab';
 import UsersTab from './dashboard/UsersTab';
 import OrdersTab from './dashboard/OrdersTab';
@@ -84,7 +85,7 @@ type SortConfig<T extends string> = {
 };
 
 export default function AdminDashboard() {
-  const { user: adminUser, loading: authLoading, logout } = useAuth();
+  const { user: adminUser, loading: authLoading, logout, hasPermission } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
   const [activeMenu, setActiveMenu] = useState('overview');
   const [users, setUsers] = useState<User[]>([]);
@@ -1183,6 +1184,8 @@ export default function AdminDashboard() {
               onDelete={deleteUser}
               onBatchDelete={batchDeleteUsers}
               onUpdate={updateUser}
+              canDelete={hasPermission(PERMISSIONS.USER_DELETE)}
+              canUpdate={hasPermission(PERMISSIONS.USER_UPDATE)}
               currentPage={currentPage}
               pageSize={pageSize}
               totalItems={userTotalItems}
@@ -1230,6 +1233,8 @@ export default function AdminDashboard() {
               onUpdateStatus={updateOrderStatus}
               onDelete={deleteOrder}
               onBatchDelete={batchDeleteOrders}
+              canUpdateStatus={hasPermission(PERMISSIONS.ORDER_UPDATE_STATUS)}
+              canDelete={hasPermission(PERMISSIONS.ORDER_DELETE)}
               refreshKey={refreshKey}
               onColumnFilterChange={(cf, df) => {
                 setOrderColumnFilters(cf);
@@ -1261,6 +1266,7 @@ export default function AdminDashboard() {
               }}
               onDelete={deleteSmsRecord}
               onBatchDelete={batchDeleteSmsRecords}
+              canDelete={hasPermission(PERMISSIONS.SMS_DELETE)}
               refreshKey={refreshKey}
               onColumnFilterChange={(cf, df) => {
                 setSmsColumnFilters(cf);
@@ -1297,6 +1303,11 @@ export default function AdminDashboard() {
               onInbound={inboundParcel}
               onEdit={editParcel}
               onFetchItems={fetchParcelItems}
+              canCreate={hasPermission(PERMISSIONS.PARCEL_CREATE)}
+              canUpdate={hasPermission(PERMISSIONS.PARCEL_UPDATE)}
+              canUpdateStatus={hasPermission(PERMISSIONS.PARCEL_UPDATE_STATUS)}
+              canDelete={hasPermission(PERMISSIONS.PARCEL_DELETE)}
+              canExport={hasPermission(PERMISSIONS.PARCEL_EXPORT)}
               refreshKey={refreshKey}
               onColumnFilterChange={(cf, df) => {
                 setParcelColumnFilters(cf);
@@ -1331,7 +1342,10 @@ export default function AdminDashboard() {
               onToggleStatus={updateAdminAccountStatus}
               onDelete={deleteAdminUser}
               onBatchDelete={batchDeleteAdminUsers}
-              canManage={adminUser?.role === 'super_admin'}
+              canManage={hasPermission(PERMISSIONS.ADMIN_CREATE)}
+              canDelete={hasPermission(PERMISSIONS.ADMIN_DELETE)}
+              canUpdate={hasPermission(PERMISSIONS.ADMIN_UPDATE)}
+              canUpdateStatus={hasPermission(PERMISSIONS.ADMIN_UPDATE_STATUS)}
               currentAdminId={adminUser?.id}
               refreshKey={refreshKey}
               onColumnFilterChange={(cf, df) => {
@@ -1366,7 +1380,9 @@ export default function AdminDashboard() {
               onUpdate={updateLogistics}
               onDelete={deleteLogistics}
               onBatchDelete={batchDeleteLogistics}
-              canManage={adminUser?.role === 'super_admin'}
+              canManage={hasPermission(PERMISSIONS.LOGISTICS_CREATE)}
+              canUpdate={hasPermission(PERMISSIONS.LOGISTICS_UPDATE)}
+              canDelete={hasPermission(PERMISSIONS.LOGISTICS_DELETE)}
               refreshKey={refreshKey}
               onColumnFilterChange={(cf, df) => {
                 setLogisticsColumnFilters(cf);

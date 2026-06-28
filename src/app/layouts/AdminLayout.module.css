@@ -54,8 +54,8 @@
 
 .logo {
   min-height: 40px;
-  margin: 8px 12px 4px 12px;
-  padding: 6px 4px;
+  margin: 6px 8px 2px 8px;
+  padding: 4px 2px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -79,6 +79,12 @@
   margin-inline: 0;
   width: 100%;
   border-radius: 0;
+  padding-inline: 12px !important;
+}
+
+.sideMenu:global(.ant-menu-inline .ant-menu-item .ant-menu-title-content),
+.sideMenu:global(.ant-menu-inline .ant-menu-submenu-title .ant-menu-title-content) {
+  font-size: 13px;
 }
 
 .content {

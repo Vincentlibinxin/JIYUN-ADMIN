@@ -5,6 +5,7 @@ export interface AdminUser {
   username: string;
   email: string;
   role: string;
+  permissions?: string[];
 }
 
 export interface ApiRequestErrorShape {

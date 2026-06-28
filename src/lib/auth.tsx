@@ -1,12 +1,14 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api, AdminUser, setUnauthorizedHandler } from './api';
 import { AUTO_LOGOUT_MS } from './config';
+import { hasPermission as checkPermission, PermissionCode } from './permissions';
 
 interface AuthContextValue {
   user: AdminUser | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  hasPermission: (code: PermissionCode) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -195,6 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     login,
     logout,
+    hasPermission: (code: PermissionCode) => checkPermission(user?.permissions, code),
   }), [loading, login, logout, user]);
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;

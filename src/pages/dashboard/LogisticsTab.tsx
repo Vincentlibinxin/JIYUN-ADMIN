@@ -52,6 +52,8 @@ interface LogisticsTabProps {
   onDelete: (id: number) => void;
   onBatchDelete: (ids: number[]) => void;
   canManage?: boolean;
+  canUpdate?: boolean;
+  canDelete?: boolean;
   refreshKey?: number;
   onColumnFilterChange?: (columnFilters: Record<string, string>, dateFilters: Record<string, [string, string]>) => void;
 }
@@ -78,6 +80,8 @@ export default function LogisticsTab({
   onDelete,
   onBatchDelete,
   canManage,
+  canUpdate,
+  canDelete,
   refreshKey,
   onColumnFilterChange,
 }: LogisticsTabProps) {
@@ -545,12 +549,12 @@ export default function LogisticsTab({
               <Tooltip title="查看">
                 <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => openView(record)} />
               </Tooltip>
-              {canManage && (
+              {canUpdate && (
                 <Tooltip title="修改">
                   <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(record)} />
                 </Tooltip>
               )}
-              {canManage && (
+              {canDelete && (
                 <Popconfirm
                   title="确定删除该物流商？"
                   okText="删除"
@@ -580,7 +584,7 @@ export default function LogisticsTab({
               新增物流商
             </Button>
           )}
-          {canManage && (
+          {canDelete && (
             <Popconfirm
               title={`确定删除选中的 ${selectedRowKeys.length} 条记录？`}
               okText="删除"

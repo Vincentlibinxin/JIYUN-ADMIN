@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { uploadToOss, signParcelImages } from '../oss';
+import { PERMISSIONS, PermissionCode, getPermissionsForRole, hasPermission as roleHasPermission } from '../permissions';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import {
@@ -330,6 +331,40 @@ const requireSuperAdmin = async (req: AdminRequest, res: Response, next: () => v
   next();
 };
 
+const requirePermission = (code: PermissionCode) => {
+  return async (req: AdminRequest, res: Response, next: () => void): Promise<void> => {
+    if (!req.adminId) {
+      res.status(401).json({ error: '未授权' });
+      return;
+    }
+    const admin = await getAdminById(req.adminId);
+    if (!admin || admin.status !== 'active') {
+      await logAdminAudit({
+        adminId: req.adminId,
+        action: 'admin.permission_check',
+        result: 'denied',
+        ip: getRequestIp(req),
+        detail: `inactive_or_missing_admin perm=${code}`,
+      });
+      res.status(401).json({ error: '管理员状态异常' });
+      return;
+    }
+    if (!roleHasPermission(admin.role, code)) {
+      await logAdminAudit({
+        adminId: req.adminId,
+        action: 'admin.permission_check',
+        result: 'denied',
+        ip: getRequestIp(req),
+        detail: `role=${admin.role} missing=${code}`,
+      });
+      res.status(403).json({ error: '没有该操作权限' });
+      return;
+    }
+    req.adminRole = admin.role;
+    next();
+  };
+};
+
 router.post('/login', async (req: Request, res: Response): Promise<void> => {
   try {
     const { username, password } = req.body as { username?: string; password?: string };
@@ -422,6 +457,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         username: admin.username,
         email: admin.email,
         role: admin.role,
+        permissions: getPermissionsForRole(admin.role),
       },
     });
   } catch (error) {
@@ -457,6 +493,7 @@ router.get('/session', adminAuth, async (req: AdminRequest, res: Response): Prom
       username: admin.username,
       email: admin.email,
       role: admin.role,
+      permissions: getPermissionsForRole(admin.role),
     },
     csrfToken,
   });
@@ -479,7 +516,7 @@ router.post('/session/clear', async (_req: Request, res: Response): Promise<void
   res.json({ message: '会话已清理' });
 });
 
-router.get('/audit-logs', adminAuth, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/audit-logs', adminAuth, requirePermission(PERMISSIONS.AUDIT_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 50);
   const result = await getAdminAuditLogsPaged(page, limit);
@@ -494,7 +531,7 @@ router.get('/audit-logs', adminAuth, requireSuperAdmin, async (req: AdminRequest
   });
 });
 
-router.get('/users', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/users', adminAuth, requirePermission(PERMISSIONS.USER_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
   const sortKey = String(req.query.sortKey || '').trim() || undefined;
@@ -513,7 +550,7 @@ router.get('/users', adminAuth, async (req: AdminRequest, res: Response): Promis
   });
 });
 
-router.get('/users/search', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/users/search', adminAuth, requirePermission(PERMISSIONS.USER_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const keyword = String(req.query.q || '').trim();
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
@@ -536,7 +573,7 @@ router.get('/users/search', adminAuth, async (req: AdminRequest, res: Response):
   });
 });
 
-router.put('/users/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+router.put('/users/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.USER_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
   const userId = Number(req.params.id);
   const { logistics_provider_id } = req.body || {};
   try {
@@ -556,7 +593,7 @@ router.put('/users/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Re
   }
 });
 
-router.delete('/users/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+router.delete('/users/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.USER_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
   const ok = await deleteUser(Number(req.params.id));
   if (!ok) {
     res.status(404).json({ error: '用户不存在' });
@@ -565,7 +602,7 @@ router.delete('/users/:id', adminAuth, csrfGuard, async (req: AdminRequest, res:
   res.json({ message: '用户已删除' });
 });
 
-router.post('/users/batch-delete', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+router.post('/users/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.USER_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
   const ids = req.body?.ids;
   if (!Array.isArray(ids) || ids.length === 0) {
     res.status(400).json({ error: '请提供要删除的ID列表' });
@@ -576,7 +613,7 @@ router.post('/users/batch-delete', adminAuth, csrfGuard, async (req: AdminReques
   res.json({ message: `已删除 ${deleted} 条记录`, deleted });
 });
 
-router.get('/orders', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/orders', adminAuth, requirePermission(PERMISSIONS.ORDER_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
   const startDate = String(req.query.startDate || '').trim() || undefined;
@@ -597,7 +634,7 @@ router.get('/orders', adminAuth, async (req: AdminRequest, res: Response): Promi
   });
 });
 
-router.get('/orders/search', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/orders/search', adminAuth, requirePermission(PERMISSIONS.ORDER_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const keyword = String(req.query.q || '').trim();
   const startDate = String(req.query.startDate || '').trim() || undefined;
   const endDate = String(req.query.endDate || '').trim() || undefined;
@@ -609,7 +646,7 @@ router.get('/orders/search', adminAuth, async (req: AdminRequest, res: Response)
   res.json({ data, count: data.length });
 });
 
-router.patch('/orders/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+router.patch('/orders/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ORDER_UPDATE_STATUS), async (req: AdminRequest, res: Response): Promise<void> => {
   const status = String(req.body?.status || '').trim();
   if (!ORDER_STATUS_SET.has(status)) {
     res.status(400).json({ error: '订单状态不合法' });
@@ -628,7 +665,7 @@ router.patch('/orders/:id', adminAuth, csrfGuard, async (req: AdminRequest, res:
   res.json({ message: '订单状态已更新', orderId, status });
 });
 
-router.delete('/orders/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+router.delete('/orders/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ORDER_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
   const ok = await deleteOrder(Number(req.params.id));
   if (!ok) {
     res.status(404).json({ error: '订单不存在' });
@@ -637,7 +674,7 @@ router.delete('/orders/:id', adminAuth, csrfGuard, async (req: AdminRequest, res
   res.json({ message: '订单已删除' });
 });
 
-router.post('/orders/batch-delete', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+router.post('/orders/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ORDER_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
   const ids = req.body?.ids;
   if (!Array.isArray(ids) || ids.length === 0) {
     res.status(400).json({ error: '请提供要删除的ID列表' });
@@ -648,7 +685,7 @@ router.post('/orders/batch-delete', adminAuth, csrfGuard, async (req: AdminReque
   res.json({ message: `已删除 ${deleted} 条记录`, deleted });
 });
 
-router.get('/sms', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/sms', adminAuth, requirePermission(PERMISSIONS.SMS_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
   const startDate = String(req.query.startDate || '').trim() || undefined;
@@ -669,7 +706,7 @@ router.get('/sms', adminAuth, async (req: AdminRequest, res: Response): Promise<
   });
 });
 
-router.get('/sms/search', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/sms/search', adminAuth, requirePermission(PERMISSIONS.SMS_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const keyword = String(req.query.q || '').trim();
   const startDate = String(req.query.startDate || '').trim() || undefined;
   const endDate = String(req.query.endDate || '').trim() || undefined;
@@ -681,7 +718,7 @@ router.get('/sms/search', adminAuth, async (req: AdminRequest, res: Response): P
   res.json({ data, count: data.length });
 });
 
-router.delete('/sms/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+router.delete('/sms/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.SMS_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
   const ok = await deleteSms(Number(req.params.id));
   if (!ok) {
     res.status(404).json({ error: '记录不存在' });
@@ -690,7 +727,7 @@ router.delete('/sms/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: R
   res.json({ message: '记录已删除' });
 });
 
-router.post('/sms/batch-delete', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+router.post('/sms/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.SMS_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
   const ids = req.body?.ids;
   if (!Array.isArray(ids) || ids.length === 0) {
     res.status(400).json({ error: '请提供要删除的ID列表' });
@@ -701,7 +738,7 @@ router.post('/sms/batch-delete', adminAuth, csrfGuard, async (req: AdminRequest,
   res.json({ message: `已删除 ${deleted} 条记录`, deleted });
 });
 
-router.get('/parcels', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/parcels', adminAuth, requirePermission(PERMISSIONS.PARCEL_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
   const startDate = String(req.query.startDate || '').trim() || undefined;
@@ -722,7 +759,7 @@ router.get('/parcels', adminAuth, async (req: AdminRequest, res: Response): Prom
   });
 });
 
-router.get('/parcels/export', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/parcels/export', adminAuth, requirePermission(PERMISSIONS.PARCEL_EXPORT), async (req: AdminRequest, res: Response): Promise<void> => {
   const startDate = String(req.query.startDate || '').trim() || undefined;
   const endDate = String(req.query.endDate || '').trim() || undefined;
   const sortKey = String(req.query.sortKey || '').trim() || undefined;
@@ -733,7 +770,7 @@ router.get('/parcels/export', adminAuth, async (req: AdminRequest, res: Response
   res.json({ data: rows, count: rows.length });
 });
 
-router.get('/parcels/search', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/parcels/search', adminAuth, requirePermission(PERMISSIONS.PARCEL_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const keyword = String(req.query.q || '').trim();
   const startDate = String(req.query.startDate || '').trim() || undefined;
   const endDate = String(req.query.endDate || '').trim() || undefined;
@@ -745,7 +782,7 @@ router.get('/parcels/search', adminAuth, async (req: AdminRequest, res: Response
   res.json({ data: signParcelImages(data), count: data.length });
 });
 
-router.get('/parcels/status-logs', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/parcels/status-logs', adminAuth, requirePermission(PERMISSIONS.PARCEL_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page) || 1;
   const limit = Number(req.query.limit) || 20;
   const keyword = typeof req.query.keyword === 'string' ? req.query.keyword : undefined;
@@ -755,7 +792,7 @@ router.get('/parcels/status-logs', adminAuth, async (req: AdminRequest, res: Res
   res.json(result);
 });
 
-router.patch('/parcels/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+router.patch('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE_STATUS), async (req: AdminRequest, res: Response): Promise<void> => {
   const status = String(req.body?.status || '').trim();
   if (!PARCEL_STATUS_SET.has(status)) {
     res.status(400).json({ error: '包裹状态不合法' });
@@ -781,7 +818,7 @@ router.patch('/parcels/:id', adminAuth, csrfGuard, async (req: AdminRequest, res
   res.json({ message: '包裹状态已更新', parcelId, status, sub_status: subStatus });
 });
 
-router.get('/parcels/:id/status-logs', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/parcels/:id/status-logs', adminAuth, requirePermission(PERMISSIONS.PARCEL_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const parcelId = toId(req.params.id);
   if (!parcelId) {
     res.status(400).json({ error: '包裹ID不合法' });
@@ -803,7 +840,7 @@ const parcelUpload = multer({
   },
 });
 
-router.post('/parcels/inbound', adminAuth, csrfGuard, parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
+router.post('/parcels/inbound', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_CREATE), parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
   const { tracking_number, weight, length_cm, width_cm, height_cm, shelf_location, logistics_provider_id, items: itemsJson } = req.body;
   if (!tracking_number || typeof tracking_number !== 'string' || !tracking_number.trim()) {
     res.status(400).json({ error: '包裹单号不能为空' });
@@ -861,12 +898,12 @@ router.post('/parcels/inbound', adminAuth, csrfGuard, parcelUpload.array('files'
   }
 });
 
-router.get('/parcels/:id/items', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/parcels/:id/items', adminAuth, requirePermission(PERMISSIONS.PARCEL_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const items = await getParcelItems(Number(req.params.id));
   res.json({ data: items });
 });
 
-router.put('/parcels/:id', adminAuth, csrfGuard, parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
+router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE), parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
   const parcelId = Number(req.params.id);
   const { weight, length_cm, width_cm, height_cm, origin, destination, status, sub_status, status_remark, items: itemsJson, existing_images, logistics_provider_id } = req.body;
   const w = Number(weight);
@@ -929,7 +966,7 @@ router.put('/parcels/:id', adminAuth, csrfGuard, parcelUpload.array('files', 10)
   }
 });
 
-router.delete('/parcels/:id', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+router.delete('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
   const ok = await deleteParcel(Number(req.params.id));
   if (!ok) {
     res.status(404).json({ error: '包裹不存在' });
@@ -938,7 +975,7 @@ router.delete('/parcels/:id', adminAuth, csrfGuard, async (req: AdminRequest, re
   res.json({ message: '包裹已删除' });
 });
 
-router.post('/parcels/batch-delete', adminAuth, csrfGuard, async (req: AdminRequest, res: Response): Promise<void> => {
+router.post('/parcels/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
   const ids = req.body?.ids;
   if (!Array.isArray(ids) || ids.length === 0) {
     res.status(400).json({ error: '请提供要删除的ID列表' });
@@ -949,7 +986,7 @@ router.post('/parcels/batch-delete', adminAuth, csrfGuard, async (req: AdminRequ
   res.json({ message: `已删除 ${deleted} 条记录`, deleted });
 });
 
-router.get('/admins', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/admins', adminAuth, requirePermission(PERMISSIONS.ADMIN_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
   const sortKey = String(req.query.sortKey || '').trim() || undefined;
@@ -968,7 +1005,7 @@ router.get('/admins', adminAuth, async (req: AdminRequest, res: Response): Promi
   });
 });
 
-router.get('/admins/search', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/admins/search', adminAuth, requirePermission(PERMISSIONS.ADMIN_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const keyword = String(req.query.q || '').trim();
   if (!keyword) {
     res.status(400).json({ error: '搜索关键词不能为空' });
@@ -978,7 +1015,7 @@ router.get('/admins/search', adminAuth, async (req: AdminRequest, res: Response)
   res.json({ data, count: data.length });
 });
 
-router.post('/admins', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.post('/admins', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_CREATE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
   const { username, password, email, role } = req.body as {
     username?: string;
     password?: string;
@@ -1055,7 +1092,7 @@ router.post('/admins', adminAuth, csrfGuard, requireSuperAdmin, async (req: Admi
   res.status(201).json({ message: '管理员已创建', admin });
 });
 
-router.patch('/admins/:id', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.patch('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_UPDATE_STATUS), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
   const status = String(req.body?.status || '').trim();
   if (!ADMIN_STATUS_SET.has(status)) {
     await logAdminAudit({
@@ -1122,7 +1159,7 @@ router.patch('/admins/:id', adminAuth, csrfGuard, requireSuperAdmin, async (req:
   res.json({ message: '管理员状态已更新', adminId, status });
 });
 
-router.put('/admins/:id', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.put('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_UPDATE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
   const adminId = toId(req.params.id);
   if (!adminId) {
     res.status(400).json({ error: '管理员ID不合法' });
@@ -1203,7 +1240,7 @@ router.put('/admins/:id', adminAuth, csrfGuard, requireSuperAdmin, async (req: A
   res.json({ message: '管理员信息已更新' });
 });
 
-router.delete('/admins/:id', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.delete('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_DELETE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
   const adminId = toId(req.params.id);
   if (!adminId) {
     await logAdminAudit({
@@ -1258,7 +1295,7 @@ router.delete('/admins/:id', adminAuth, csrfGuard, requireSuperAdmin, async (req
   res.json({ message: '管理员已删除', adminId });
 });
 
-router.post('/admins/batch-delete', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.post('/admins/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_DELETE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
   const ids = req.body?.ids;
   if (!Array.isArray(ids) || ids.length === 0) {
     res.status(400).json({ error: '请提供要删除的ID列表' });
@@ -1278,7 +1315,7 @@ router.post('/admins/batch-delete', adminAuth, csrfGuard, requireSuperAdmin, asy
 // ==================== 物流商管理 ====================
 const LOGISTICS_STATUS_SET = new Set(['active', 'inactive']);
 
-router.get('/logistics', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/logistics', adminAuth, requirePermission(PERMISSIONS.LOGISTICS_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 10));
   const sortKey = String(req.query.sortKey || '').trim() || undefined;
@@ -1297,7 +1334,7 @@ router.get('/logistics', adminAuth, async (req: AdminRequest, res: Response): Pr
   });
 });
 
-router.get('/logistics/search', adminAuth, async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/logistics/search', adminAuth, requirePermission(PERMISSIONS.LOGISTICS_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const keyword = String(req.query.q || '').trim();
   if (!keyword) {
     res.status(400).json({ error: '搜索关键词不能为空' });
@@ -1307,12 +1344,12 @@ router.get('/logistics/search', adminAuth, async (req: AdminRequest, res: Respon
   res.json({ data, count: data.length });
 });
 
-router.get('/logistics/options', adminAuth, async (_req: AdminRequest, res: Response): Promise<void> => {
+router.get('/logistics/options', adminAuth, requirePermission(PERMISSIONS.LOGISTICS_VIEW), async (_req: AdminRequest, res: Response): Promise<void> => {
   const data = await getActiveLogisticsProviders();
   res.json({ data });
 });
 
-router.post('/logistics', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.post('/logistics', adminAuth, csrfGuard, requirePermission(PERMISSIONS.LOGISTICS_CREATE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
   const { name, code, contact_name, contact_phone, email, website, status, remark } = req.body as Record<string, string>;
   if (!name || !name.trim()) {
     res.status(400).json({ error: '物流商名称不能为空' });
@@ -1341,7 +1378,7 @@ router.post('/logistics', adminAuth, csrfGuard, requireSuperAdmin, async (req: A
   res.status(201).json({ message: '物流商已创建', provider });
 });
 
-router.put('/logistics/:id', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.put('/logistics/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.LOGISTICS_UPDATE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
   const id = toId(req.params.id);
   if (!id) {
     res.status(400).json({ error: '物流商ID不合法' });
@@ -1382,7 +1419,7 @@ router.put('/logistics/:id', adminAuth, csrfGuard, requireSuperAdmin, async (req
   res.json({ message: '物流商已更新', id });
 });
 
-router.delete('/logistics/:id', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.delete('/logistics/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.LOGISTICS_DELETE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
   const id = toId(req.params.id);
   if (!id) {
     res.status(400).json({ error: '物流商ID不合法' });
@@ -1405,7 +1442,7 @@ router.delete('/logistics/:id', adminAuth, csrfGuard, requireSuperAdmin, async (
   res.json({ message: '物流商已删除', id });
 });
 
-router.post('/logistics/batch-delete', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.post('/logistics/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.LOGISTICS_DELETE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
   const ids = req.body?.ids;
   if (!Array.isArray(ids) || ids.length === 0) {
     res.status(400).json({ error: '请提供要删除的ID列表' });

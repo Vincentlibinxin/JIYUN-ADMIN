@@ -57,6 +57,11 @@ interface ParcelsTabProps {
   onInbound: (formData: FormData) => Promise<boolean>;
   onEdit: (id: number, formData: FormData) => Promise<boolean>;
   onFetchItems: (id: number) => Promise<{ name: string; value: number; quantity: number }[]>;
+  canCreate?: boolean;
+  canUpdate?: boolean;
+  canUpdateStatus?: boolean;
+  canDelete?: boolean;
+  canExport?: boolean;
   refreshKey?: number;
   onColumnFilterChange?: (columnFilters: Record<string, string>, dateFilters: Record<string, [string, string]>) => void;
 }
@@ -83,6 +88,11 @@ export default function ParcelsTab({
   onInbound,
   onEdit,
   onFetchItems,
+  canCreate,
+  canUpdate,
+  canUpdateStatus,
+  canDelete,
+  canExport,
   refreshKey,
   onColumnFilterChange,
 }: ParcelsTabProps) {
@@ -635,6 +645,7 @@ export default function ParcelsTab({
               style={{ width: '100%' }}
               onChange={(value) => onUpdateStatus(record.id, value)}
               onClick={(e) => e.stopPropagation()}
+              disabled={!canUpdateStatus}
               options={[
                 { label: '待处理', value: 'pending' },
                 { label: '已收货', value: 'received' },
@@ -734,19 +745,23 @@ export default function ParcelsTab({
               <Tooltip title="查看">
                 <Button size="small" type="text" icon={<EyeOutlined />} />
               </Tooltip>
-              <Tooltip title="修改">
-                <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
-              </Tooltip>
-              <Popconfirm
-                title="确定删除该包裹？"
-                okText="删除"
-                cancelText="取消"
-                onConfirm={() => onDelete(record.id)}
-              >
-                <Tooltip title="删除">
-                  <Button danger size="small" type="text" icon={<DeleteOutlined />} />
+              {canUpdate && (
+                <Tooltip title="修改">
+                  <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
                 </Tooltip>
-              </Popconfirm>
+              )}
+              {canDelete && (
+                <Popconfirm
+                  title="确定删除该包裹？"
+                  okText="删除"
+                  cancelText="取消"
+                  onConfirm={() => onDelete(record.id)}
+                >
+                  <Tooltip title="删除">
+                    <Button danger size="small" type="text" icon={<DeleteOutlined />} />
+                  </Tooltip>
+                </Popconfirm>
+              )}
             </Space>
           ),
         },
@@ -761,18 +776,20 @@ export default function ParcelsTab({
       <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
         <div style={{ flex: '0 0 auto' }}>
           <Space>
-            <Popconfirm
-              title={`确定删除选中的 ${selectedRowKeys.length} 条记录？`}
-              okText="删除"
-              cancelText="取消"
-              onConfirm={() => { onBatchDelete(selectedRowKeys); setSelectedRowKeys([]); }}
-              disabled={selectedRowKeys.length === 0}
-            >
-              <Button danger disabled={selectedRowKeys.length === 0}>
-                批量删除{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
-              </Button>
-            </Popconfirm>
-            {onExport && (
+            {canDelete && (
+              <Popconfirm
+                title={`确定删除选中的 ${selectedRowKeys.length} 条记录？`}
+                okText="删除"
+                cancelText="取消"
+                onConfirm={() => { onBatchDelete(selectedRowKeys); setSelectedRowKeys([]); }}
+                disabled={selectedRowKeys.length === 0}
+              >
+                <Button danger disabled={selectedRowKeys.length === 0}>
+                  批量删除{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
+                </Button>
+              </Popconfirm>
+            )}
+            {onExport && canExport && (
               <Button type="primary" ghost onClick={() => { void onExport(); }}>
                 下载
               </Button>
@@ -795,9 +812,11 @@ export default function ParcelsTab({
           />
         </div>
         <div style={{ flex: '0 0 auto' }}>
-          <Button type="primary" icon={<InboxOutlined />} onClick={() => setInboundOpen(true)}>
-            入库
-          </Button>
+          {canCreate && (
+            <Button type="primary" icon={<InboxOutlined />} onClick={() => setInboundOpen(true)}>
+              入库
+            </Button>
+          )}
         </div>
       </div>
 

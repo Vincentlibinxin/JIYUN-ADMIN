@@ -38,6 +38,9 @@ interface AdminsTabProps {
   onDelete: (id: number) => void;
   onBatchDelete: (ids: number[]) => void;
   canManage?: boolean;
+  canUpdate?: boolean;
+  canUpdateStatus?: boolean;
+  canDelete?: boolean;
   currentAdminId?: number;
   refreshKey?: number;
   onColumnFilterChange?: (columnFilters: Record<string, string>, dateFilters: Record<string, [string, string]>) => void;
@@ -64,6 +67,9 @@ export default function AdminsTab({
   onDelete,
   onBatchDelete,
   canManage,
+  canUpdate,
+  canUpdateStatus,
+  canDelete,
   currentAdminId,
   refreshKey,
   onColumnFilterChange,
@@ -448,12 +454,12 @@ export default function AdminsTab({
                 <Tooltip title="查看">
                   <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => openView(record)} />
                 </Tooltip>
-                {canManage && (
+                {canUpdate && (
                   <Tooltip title="修改">
                     <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(record)} />
                   </Tooltip>
                 )}
-                {canManage && (
+                {canUpdateStatus && (
                   <Tooltip title={record.status === 'active' ? '禁用' : '启用'}>
                     <Button
                       size="small"
@@ -469,10 +475,10 @@ export default function AdminsTab({
                   okText="删除"
                   cancelText="取消"
                   onConfirm={() => onDelete(record.id)}
-                  disabled={!canManage || isSelf}
+                  disabled={!canDelete || isSelf}
                 >
                   <Tooltip title="删除">
-                    <Button danger size="small" type="text" icon={<DeleteOutlined />} disabled={!canManage || isSelf} />
+                    <Button danger size="small" type="text" icon={<DeleteOutlined />} disabled={!canDelete || isSelf} />
                   </Tooltip>
                 </Popconfirm>
               </Space>
@@ -495,7 +501,7 @@ export default function AdminsTab({
                 新增管理员
               </Button>
             )}
-            {canManage && (
+            {canDelete && (
               <Popconfirm
                 title={`确定删除选中的 ${selectedRowKeys.length} 条记录？`}
                 okText="删除"

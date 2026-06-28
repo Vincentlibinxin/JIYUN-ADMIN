@@ -31,6 +31,8 @@ interface UsersTabProps {
   onDelete: (id: number) => void;
   onBatchDelete: (ids: number[]) => void;
   onUpdate?: (id: number, payload: { logistics_provider_id: number | null }) => Promise<boolean>;
+  canDelete?: boolean;
+  canUpdate?: boolean;
   currentPage: number;
   pageSize: number;
   totalItems: number;
@@ -53,6 +55,8 @@ export default function UsersTab({
   onDelete,
   onBatchDelete,
   onUpdate,
+  canDelete,
+  canUpdate,
   currentPage,
   pageSize,
   totalItems,
@@ -472,19 +476,23 @@ export default function UsersTab({
               <Tooltip title="查看">
                 <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => openView(record)} />
               </Tooltip>
-              <Tooltip title="修改">
-                <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(record)} />
-              </Tooltip>
-              <Popconfirm
-                title="确定删除该会员？"
-                okText="删除"
-                cancelText="取消"
-                onConfirm={() => onDelete(record.id)}
-              >
-                <Tooltip title="删除">
-                  <Button danger size="small" type="text" icon={<DeleteOutlined />} />
+              {canUpdate && (
+                <Tooltip title="修改">
+                  <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(record)} />
                 </Tooltip>
-              </Popconfirm>
+              )}
+              {canDelete && (
+                <Popconfirm
+                  title="确定删除该会员？"
+                  okText="删除"
+                  cancelText="取消"
+                  onConfirm={() => onDelete(record.id)}
+                >
+                  <Tooltip title="删除">
+                    <Button danger size="small" type="text" icon={<DeleteOutlined />} />
+                  </Tooltip>
+                </Popconfirm>
+              )}
             </Space>
           ),
         }
@@ -498,17 +506,19 @@ export default function UsersTab({
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
       <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
         <div style={{ flex: '0 0 auto' }}>
-          <Popconfirm
-            title={`确定删除选中的 ${selectedRowKeys.length} 条记录？`}
-            okText="删除"
-            cancelText="取消"
-            onConfirm={() => { onBatchDelete(selectedRowKeys); setSelectedRowKeys([]); }}
-            disabled={selectedRowKeys.length === 0}
-          >
-            <Button danger disabled={selectedRowKeys.length === 0}>
-              批量删除{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
-            </Button>
-          </Popconfirm>
+          {canDelete && (
+            <Popconfirm
+              title={`确定删除选中的 ${selectedRowKeys.length} 条记录？`}
+              okText="删除"
+              cancelText="取消"
+              onConfirm={() => { onBatchDelete(selectedRowKeys); setSelectedRowKeys([]); }}
+              disabled={selectedRowKeys.length === 0}
+            >
+              <Button danger disabled={selectedRowKeys.length === 0}>
+                批量删除{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
+              </Button>
+            </Popconfirm>
+          )}
         </div>
         <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
           <Input.Search
