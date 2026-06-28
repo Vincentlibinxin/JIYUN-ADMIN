@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Button, Checkbox, Form, Input, Modal, Popconfirm, Space, Table, Tag, message } from 'antd';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Button, Card, Checkbox, Form, Input, Modal, Pagination as AntPagination, Popconfirm, Space, Table, Tag, message } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
@@ -83,6 +83,11 @@ const ALL_PERMISSION_CODES = PERMISSION_GROUPS.flatMap((g) => g.items.map((i) =>
 export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }: RolesTabProps) {
   const [roles, setRoles] = useState<RoleItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const tableHostRef = useRef<HTMLDivElement>(null);
+  const [tableScrollY, setTableScrollY] = useState(240);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [editingRole, setEditingRole] = useState<RoleItem | null>(null);
@@ -112,6 +117,25 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
     void fetchRoles();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
+
+  useLayoutEffect(() => {
+    const updateTableHeight = () => {
+      const nextHeight = tableHostRef.current?.clientHeight ?? 0;
+      if (nextHeight > 0) {
+        setTableScrollY(nextHeight - 86);
+      }
+    };
+    updateTableHeight();
+    const observer = new ResizeObserver(() => updateTableHeight());
+    if (tableHostRef.current) {
+      observer.observe(tableHostRef.current);
+    }
+    window.addEventListener('resize', updateTableHeight);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateTableHeight);
+    };
+  }, []);
 
   const openCreate = () => {
     setModalMode('create');
@@ -269,36 +293,99 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
     [canUpdate, canDelete]
   );
 
+  const filteredRoles = useMemo(() => {
+    const kw = searchQuery.trim().toLowerCase();
+    if (!kw) return roles;
+    return roles.filter((r) => r.name.toLowerCase().includes(kw) || r.code.toLowerCase().includes(kw));
+  }, [roles, searchQuery]);
+
+  const pagedRoles = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredRoles.slice(start, start + pageSize);
+  }, [filteredRoles, currentPage, pageSize]);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(filteredRoles.length / pageSize));
+    if (currentPage > maxPage) setCurrentPage(maxPage);
+  }, [filteredRoles.length, pageSize, currentPage]);
+
   return (
-    <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 20 }}>
+    <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
       {messageContextHolder}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#111827' }}>系统管理权限（角色）</div>
-          <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
-            以角色为单位管理后台权限，支持新增、编辑、删除自定义角色，保存后即时生效。
-          </div>
-        </div>
-        <Space>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+        <div style={{ flex: '0 0 auto' }}>
           <Button icon={<ReloadOutlined />} onClick={() => void fetchRoles()}>
             刷新
           </Button>
+        </div>
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          <Input.Search
+            allowClear
+            value={searchQuery}
+            onChange={(event) => {
+              setSearchQuery(event.target.value);
+              setCurrentPage(1);
+            }}
+            placeholder="搜索角色：名称或标识"
+            style={{ width: 420 }}
+            enterButton
+          />
+        </div>
+        <div style={{ flex: '0 0 auto' }}>
           {canCreate && (
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} style={{ background: '#f58220' }}>
               新增角色
             </Button>
           )}
-        </Space>
+        </div>
       </div>
 
-      <Table<RoleItem>
-        rowKey="code"
-        loading={loading}
-        columns={columns}
-        dataSource={roles}
-        pagination={false}
-        size="middle"
-      />
+      <div ref={tableHostRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <Table<RoleItem>
+          rowKey="code"
+          loading={loading}
+          columns={columns}
+          dataSource={pagedRoles}
+          pagination={false}
+          size="small"
+          sticky
+          tableLayout="fixed"
+          scroll={{ x: 'max-content', y: tableScrollY }}
+          locale={{ emptyText: '没有角色记录' }}
+        />
+      </div>
+
+      <div
+        style={{
+          flexShrink: 0,
+          zIndex: 10,
+          background: '#fff',
+          borderTop: '1px solid #f0f0f0',
+          padding: '6px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+        }}
+      >
+        <AntPagination
+          size="small"
+          current={currentPage}
+          pageSize={pageSize}
+          total={filteredRoles.length}
+          showSizeChanger
+          pageSizeOptions={[10, 20, 30, 50]}
+          showQuickJumper
+          showTotal={(total, range) => `第 ${range[0]}-${range[1]} 条 / 共 ${total} 条`}
+          onChange={(page, size) => {
+            setCurrentPage(page);
+            setPageSize(size);
+          }}
+          onShowSizeChange={(_, size) => {
+            setCurrentPage(1);
+            setPageSize(size);
+          }}
+        />
+      </div>
 
       <Modal
         title={modalMode === 'create' ? '新增角色' : isSuperAdminEditing ? '查看角色（超级管理员）' : '编辑角色'}
@@ -381,6 +468,6 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
           </div>
         </div>
       </Modal>
-    </div>
+    </Card>
   );
 }
