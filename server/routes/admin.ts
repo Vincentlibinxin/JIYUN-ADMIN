@@ -40,6 +40,7 @@ import {
   getUsersPaged,
   searchUsersPaged,
   updateUser,
+  updateAdminAccount,
   logAdminAudit,
   updateAdminLastLogin,
   updateAdminStatus,
@@ -1119,6 +1120,87 @@ router.patch('/admins/:id', adminAuth, csrfGuard, requireSuperAdmin, async (req:
     detail: `status=${status}`,
   });
   res.json({ message: '管理员状态已更新', adminId, status });
+});
+
+router.put('/admins/:id', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+  const adminId = toId(req.params.id);
+  if (!adminId) {
+    res.status(400).json({ error: '管理员ID不合法' });
+    return;
+  }
+
+  const { username, email, role, password } = req.body as {
+    username?: string;
+    email?: string;
+    role?: string;
+    password?: string;
+  };
+
+  const payload: { username?: string; email?: string; role?: string; password?: string } = {};
+
+  if (typeof username === 'string') {
+    const v = username.trim();
+    if (!v) {
+      res.status(400).json({ error: '用户名不能为空' });
+      return;
+    }
+    payload.username = v;
+  }
+  if (typeof email === 'string') {
+    const v = email.trim();
+    if (!v) {
+      res.status(400).json({ error: '邮箱不能为空' });
+      return;
+    }
+    payload.email = v;
+  }
+  if (typeof role === 'string') {
+    const v = role.trim();
+    if (!ROLE_SET.has(v)) {
+      res.status(400).json({ error: '管理员角色不合法' });
+      return;
+    }
+    payload.role = v;
+  }
+  if (typeof password === 'string' && password.length > 0) {
+    if (password.length < 12) {
+      res.status(400).json({ error: '密码至少需要 12 位' });
+      return;
+    }
+    payload.password = password;
+  }
+
+  if (adminId === req.adminId && payload.role && payload.role !== 'super_admin') {
+    res.status(400).json({ error: '不能修改当前登录账号的超级管理员角色' });
+    return;
+  }
+
+  if (Object.keys(payload).length === 0) {
+    res.status(400).json({ error: '没有可更新的字段' });
+    return;
+  }
+
+  const result = await updateAdminAccount(adminId, payload);
+  if (result === 'duplicate_username') {
+    res.status(409).json({ error: '管理员账号已存在' });
+    return;
+  }
+  if (result === 'not_found') {
+    res.status(404).json({ error: '管理员不存在' });
+    return;
+  }
+
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'admin.update_account',
+    targetType: 'admin_user',
+    targetId: adminId,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: `fields=${Object.keys(payload).join(',')}`,
+  });
+
+  res.json({ message: '管理员信息已更新' });
 });
 
 router.delete('/admins/:id', adminAuth, csrfGuard, requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {

@@ -1257,6 +1257,54 @@ export const createAdmin = async (payload: { username: string; password: string;
   };
 };
 
+export const updateAdminAccount = async (
+  adminId: number,
+  payload: { username?: string; email?: string; role?: string; password?: string }
+): Promise<'updated' | 'duplicate_username' | 'not_found'> => {
+  const sets: string[] = ['updated_at = NOW()'];
+  const params: any[] = [];
+
+  if (payload.username !== undefined) {
+    const username = payload.username.trim();
+    const [dupeRows] = await pool.execute<mysql.RowDataPacket[]>(
+      'SELECT id FROM admin_users WHERE username = ? AND id <> ? AND deleted_at IS NULL LIMIT 1',
+      [username, adminId]
+    );
+    if (dupeRows.length > 0) {
+      return 'duplicate_username';
+    }
+    sets.push('username = ?');
+    params.push(username);
+  }
+  if (payload.email !== undefined) {
+    sets.push('email = ?');
+    params.push(payload.email.trim());
+  }
+  if (payload.role !== undefined) {
+    sets.push('role = ?');
+    params.push(payload.role.trim());
+  }
+  if (payload.password !== undefined) {
+    const hashed = await bcrypt.hash(payload.password, 10);
+    sets.push('password = ?');
+    params.push(hashed);
+  }
+
+  if (sets.length === 1) {
+    return 'not_found';
+  }
+
+  params.push(adminId);
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `UPDATE admin_users SET ${sets.join(', ')} WHERE id = ? AND deleted_at IS NULL`,
+    params
+  );
+  if (result.affectedRows === 0) {
+    return 'not_found';
+  }
+  return 'updated';
+};
+
 export const updateAdminStatus = async (adminId: number, status: string): Promise<boolean> => {
   const [result] = await pool.execute<mysql.ResultSetHeader>(
     'UPDATE admin_users SET status = ?, updated_at = NOW() WHERE id = ?',

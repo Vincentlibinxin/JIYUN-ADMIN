@@ -911,6 +911,49 @@ export default function AdminDashboard() {
     } catch { setError('批量删除失败'); }
   };
 
+  const createAdminUser = async (payload: { username: string; email: string; role: string; password: string }): Promise<boolean> => {
+    try {
+      const response = await adminFetch('/admin/admins', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchAdmins(adminPage, adminPageSize);
+        return true;
+      }
+      const data = await response.json().catch(() => ({}));
+      setError(data.error || '新增管理员失败');
+      return false;
+    } catch {
+      setError('新增管理员失败');
+      return false;
+    }
+  };
+
+  const updateAdminAccount = async (
+    adminId: number,
+    payload: { username: string; email: string; role: string; password?: string }
+  ): Promise<boolean> => {
+    try {
+      const response = await adminFetch(`/admin/admins/${adminId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchAdmins(adminPage, adminPageSize);
+        return true;
+      }
+      const data = await response.json().catch(() => ({}));
+      setError(data.error || '修改管理员失败');
+      return false;
+    } catch {
+      setError('修改管理员失败');
+      return false;
+    }
+  };
+
   const inboundParcel = async (formData: FormData): Promise<boolean> => {
     try {
       const response = await adminFetch('/admin/parcels/inbound', {
@@ -1283,9 +1326,12 @@ export default function AdminDashboard() {
                 setAdminSort({ key, direction });
                 fetchAdmins(adminPage, adminPageSize, key, direction);
               }}
+              onCreate={createAdminUser}
+              onUpdate={updateAdminAccount}
               onToggleStatus={updateAdminAccountStatus}
               onDelete={deleteAdminUser}
               onBatchDelete={batchDeleteAdminUsers}
+              canManage={adminUser?.role === 'super_admin'}
               currentAdminId={adminUser?.id}
               refreshKey={refreshKey}
               onColumnFilterChange={(cf, df) => {

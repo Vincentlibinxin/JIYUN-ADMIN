@@ -1,5 +1,5 @@
 ﻿import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Button, Card, Checkbox, DatePicker, Input, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tag, Tooltip } from 'antd';
+import { Button, Card, Checkbox, DatePicker, Form, Input, Modal, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tag, Tooltip, message, Descriptions } from 'antd';
 import { DeleteOutlined, EditOutlined, EyeOutlined, LockOutlined, UnlockOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -32,9 +32,12 @@ interface AdminsTabProps {
   sortKey: AdminSortKey;
   sortDirection: SortDirection;
   onSortChange: (key: AdminSortKey, direction: SortDirection) => void;
+  onCreate?: (payload: { username: string; email: string; role: string; password: string }) => Promise<boolean>;
+  onUpdate?: (id: number, payload: { username: string; email: string; role: string; password?: string }) => Promise<boolean>;
   onToggleStatus: (id: number, status: string) => void;
   onDelete: (id: number) => void;
   onBatchDelete: (ids: number[]) => void;
+  canManage?: boolean;
   currentAdminId?: number;
   refreshKey?: number;
   onColumnFilterChange?: (columnFilters: Record<string, string>, dateFilters: Record<string, [string, string]>) => void;
@@ -55,9 +58,12 @@ export default function AdminsTab({
   sortKey,
   sortDirection,
   onSortChange,
+  onCreate,
+  onUpdate,
   onToggleStatus,
   onDelete,
   onBatchDelete,
+  canManage,
   currentAdminId,
   refreshKey,
   onColumnFilterChange,
@@ -94,6 +100,73 @@ export default function AdminsTab({
   const [localColumnFilters, setLocalColumnFilters] = useState<Record<string, string>>({});
   const [dateFilters, setDateFilters] = useState<Record<string, [string, string] | null>>({});
   const [resetKey, setResetKey] = useState(0);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<'create' | 'edit' | 'view'>('view');
+  const [activeAdmin, setActiveAdmin] = useState<AdminUser | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [form] = Form.useForm();
+
+  const openCreate = () => {
+    setActiveAdmin(null);
+    setModalMode('create');
+    form.resetFields();
+    form.setFieldsValue({ role: 'admin' });
+    setModalOpen(true);
+  };
+
+  const openView = (record: AdminUser) => {
+    setActiveAdmin(record);
+    setModalMode('view');
+    setModalOpen(true);
+  };
+
+  const openEdit = (record: AdminUser) => {
+    setActiveAdmin(record);
+    setModalMode('edit');
+    form.setFieldsValue({
+      username: record.username,
+      email: record.email,
+      role: record.role,
+      password: '',
+    });
+    setModalOpen(true);
+  };
+
+  const handleSubmit = async () => {
+    const values = await form.validateFields();
+    setSubmitting(true);
+    try {
+      if (modalMode === 'create' && onCreate) {
+        const ok = await onCreate({
+          username: String(values.username || '').trim(),
+          email: String(values.email || '').trim(),
+          role: String(values.role || 'admin').trim(),
+          password: String(values.password || ''),
+        });
+        if (ok) {
+          message.success('管理员已创建');
+          setModalOpen(false);
+        }
+      }
+      if (modalMode === 'edit' && activeAdmin && onUpdate) {
+        const payload: { username: string; email: string; role: string; password?: string } = {
+          username: String(values.username || '').trim(),
+          email: String(values.email || '').trim(),
+          role: String(values.role || 'admin').trim(),
+        };
+        if (values.password && String(values.password).trim()) {
+          payload.password = String(values.password);
+        }
+        const ok = await onUpdate(activeAdmin.id, payload);
+        if (ok) {
+          message.success('管理员信息已更新');
+          setModalOpen(false);
+        }
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const cleanFiltersAndNotify = (newColFilters: Record<string, string>, newDateFilters: Record<string, [string, string] | null>) => {
     const cleanCf: Record<string, string> = {};
@@ -373,20 +446,33 @@ export default function AdminsTab({
             return (
               <Space size={4}>
                 <Tooltip title="查看">
-                  <Button size="small" type="text" icon={<EyeOutlined />} />
+                  <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => openView(record)} />
                 </Tooltip>
-                <Tooltip title="修改">
-                  <Button size="small" type="text" icon={<EditOutlined />} />
-                </Tooltip>
+                {canManage && (
+                  <Tooltip title="修改">
+                    <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(record)} />
+                  </Tooltip>
+                )}
+                {canManage && (
+                  <Tooltip title={record.status === 'active' ? '禁用' : '启用'}>
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={record.status === 'active' ? <LockOutlined /> : <UnlockOutlined />}
+                      disabled={isSelf}
+                      onClick={() => onToggleStatus(record.id, record.status === 'active' ? 'disabled' : 'active')}
+                    />
+                  </Tooltip>
+                )}
                 <Popconfirm
                   title="确定删除该管理员？"
                   okText="删除"
                   cancelText="取消"
                   onConfirm={() => onDelete(record.id)}
-                  disabled={isSelf}
+                  disabled={!canManage || isSelf}
                 >
                   <Tooltip title="删除">
-                    <Button danger size="small" type="text" icon={<DeleteOutlined />} disabled={isSelf} />
+                    <Button danger size="small" type="text" icon={<DeleteOutlined />} disabled={!canManage || isSelf} />
                   </Tooltip>
                 </Popconfirm>
               </Space>
@@ -403,17 +489,26 @@ export default function AdminsTab({
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
       <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
         <div style={{ flex: '0 0 auto' }}>
-          <Popconfirm
-            title={`确定删除选中的 ${selectedRowKeys.length} 条记录？`}
-            okText="删除"
-            cancelText="取消"
-            onConfirm={() => { onBatchDelete(selectedRowKeys); setSelectedRowKeys([]); }}
-            disabled={selectedRowKeys.length === 0}
-          >
-            <Button danger disabled={selectedRowKeys.length === 0}>
-              批量删除{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
-            </Button>
-          </Popconfirm>
+          <Space>
+            {canManage && (
+              <Button type="primary" onClick={openCreate}>
+                新增管理员
+              </Button>
+            )}
+            {canManage && (
+              <Popconfirm
+                title={`确定删除选中的 ${selectedRowKeys.length} 条记录？`}
+                okText="删除"
+                cancelText="取消"
+                onConfirm={() => { onBatchDelete(selectedRowKeys); setSelectedRowKeys([]); }}
+                disabled={selectedRowKeys.length === 0}
+              >
+                <Button danger disabled={selectedRowKeys.length === 0}>
+                  批量删除{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
+                </Button>
+              </Popconfirm>
+            )}
+          </Space>
         </div>
         <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
           <Input.Search
@@ -486,6 +581,81 @@ export default function AdminsTab({
           onShowSizeChange={(_, size) => onPageSizeChange(size)}
         />
       </div>
+
+      <Modal
+        title={modalMode === 'create' ? '新增管理员' : modalMode === 'edit' ? '修改管理员' : '管理员详情'}
+        open={modalOpen}
+        onCancel={() => setModalOpen(false)}
+        onOk={modalMode === 'view' ? () => setModalOpen(false) : handleSubmit}
+        okText={modalMode === 'view' ? '关闭' : '保存'}
+        cancelText="取消"
+        confirmLoading={submitting}
+        cancelButtonProps={modalMode === 'view' ? { style: { display: 'none' } } : undefined}
+        destroyOnClose
+      >
+        {modalMode === 'view' && activeAdmin && (
+          <Descriptions column={1} size="small" bordered>
+            <Descriptions.Item label="账号">{activeAdmin.username}</Descriptions.Item>
+            <Descriptions.Item label="电子邮件">{activeAdmin.email}</Descriptions.Item>
+            <Descriptions.Item label="角色">{activeAdmin.role}</Descriptions.Item>
+            <Descriptions.Item label="状态">{activeAdmin.status}</Descriptions.Item>
+            <Descriptions.Item label="上次登录">
+              {activeAdmin.last_login ? new Date(activeAdmin.last_login).toLocaleString('zh-CN', { hour12: false }) : '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="创建时间">
+              {new Date(activeAdmin.created_at).toLocaleString('zh-CN', { hour12: false })}
+            </Descriptions.Item>
+          </Descriptions>
+        )}
+
+        {(modalMode === 'create' || modalMode === 'edit') && (
+          <Form form={form} layout="vertical" preserve={false}>
+            <Form.Item
+              label="账号"
+              name="username"
+              rules={[{ required: true, message: '请输入管理员账号' }]}
+            >
+              <Input maxLength={64} placeholder="请输入账号" />
+            </Form.Item>
+
+            <Form.Item
+              label="电子邮件"
+              name="email"
+              rules={[{ required: true, message: '请输入电子邮件' }, { type: 'email', message: '邮箱格式不正确' }]}
+            >
+              <Input maxLength={255} placeholder="请输入电子邮件" />
+            </Form.Item>
+
+            <Form.Item
+              label="角色"
+              name="role"
+              rules={[{ required: true, message: '请选择角色' }]}
+            >
+              <Select
+                options={[
+                  { label: '管理员 (admin)', value: 'admin' },
+                  { label: '超级管理员 (super_admin)', value: 'super_admin' },
+                ]}
+              />
+            </Form.Item>
+
+            <Form.Item
+              label={modalMode === 'create' ? '密码' : '新密码（不改可留空）'}
+              name="password"
+              rules={modalMode === 'create'
+                ? [
+                  { required: true, message: '请输入密码' },
+                  { min: 12, message: '密码至少 12 位' },
+                ]
+                : [
+                  { min: 12, message: '密码至少 12 位' },
+                ]}
+            >
+              <Input.Password placeholder={modalMode === 'create' ? '请输入密码（至少12位）' : '留空表示不修改'} />
+            </Form.Item>
+          </Form>
+        )}
+      </Modal>
     </Card>
   );
 }
