@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, Checkbox, Form, Input, Modal, Pagination as AntPagination, Popconfirm, Space, Table, Tag, message } from 'antd';
+import { Button, Card, Checkbox, Form, Input, Modal, Pagination as AntPagination, Popconfirm, Space, Table, Tag, Tooltip, message } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
@@ -88,6 +88,11 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
   const [pageSize, setPageSize] = useState(20);
   const tableHostRef = useRef<HTMLDivElement>(null);
   const [tableScrollY, setTableScrollY] = useState(240);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [localColumnFilters, setLocalColumnFilters] = useState<Record<string, string>>({});
+  const [sortKey, setSortKey] = useState<'name' | 'code' | 'admin_count' | 'permission_count' | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [editingRole, setEditingRole] = useState<RoleItem | null>(null);
@@ -219,104 +224,302 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
     }
   };
 
-  const columns: ColumnsType<RoleItem> = useMemo(
-    () => [
-      {
-        title: '角色名称',
-        dataIndex: 'name',
-        key: 'name',
-        width: 180,
-        render: (name: string, record) => (
-          <Space size={6}>
-            <span style={{ fontWeight: 600 }}>{name}</span>
-            {record.is_system && <Tag color="blue">系统内置</Tag>}
-          </Space>
-        ),
-      },
-      {
-        title: '角色标识',
-        dataIndex: 'code',
-        key: 'code',
-        width: 160,
-        render: (code: string) => <Tag>{code}</Tag>,
-      },
-      {
-        title: '关联管理员',
-        dataIndex: 'admin_count',
-        key: 'admin_count',
-        width: 120,
-        render: (count: number) => `${count} 人`,
-      },
-      {
-        title: '权限数',
-        key: 'permission_count',
-        width: 120,
-        render: (_, record) =>
-          record.code === 'super_admin'
-            ? `全部（${ALL_PERMISSION_CODES.length}）`
-            : `${record.permissions.length} / ${ALL_PERMISSION_CODES.length}`,
-      },
-      {
-        title: '操作',
-        key: 'actions',
-        width: 160,
-        render: (_, record) => (
-          <Space size={4}>
-            <Button
-              type="link"
-              size="small"
-              icon={<EditOutlined />}
-              disabled={!canUpdate}
-              onClick={() => openEdit(record)}
-            >
-              {record.code === 'super_admin' ? '查看' : '编辑'}
-            </Button>
-            {canDelete && !record.is_system && (
-              <Popconfirm
-                title="确定删除该角色？"
-                description={record.admin_count > 0 ? '该角色下仍有管理员，需先转移后才能删除。' : '删除后不可恢复。'}
-                okText="删除"
-                okButtonProps={{ danger: true }}
-                cancelText="取消"
-                onConfirm={() => handleDelete(record)}
-              >
-                <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-                  删除
-                </Button>
-              </Popconfirm>
-            )}
-          </Space>
-        ),
-      },
-    ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canUpdate, canDelete]
-  );
+  const handleBatchDelete = async () => {
+    const targets = roles.filter((r) => selectedRowKeys.includes(r.code) && !r.is_system);
+    if (targets.length === 0) {
+      messageApi.info('所选角色均为系统内置角色，无法删除');
+      return;
+    }
+    let ok = 0;
+    for (const role of targets) {
+      try {
+        const response = await adminFetch(`/admin/roles/${encodeURIComponent(role.code)}`, { method: 'DELETE' });
+        if (response.ok) ok += 1;
+      } catch {
+        // 单个失败忽略，继续处理其余
+      }
+    }
+    setSelectedRowKeys([]);
+    if (ok > 0) messageApi.success(`已删除 ${ok} 个角色`);
+    else messageApi.error('删除失败');
+    await fetchRoles();
+  };
 
-  const filteredRoles = useMemo(() => {
+  const processedRoles = useMemo(() => {
     const kw = searchQuery.trim().toLowerCase();
-    if (!kw) return roles;
-    return roles.filter((r) => r.name.toLowerCase().includes(kw) || r.code.toLowerCase().includes(kw));
-  }, [roles, searchQuery]);
+    const nameKw = (columnFilters['name'] || '').toLowerCase();
+    const codeKw = (columnFilters['code'] || '').toLowerCase();
+    const adminKw = (columnFilters['admin_count'] || '').toLowerCase();
+    const list = roles.filter((r) => {
+      if (kw && !r.name.toLowerCase().includes(kw) && !r.code.toLowerCase().includes(kw)) return false;
+      if (nameKw && !r.name.toLowerCase().includes(nameKw)) return false;
+      if (codeKw && !r.code.toLowerCase().includes(codeKw)) return false;
+      if (adminKw && !String(r.admin_count).includes(adminKw)) return false;
+      return true;
+    });
+    if (sortKey) {
+      const dir = sortDirection === 'asc' ? 1 : -1;
+      list.sort((a, b) => {
+        let va: number | string;
+        let vb: number | string;
+        if (sortKey === 'permission_count') {
+          va = a.code === 'super_admin' ? ALL_PERMISSION_CODES.length : a.permissions.length;
+          vb = b.code === 'super_admin' ? ALL_PERMISSION_CODES.length : b.permissions.length;
+        } else if (sortKey === 'admin_count') {
+          va = a.admin_count;
+          vb = b.admin_count;
+        } else {
+          va = a[sortKey];
+          vb = b[sortKey];
+        }
+        if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+        return String(va).localeCompare(String(vb), 'zh-CN') * dir;
+      });
+    }
+    return list;
+  }, [roles, searchQuery, columnFilters, sortKey, sortDirection]);
 
   const pagedRoles = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
-    return filteredRoles.slice(start, start + pageSize);
-  }, [filteredRoles, currentPage, pageSize]);
+    return processedRoles.slice(start, start + pageSize);
+  }, [processedRoles, currentPage, pageSize]);
 
   useEffect(() => {
-    const maxPage = Math.max(1, Math.ceil(filteredRoles.length / pageSize));
+    const maxPage = Math.max(1, Math.ceil(processedRoles.length / pageSize));
     if (currentPage > maxPage) setCurrentPage(maxPage);
-  }, [filteredRoles.length, pageSize, currentPage]);
+  }, [processedRoles.length, pageSize, currentPage]);
+
+  const visibleRowKeys = pagedRoles.map((r) => r.code);
+  const selectedVisibleCount = visibleRowKeys.filter((c) => selectedRowKeys.includes(c)).length;
+  const allSelected = visibleRowKeys.length > 0 && selectedVisibleCount === visibleRowKeys.length;
+  const indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleRowKeys.length;
+
+  const handleSelectAll = (checked: boolean) => {
+    setSelectedRowKeys(checked ? visibleRowKeys : []);
+  };
+
+  const handleSelectRow = (code: string, checked: boolean) => {
+    setSelectedRowKeys((prev) =>
+      checked ? (prev.includes(code) ? prev : [...prev, code]) : prev.filter((c) => c !== code)
+    );
+  };
+
+  const handleColumnSearch = (key: string, value: string) => {
+    setColumnFilters((prev) => {
+      const next = { ...prev };
+      if (!value) delete next[key];
+      else next[key] = value;
+      return next;
+    });
+    setCurrentPage(1);
+  };
+
+  const renderSearchInput = (key: string, placeholder: string) => (
+    <Input
+      size="small"
+      placeholder={`搜索 ${placeholder}`}
+      value={localColumnFilters[key] !== undefined ? localColumnFilters[key] : (columnFilters[key] || '')}
+      onChange={(e) => {
+        setLocalColumnFilters((prev) => ({ ...prev, [key]: e.target.value }));
+        if (!e.target.value) handleColumnSearch(key, '');
+      }}
+      onPressEnter={(e) => handleColumnSearch(key, (e.target as HTMLInputElement).value)}
+      onClick={(e) => e.stopPropagation()}
+      allowClear
+    />
+  );
+
+  const resetFilters = () => {
+    setColumnFilters({});
+    setLocalColumnFilters({});
+    setSearchQuery('');
+    setSortKey(null);
+    setSelectedRowKeys([]);
+    setCurrentPage(1);
+  };
+
+  const columns: ColumnsType<RoleItem> = [
+    {
+      title: '序号',
+      key: 'index',
+      width: 65,
+      fixed: 'left',
+      align: 'left',
+      children: [
+        {
+          title: (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', paddingLeft: '8px' }}>
+              <Checkbox
+                checked={allSelected}
+                indeterminate={indeterminate}
+                onChange={(e) => handleSelectAll(e.target.checked)}
+              />
+            </div>
+          ),
+          key: 'index_child',
+          width: 65,
+          fixed: 'left',
+          align: 'left',
+          render: (_, record, index) => (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '8px' }}>
+              <Checkbox
+                checked={selectedRowKeys.includes(record.code)}
+                onChange={(e) => handleSelectRow(record.code, e.target.checked)}
+                onClick={(e) => e.stopPropagation()}
+              />
+              <span>{(currentPage - 1) * pageSize + index + 1}</span>
+            </div>
+          ),
+        },
+      ],
+    },
+    {
+      title: '角色名称',
+      key: 'name',
+      width: 220,
+      sorter: true,
+      sortOrder: sortKey === 'name' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
+      children: [
+        {
+          title: renderSearchInput('name', '角色名称'),
+          key: 'name_child',
+          width: 220,
+          render: (_, record) => (
+            <Space size={6}>
+              <span style={{ fontWeight: 600 }}>{record.name}</span>
+              {record.is_system && <Tag color="blue">系统内置</Tag>}
+            </Space>
+          ),
+        },
+      ],
+    },
+    {
+      title: '角色标识',
+      key: 'code',
+      width: 180,
+      sorter: true,
+      sortOrder: sortKey === 'code' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
+      children: [
+        {
+          title: renderSearchInput('code', '角色标识'),
+          key: 'code_child',
+          width: 180,
+          render: (_, record) => <Tag>{record.code}</Tag>,
+        },
+      ],
+    },
+    {
+      title: '关联管理员',
+      key: 'admin_count',
+      width: 140,
+      sorter: true,
+      sortOrder: sortKey === 'admin_count' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
+      children: [
+        {
+          title: renderSearchInput('admin_count', '人数'),
+          key: 'admin_count_child',
+          width: 140,
+          render: (_, record) => `${record.admin_count} 人`,
+        },
+      ],
+    },
+    {
+      title: '权限数',
+      key: 'permission_count',
+      width: 140,
+      sorter: true,
+      sortOrder: sortKey === 'permission_count' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
+      children: [
+        {
+          title: <span style={{ fontSize: 12, color: '#999' }}>权限数</span>,
+          key: 'permission_count_child',
+          width: 140,
+          render: (_, record) =>
+            record.code === 'super_admin'
+              ? `全部（${ALL_PERMISSION_CODES.length}）`
+              : `${record.permissions.length} / ${ALL_PERMISSION_CODES.length}`,
+        },
+      ],
+    },
+    {
+      title: '',
+      key: 'spacer',
+      children: [{ title: '', key: 'spacer_child', render: () => null }],
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 120,
+      fixed: 'right',
+      align: 'center',
+      children: [
+        {
+          title: (
+            <Tooltip title="重置所有搜索">
+              <Button size="small" icon={<ReloadOutlined />} onClick={resetFilters} />
+            </Tooltip>
+          ),
+          key: 'actions_child',
+          width: 120,
+          fixed: 'right',
+          align: 'center',
+          render: (_, record) => (
+            <Space size={4}>
+              <Tooltip title={record.code === 'super_admin' ? '查看' : '编辑'}>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<EditOutlined />}
+                  disabled={!canUpdate}
+                  onClick={() => openEdit(record)}
+                />
+              </Tooltip>
+              {canDelete && !record.is_system && (
+                <Popconfirm
+                  title="确定删除该角色？"
+                  description={record.admin_count > 0 ? '该角色下仍有管理员，需先转移后才能删除。' : '删除后不可恢复。'}
+                  okText="删除"
+                  okButtonProps={{ danger: true }}
+                  cancelText="取消"
+                  onConfirm={() => handleDelete(record)}
+                >
+                  <Tooltip title="删除">
+                    <Button danger size="small" type="text" icon={<DeleteOutlined />} />
+                  </Tooltip>
+                </Popconfirm>
+              )}
+            </Space>
+          ),
+        },
+      ],
+    },
+  ];
 
   return (
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
       {messageContextHolder}
       <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
         <div style={{ flex: '0 0 auto' }}>
-          <Button icon={<ReloadOutlined />} onClick={() => void fetchRoles()}>
-            刷新
-          </Button>
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={() => void fetchRoles()}>
+              刷新
+            </Button>
+            {canDelete && (
+              <Popconfirm
+                title={`确定删除选中的 ${selectedRowKeys.length} 个角色？`}
+                description="系统内置角色将被跳过；删除后不可恢复。"
+                okText="删除"
+                okButtonProps={{ danger: true }}
+                cancelText="取消"
+                onConfirm={handleBatchDelete}
+                disabled={selectedRowKeys.length === 0}
+              >
+                <Button danger disabled={selectedRowKeys.length === 0}>
+                  批量删除{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
+                </Button>
+              </Popconfirm>
+            )}
+          </Space>
         </div>
         <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
           <Input.Search
@@ -343,6 +546,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
       <div ref={tableHostRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <Table<RoleItem>
           rowKey="code"
+          rowClassName={(record) => (selectedRowKeys.includes(record.code) ? 'row-selected' : '')}
           loading={loading}
           columns={columns}
           dataSource={pagedRoles}
@@ -350,8 +554,21 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
           size="small"
           sticky
           tableLayout="fixed"
+          showSorterTooltip={false}
+          sortDirections={['ascend', 'descend', 'ascend']}
           scroll={{ x: 'max-content', y: tableScrollY }}
           locale={{ emptyText: '没有角色记录' }}
+          onChange={(_, __, sorter) => {
+            if (Array.isArray(sorter)) return;
+            const field = (sorter.columnKey || sorter.field) as 'name' | 'code' | 'admin_count' | 'permission_count' | undefined;
+            const order = sorter.order;
+            if (!field || !order) {
+              setSortKey(null);
+              return;
+            }
+            setSortKey(field);
+            setSortDirection(order === 'ascend' ? 'asc' : 'desc');
+          }}
         />
       </div>
 
@@ -371,7 +588,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
           size="small"
           current={currentPage}
           pageSize={pageSize}
-          total={filteredRoles.length}
+          total={processedRoles.length}
           showSizeChanger
           pageSizeOptions={[10, 20, 30, 50]}
           showQuickJumper
