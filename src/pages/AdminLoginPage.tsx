@@ -145,7 +145,7 @@ export default function AdminLoginPage() {
               <Input.Password
                 prefix={<LockOutlined style={{ color: '#94a3b8', marginRight: 8, fontSize: 18 }} />}
                 placeholder={t('login.password')}
-                className={styles.input}
+                className={`${styles.input} ${styles.passwordInput}`}
                 iconRender={(visible) => visible
                   ? <EyeOutlined style={{ color: '#64748b', fontSize: 16 }} />
                   : <EyeInvisibleOutlined style={{ color: '#64748b', fontSize: 16 }} />

@@ -189,11 +189,18 @@
 
 .input {
   height: 48px;
+  width: 100% !important;
+  box-sizing: border-box !important;
   background-color: #fff !important;
   border-color: #e2e8f0 !important;
   color: #1e293b !important;
   font-size: 14px;
   letter-spacing: 0.05em;
+}
+
+.passwordInput {
+  display: inline-flex !important;
+  align-items: center !important;
 }
 
 /* Password toggle eye icon — override dark theme color to match white input bg */
