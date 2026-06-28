@@ -191,7 +191,7 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
             <div className={styles.userInfo}>
               <div style={{ textAlign: 'right', lineHeight: '1.2' }}>
                  <div className={styles.username}>{adminUser?.username || 'Admin'}</div>
-                  <div className={styles.role}>{t('app.admin')}</div>
+                  <div className={styles.role}>{adminUser?.role_name || t('app.admin')}</div>
               </div>
               <UserOutlined style={{ fontSize: '20px', padding: '8px', background: '#f1f5f9', borderRadius: '50%', color: '#64748b' }} />
             </div>

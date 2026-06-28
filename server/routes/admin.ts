@@ -28,6 +28,7 @@ import {
   getAdminByUsername,
   getPermissionsForRoleFromDb,
   roleExists,
+  getRoleNameByCode,
   listRolesWithPermissions,
   createRoleWithPermissions,
   updateRoleWithPermissions,
@@ -463,6 +464,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         username: admin.username,
         email: admin.email,
         role: admin.role,
+        role_name: await getRoleNameByCode(admin.role),
         permissions: await getPermissionsForRoleFromDb(admin.role),
       },
     });
@@ -499,6 +501,7 @@ router.get('/session', adminAuth, async (req: AdminRequest, res: Response): Prom
       username: admin.username,
       email: admin.email,
       role: admin.role,
+      role_name: await getRoleNameByCode(admin.role),
       permissions: await getPermissionsForRoleFromDb(admin.role),
     },
     csrfToken,

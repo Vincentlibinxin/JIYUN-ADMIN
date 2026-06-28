@@ -550,6 +550,11 @@ export const roleExists = async (code: string): Promise<boolean> => {
   return !!row;
 };
 
+export const getRoleNameByCode = async (code: string): Promise<string | null> => {
+  const row = await querySingle<{ name: string }>('SELECT name FROM admin_roles WHERE code = ? LIMIT 1', [code]);
+  return row ? row.name : null;
+};
+
 export const countAdminsByRole = async (code: string): Promise<number> => {
   const row = await querySingle<{ count: number }>(
     'SELECT COUNT(*) as count FROM admin_users WHERE role = ? AND deleted_at IS NULL',
