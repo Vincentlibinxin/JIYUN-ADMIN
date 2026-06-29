@@ -817,7 +817,7 @@ export default function AdminsTab({
                   const logisticsProviderId = form.getFieldValue('logistics_provider_id');
                   const targetProvider = nextScope === 'logistics' ? (logisticsProviderId || null) : null;
                   const matched = Object.entries(roleOptionMap)
-                    .find(([, meta]) => meta.scope === nextScope && (meta.logistics_provider_id ?? null) === targetProvider);
+                    .find(([, meta]) => meta.code !== 'super_admin' && meta.scope === nextScope && (meta.logistics_provider_id ?? null) === targetProvider);
                   form.setFieldsValue({ role_key: matched ? matched[0] : undefined });
                 }}
               />
@@ -837,7 +837,7 @@ export default function AdminsTab({
                       onChange={(providerId) => {
                         const scope = form.getFieldValue('role_scope') || 'platform';
                         const matched = Object.entries(roleOptionMap)
-                          .find(([, meta]) => meta.scope === scope && (meta.logistics_provider_id ?? null) === (providerId ?? null));
+                          .find(([, meta]) => meta.code !== 'super_admin' && meta.scope === scope && (meta.logistics_provider_id ?? null) === (providerId ?? null));
                         form.setFieldsValue({ role_key: matched ? matched[0] : undefined });
                       }}
                     />
@@ -847,21 +847,33 @@ export default function AdminsTab({
             </Form.Item>
 
             <Form.Item
-              label="角色"
-              name="role_key"
-              rules={[{ required: true, message: '请选择角色' }]}
+              noStyle
+              shouldUpdate={(prev, cur) =>
+                prev.role_scope !== cur.role_scope || prev.logistics_provider_id !== cur.logistics_provider_id}
             >
-              <Select
-                options={roleOptions.filter((opt) => {
+              {({ getFieldValue }) => {
+                const scope = getFieldValue('role_scope') || 'platform';
+                const providerId = getFieldValue('logistics_provider_id') || null;
+                const editingSuperAdmin = modalMode === 'edit' && activeAdmin?.role === 'super_admin';
+                const filteredRoleOptions = roleOptions.filter((opt) => {
                   const meta = roleOptionMap[opt.value];
                   if (!meta) return false;
-                  const scope = form.getFieldValue('role_scope') || 'platform';
-                  const providerId = form.getFieldValue('logistics_provider_id') || null;
+                  // 超级管理员唯一，创建/修改其它账号时不允许选择
+                  if (meta.code === 'super_admin' && !editingSuperAdmin) return false;
                   if (scope !== meta.scope) return false;
                   if (scope === 'logistics' && (meta.logistics_provider_id ?? null) !== providerId) return false;
                   return true;
-                })}
-              />
+                });
+                return (
+                  <Form.Item
+                    label="角色"
+                    name="role_key"
+                    rules={[{ required: true, message: '请选择角色' }]}
+                  >
+                    <Select options={filteredRoleOptions} placeholder="请选择角色" />
+                  </Form.Item>
+                );
+              }}
             </Form.Item>
 
             <Form.Item

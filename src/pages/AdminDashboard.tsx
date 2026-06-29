@@ -1185,9 +1185,9 @@ export default function AdminDashboard() {
           {/* 系统管理权限（角色 CRUD）页面 */}
           {activeTab === 'system-admin-permissions' && (
             <RolesTab
-              canCreate={hasPermission(PERMISSIONS.ADMIN_CREATE)}
-              canUpdate={hasPermission(PERMISSIONS.ADMIN_UPDATE)}
-              canDelete={hasPermission(PERMISSIONS.ADMIN_DELETE)}
+              canCreate={hasPermission(PERMISSIONS.ROLE_CREATE)}
+              canUpdate={hasPermission(PERMISSIONS.ROLE_UPDATE)}
+              canDelete={hasPermission(PERMISSIONS.ROLE_DELETE)}
               refreshKey={refreshKey}
             />
           )}

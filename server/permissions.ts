@@ -12,6 +12,12 @@ export const PERMISSIONS = {
   ADMIN_UPDATE_STATUS: 'admin.update_status',
   ADMIN_DELETE: 'admin.delete',
 
+  // 角色管理（系统管理权限）
+  ROLE_VIEW: 'role.view',
+  ROLE_CREATE: 'role.create',
+  ROLE_UPDATE: 'role.update',
+  ROLE_DELETE: 'role.delete',
+
   // 会员
   USER_VIEW: 'user.view',
   USER_UPDATE: 'user.update',
@@ -52,6 +58,11 @@ export const ALL_PERMISSION_CODES: PermissionCode[] = Object.values(PERMISSIONS)
 const ADMIN_PERMISSIONS: PermissionCode[] = [
   PERMISSIONS.OVERVIEW_VIEW,
   PERMISSIONS.ADMIN_VIEW,
+
+  PERMISSIONS.ROLE_VIEW,
+  PERMISSIONS.ROLE_CREATE,
+  PERMISSIONS.ROLE_UPDATE,
+  PERMISSIONS.ROLE_DELETE,
 
   PERMISSIONS.USER_VIEW,
   PERMISSIONS.USER_UPDATE,

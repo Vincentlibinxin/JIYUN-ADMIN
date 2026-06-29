@@ -191,6 +191,13 @@ const getSuperAdminCount = async (): Promise<number> => {
   return row ? row.count : 0;
 };
 
+export const countActiveSuperAdmins = async (): Promise<number> => {
+  const row = await querySingle<{ count: number }>(
+    "SELECT COUNT(*) as count FROM admin_users WHERE role = 'super_admin' AND deleted_at IS NULL"
+  );
+  return row ? row.count : 0;
+};
+
 export const initDb = async (): Promise<void> => {
   const connection = await pool.getConnection();
   try {
@@ -591,6 +598,23 @@ export const initDb = async (): Promise<void> => {
           );
         }
       }
+
+      // 幂等回填：确保内置 admin 角色拥有「角色管理」权限（role.*）。
+      // 现有库 admin 已有权限记录，上面的播种会因 count>0 跳过，故此处单独补齐。
+      const ROLE_MANAGEMENT_CODES = ['role.view', 'role.create', 'role.update', 'role.delete'];
+      const adminRoleRow = await querySingle<{ id: number }>(
+        'SELECT id FROM admin_roles WHERE code = ? AND scope = ? AND logistics_provider_id <=> ? LIMIT 1',
+        ['admin', 'platform', null]
+      );
+      const adminRoleId = Number(adminRoleRow?.id || 0);
+      if (adminRoleId) {
+        for (const permissionCode of ROLE_MANAGEMENT_CODES) {
+          await connection.execute(
+            'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
+            [adminRoleId, 'admin', permissionCode]
+          );
+        }
+      }
   } finally {
     connection.release();
   }
@@ -714,7 +738,7 @@ const normalizeRoleQueryOptions = (options?: RoleQueryOptions) => {
   return { scope, logisticsProviderId };
 };
 
-const getRoleRowByCode = async (code: string, options?: RoleQueryOptions) => {
+export const getRoleRowByCode = async (code: string, options?: RoleQueryOptions) => {
   const { scope, logisticsProviderId } = normalizeRoleQueryOptions(options);
   return querySingle<{ id: number; code: string; name: string; is_system: number; scope: RoleScope; logistics_provider_id: number | null }>(
     'SELECT id, code, name, is_system, scope, logistics_provider_id FROM admin_roles WHERE code = ? AND scope = ? AND logistics_provider_id <=> ? LIMIT 1',

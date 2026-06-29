@@ -39,6 +39,15 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
     ],
   },
   {
+    group: '角色管理',
+    items: [
+      { code: PERMISSIONS.ROLE_VIEW, label: '查看角色' },
+      { code: PERMISSIONS.ROLE_CREATE, label: '新增角色' },
+      { code: PERMISSIONS.ROLE_UPDATE, label: '修改角色' },
+      { code: PERMISSIONS.ROLE_DELETE, label: '删除角色' },
+    ],
+  },
+  {
     group: '会员',
     items: [
       { code: PERMISSIONS.USER_VIEW, label: '查看会员' },

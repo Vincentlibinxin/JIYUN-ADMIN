@@ -17,6 +17,7 @@ import {
   batchDeleteSms,
   batchDeleteUsers,
   createAdmin,
+  countActiveSuperAdmins,
   createParcelInbound,
   deleteAdmin,
   deleteOrder,
@@ -29,6 +30,7 @@ import {
   getPermissionsForRoleFromDb,
   roleExists,
   getRoleNameByCode,
+  getRoleRowByCode,
   listRolesWithPermissions,
   createRoleWithPermissions,
   updateRoleWithPermissions,
@@ -287,6 +289,7 @@ const csrfGuard = (req: Request, res: Response, next: () => void): void => {
 interface AdminRequest extends Request {
   adminId?: number;
   adminRole?: string;
+  adminPermissions?: PermissionCode[];
 }
 
 const adminAuth = (req: AdminRequest, res: Response, next: () => void): void => {
@@ -375,8 +378,25 @@ const requirePermission = (code: PermissionCode) => {
       return;
     }
     req.adminRole = admin.role;
+    req.adminPermissions = permissions;
     next();
   };
+};
+
+// 防提权护栏：非超管授予角色的权限必须是自身有效权限的子集
+const isActorSuperAdmin = (req: AdminRequest): boolean => req.adminRole === 'super_admin';
+
+const checkPermissionSubset = (req: AdminRequest, requested: unknown): string | null => {
+  if (isActorSuperAdmin(req)) return null;
+  const actor = new Set<string>(req.adminPermissions || []);
+  const list = Array.isArray(requested) ? requested : [];
+  const invalid = list
+    .map((p) => String(p))
+    .filter((p) => !actor.has(p));
+  if (invalid.length > 0) {
+    return `不能授予超出自身权限范围的权限：${invalid.join(', ')}`;
+  }
+  return null;
 };
 
 router.post('/login', async (req: Request, res: Response): Promise<void> => {
@@ -565,7 +585,7 @@ router.get('/audit-logs', adminAuth, requirePermission(PERMISSIONS.AUDIT_VIEW), 
   });
 });
 
-router.get('/roles', adminAuth, requirePermission(PERMISSIONS.ADMIN_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+router.get('/roles', adminAuth, requirePermission(PERMISSIONS.ROLE_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const scopeRaw = String(req.query.scope || '').trim().toLowerCase();
   const scope = scopeRaw === 'logistics' ? 'logistics' : scopeRaw === 'platform' ? 'platform' : undefined;
   const providerRaw = String(req.query.logistics_provider_id || '').trim();
@@ -587,7 +607,7 @@ router.get('/roles', adminAuth, requirePermission(PERMISSIONS.ADMIN_VIEW), async
   });
 });
 
-router.post('/roles', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_CREATE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.post('/roles', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ROLE_CREATE), async (req: AdminRequest, res: Response): Promise<void> => {
   const code = String(req.body?.code || '').trim().toLowerCase();
   const name = String(req.body?.name || '').trim();
   const scopeRaw = String(req.body?.scope || '').trim().toLowerCase();
@@ -609,6 +629,13 @@ router.post('/roles', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_
   }
   if (code === 'super_admin' || code === 'admin') {
     res.status(409).json({ error: '系统内置角色已存在' });
+    return;
+  }
+
+  // 防提权护栏：非超管不能授予超出自身权限范围的权限
+  const subsetError = checkPermissionSubset(req, permissions);
+  if (subsetError) {
+    res.status(403).json({ error: subsetError });
     return;
   }
 
@@ -651,7 +678,7 @@ router.post('/roles', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_
   res.status(201).json({ message: '角色已创建' });
 });
 
-router.put('/roles/:code', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_UPDATE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.put('/roles/:code', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ROLE_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
   const code = String(req.params.code || '').trim();
   const scopeRaw = String(req.body?.scope || req.query.scope || '').trim().toLowerCase();
   const scope = scopeRaw === 'logistics' ? 'logistics' : 'platform';
@@ -668,6 +695,18 @@ router.put('/roles/:code', adminAuth, csrfGuard, requirePermission(PERMISSIONS.A
     return;
   }
 
+  // 防提权护栏：非超管不能修改系统内置角色
+  if (!isActorSuperAdmin(req)) {
+    const targetRole = await getRoleRowByCode(code, {
+      scope,
+      logistics_provider_id: scope === 'logistics' ? logisticsProviderId : null,
+    });
+    if (targetRole?.is_system) {
+      res.status(403).json({ error: '无权修改系统内置角色' });
+      return;
+    }
+  }
+
   if (typeof req.body?.name === 'string') {
     const n = req.body.name.trim();
     if (!n) {
@@ -677,6 +716,12 @@ router.put('/roles/:code', adminAuth, csrfGuard, requirePermission(PERMISSIONS.A
     payload.name = n;
   }
   if (Array.isArray(req.body?.permissions)) {
+    // 防提权护栏：非超管不能授予超出自身权限范围的权限
+    const subsetError = checkPermissionSubset(req, req.body.permissions);
+    if (subsetError) {
+      res.status(403).json({ error: subsetError });
+      return;
+    }
     payload.permissions = req.body.permissions;
   }
   if (payload.name === undefined && payload.permissions === undefined) {
@@ -704,7 +749,7 @@ router.put('/roles/:code', adminAuth, csrfGuard, requirePermission(PERMISSIONS.A
   res.json({ message: '角色已更新' });
 });
 
-router.delete('/roles/:code', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_DELETE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.delete('/roles/:code', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ROLE_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
   const code = String(req.params.code || '').trim();
   const scopeRaw = String(req.query.scope || '').trim().toLowerCase();
   const scope = scopeRaw === 'logistics' ? 'logistics' : 'platform';
@@ -1300,6 +1345,21 @@ router.post('/admins', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN
     return;
   }
 
+  if (normalizedRole === 'super_admin' && normalizedRoleScope === 'platform') {
+    const superAdminCount = await countActiveSuperAdmins();
+    if (superAdminCount >= 1) {
+      await logAdminAudit({
+        adminId: req.adminId,
+        action: 'admin.create',
+        result: 'denied',
+        ip: getRequestIp(req),
+        detail: 'super_admin_already_exists',
+      });
+      res.status(409).json({ error: '超级管理员只能有一个，无法继续添加' });
+      return;
+    }
+  }
+
   const admin = await createAdmin({
     username: username.trim(),
     password,
@@ -1500,6 +1560,27 @@ router.put('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.AD
   if (!(await roleExists(nextRole, { scope: nextRoleScope, logistics_provider_id: nextRoleProviderId }))) {
     res.status(400).json({ error: '管理员角色不合法' });
     return;
+  }
+
+  if (
+    nextRole === 'super_admin'
+    && nextRoleScope === 'platform'
+    && !(targetAdmin.role === 'super_admin' && normalizeRoleScope(targetAdmin.role_scope) === 'platform')
+  ) {
+    const superAdminCount = await countActiveSuperAdmins();
+    if (superAdminCount >= 1) {
+      await logAdminAudit({
+        adminId: req.adminId,
+        action: 'admin.update_account',
+        targetType: 'admin_user',
+        targetId: adminId,
+        result: 'denied',
+        ip: getRequestIp(req),
+        detail: 'super_admin_already_exists',
+      });
+      res.status(409).json({ error: '超级管理员只能有一个，无法继续添加' });
+      return;
+    }
   }
 
   if (adminId === req.adminId && (nextRole !== 'super_admin' || nextRoleScope !== 'platform')) {

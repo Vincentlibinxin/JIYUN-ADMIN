@@ -8,6 +8,11 @@ export const PERMISSIONS = {
   ADMIN_UPDATE_STATUS: 'admin.update_status',
   ADMIN_DELETE: 'admin.delete',
 
+  ROLE_VIEW: 'role.view',
+  ROLE_CREATE: 'role.create',
+  ROLE_UPDATE: 'role.update',
+  ROLE_DELETE: 'role.delete',
+
   USER_VIEW: 'user.view',
   USER_UPDATE: 'user.update',
   USER_DELETE: 'user.delete',
