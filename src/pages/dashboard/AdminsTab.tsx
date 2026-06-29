@@ -9,10 +9,25 @@ interface AdminUser {
   username: string;
   email: string;
   role: string;
+  role_scope: 'platform' | 'logistics';
+  role_logistics_provider_id: number | null;
+  logistics_provider_id: number | null;
   status: string;
   last_login: string | null;
   created_at: string;
   deleted_at?: string | null;
+}
+
+interface LogisticsOption {
+  id: number;
+  name: string;
+}
+
+interface RoleOptionMeta {
+  code: string;
+  name: string;
+  scope: 'platform' | 'logistics';
+  logistics_provider_id: number | null;
 }
 
 type AdminSortKey = 'id' | 'username' | 'email' | 'role' | 'status' | 'last_login' | 'created_at';
@@ -33,8 +48,24 @@ interface AdminsTabProps {
   sortKey: AdminSortKey;
   sortDirection: SortDirection;
   onSortChange: (key: AdminSortKey, direction: SortDirection) => void;
-  onCreate?: (payload: { username: string; email: string; role: string; password: string }) => Promise<boolean>;
-  onUpdate?: (id: number, payload: { username: string; email: string; role: string; password?: string }) => Promise<boolean>;
+  onCreate?: (payload: {
+    username: string;
+    email: string;
+    role: string;
+    role_scope: 'platform' | 'logistics';
+    role_logistics_provider_id: number | null;
+    logistics_provider_id: number | null;
+    password: string;
+  }) => Promise<boolean>;
+  onUpdate?: (id: number, payload: {
+    username: string;
+    email: string;
+    role: string;
+    role_scope: 'platform' | 'logistics';
+    role_logistics_provider_id: number | null;
+    logistics_provider_id: number | null;
+    password?: string;
+  }) => Promise<boolean>;
   onToggleStatus: (id: number, status: string) => void;
   onDelete: (id: number) => void;
   onBatchDelete: (ids: number[]) => void;
@@ -114,27 +145,87 @@ export default function AdminsTab({
   const [form] = Form.useForm();
 
   const [roleOptions, setRoleOptions] = useState<Array<{ label: string; value: string }>>([
-    { label: '管理员 (admin)', value: 'admin' },
-    { label: '超级管理员 (super_admin)', value: 'super_admin' },
+    { label: '管理员 (admin)', value: 'platform:0:admin' },
+    { label: '超级管理员 (super_admin)', value: 'platform:0:super_admin' },
   ]);
+  const [roleOptionMap, setRoleOptionMap] = useState<Record<string, RoleOptionMeta>>({
+    'platform:0:admin': { code: 'admin', name: '管理员', scope: 'platform', logistics_provider_id: null },
+    'platform:0:super_admin': { code: 'super_admin', name: '超级管理员', scope: 'platform', logistics_provider_id: null },
+  });
+  const [logisticsOptions, setLogisticsOptions] = useState<LogisticsOption[]>([]);
   const [roleNameMap, setRoleNameMap] = useState<Record<string, string>>({
     admin: '管理员',
     super_admin: '超级管理员',
   });
 
+  const makeRoleOptionValue = (scope: 'platform' | 'logistics', providerId: number | null, code: string): string => {
+    return `${scope}:${providerId ?? 0}:${code}`;
+  };
+
+  const makeRoleIdentityKey = (scope: 'platform' | 'logistics', providerId: number | null, code: string): string => {
+    return `${scope}:${providerId ?? 0}:${code}`;
+  };
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const response = await adminFetch('/admin/roles');
-        if (!response.ok) return;
-        const data = await response.json();
-        const list = Array.isArray(data?.roles) ? data.roles : [];
-        if (cancelled || list.length === 0) return;
-        setRoleOptions(list.map((r: any) => ({ label: `${r.name} (${r.code})`, value: r.code })));
+        const [platformResp, logisticsResp, logisticsOptionsResp] = await Promise.all([
+          adminFetch('/admin/roles?scope=platform'),
+          adminFetch('/admin/roles?scope=logistics'),
+          adminFetch('/admin/logistics/options'),
+        ]);
+
+        const roleList: any[] = [];
+        if (platformResp.ok) {
+          const data = await platformResp.json();
+          roleList.push(...(Array.isArray(data?.roles) ? data.roles : []));
+        }
+        if (logisticsResp.ok) {
+          const data = await logisticsResp.json();
+          roleList.push(...(Array.isArray(data?.roles) ? data.roles : []));
+        }
+        if (logisticsOptionsResp.ok) {
+          const data = await logisticsOptionsResp.json();
+          setLogisticsOptions(Array.isArray(data?.data) ? data.data : []);
+        }
+
+        if (cancelled || roleList.length === 0) return;
+
+        const nextRoleOptions = roleList.map((r: any) => {
+          const scope: 'platform' | 'logistics' = r.scope === 'logistics' ? 'logistics' : 'platform';
+          const providerId = r.logistics_provider_id === null || r.logistics_provider_id === undefined
+            ? null
+            : Number(r.logistics_provider_id);
+          const value = makeRoleOptionValue(scope, providerId, String(r.code));
+          const suffix = scope === 'logistics' ? ` / 物流商ID:${providerId ?? '-'}` : ' / 平台';
+          return { label: `${r.name} (${r.code})${suffix}`, value };
+        });
+
+        const nextRoleOptionMap = roleList.reduce((acc: Record<string, RoleOptionMeta>, r: any) => {
+          const scope: 'platform' | 'logistics' = r.scope === 'logistics' ? 'logistics' : 'platform';
+          const providerId = r.logistics_provider_id === null || r.logistics_provider_id === undefined
+            ? null
+            : Number(r.logistics_provider_id);
+          const value = makeRoleOptionValue(scope, providerId, String(r.code));
+          acc[value] = {
+            code: String(r.code),
+            name: String(r.name),
+            scope,
+            logistics_provider_id: providerId,
+          };
+          return acc;
+        }, {});
+
+        setRoleOptions(nextRoleOptions);
+        setRoleOptionMap(nextRoleOptionMap);
         setRoleNameMap(
-          list.reduce((acc: Record<string, string>, r: any) => {
-            acc[r.code] = r.name;
+          roleList.reduce((acc: Record<string, string>, r: any) => {
+            const scope: 'platform' | 'logistics' = r.scope === 'logistics' ? 'logistics' : 'platform';
+            const providerId = r.logistics_provider_id === null || r.logistics_provider_id === undefined
+              ? null
+              : Number(r.logistics_provider_id);
+            acc[makeRoleIdentityKey(scope, providerId, String(r.code))] = String(r.name);
             return acc;
           }, {})
         );
@@ -151,7 +242,11 @@ export default function AdminsTab({
     setActiveAdmin(null);
     setModalMode('create');
     form.resetFields();
-    form.setFieldsValue({ role: 'admin' });
+    form.setFieldsValue({
+      role_scope: 'platform',
+      logistics_provider_id: null,
+      role_key: 'platform:0:admin',
+    });
     setModalOpen(true);
   };
 
@@ -167,7 +262,9 @@ export default function AdminsTab({
     form.setFieldsValue({
       username: record.username,
       email: record.email,
-      role: record.role,
+      role_scope: record.role_scope,
+      logistics_provider_id: record.logistics_provider_id,
+      role_key: makeRoleOptionValue(record.role_scope, record.role_logistics_provider_id, record.role),
       password: '',
     });
     setModalOpen(true);
@@ -178,10 +275,21 @@ export default function AdminsTab({
     setSubmitting(true);
     try {
       if (modalMode === 'create' && onCreate) {
+        const roleMeta = roleOptionMap[String(values.role_key || '')];
+        if (!roleMeta) {
+          message.error('请选择有效角色');
+          return;
+        }
         const ok = await onCreate({
           username: String(values.username || '').trim(),
           email: String(values.email || '').trim(),
-          role: String(values.role || 'admin').trim(),
+          role: roleMeta.code,
+          role_scope: roleMeta.scope,
+          role_logistics_provider_id: roleMeta.scope === 'logistics' ? roleMeta.logistics_provider_id : null,
+          logistics_provider_id:
+            roleMeta.scope === 'logistics'
+              ? (values.logistics_provider_id ? Number(values.logistics_provider_id) : roleMeta.logistics_provider_id)
+              : null,
           password: String(values.password || ''),
         });
         if (ok) {
@@ -190,10 +298,29 @@ export default function AdminsTab({
         }
       }
       if (modalMode === 'edit' && activeAdmin && onUpdate) {
-        const payload: { username: string; email: string; role: string; password?: string } = {
+        const roleMeta = roleOptionMap[String(values.role_key || '')];
+        if (!roleMeta) {
+          message.error('请选择有效角色');
+          return;
+        }
+        const payload: {
+          username: string;
+          email: string;
+          role: string;
+          role_scope: 'platform' | 'logistics';
+          role_logistics_provider_id: number | null;
+          logistics_provider_id: number | null;
+          password?: string;
+        } = {
           username: String(values.username || '').trim(),
           email: String(values.email || '').trim(),
-          role: String(values.role || 'admin').trim(),
+          role: roleMeta.code,
+          role_scope: roleMeta.scope,
+          role_logistics_provider_id: roleMeta.scope === 'logistics' ? roleMeta.logistics_provider_id : null,
+          logistics_provider_id:
+            roleMeta.scope === 'logistics'
+              ? (values.logistics_provider_id ? Number(values.logistics_provider_id) : roleMeta.logistics_provider_id)
+              : null,
         };
         if (values.password && String(values.password).trim()) {
           payload.password = String(values.password);
@@ -398,7 +525,7 @@ export default function AdminsTab({
           dataIndex: 'role',
           key: 'role_child',
           width: 130,
-          render: (role: string) => roleNameMap[role] || role,
+          render: (role: string, record) => roleNameMap[makeRoleIdentityKey(record.role_scope, record.role_logistics_provider_id, role)] || role,
         },
       ],
     },
@@ -639,7 +766,15 @@ export default function AdminsTab({
           <Descriptions column={1} size="small" bordered>
             <Descriptions.Item label="账号">{activeAdmin.username}</Descriptions.Item>
             <Descriptions.Item label="电子邮件">{activeAdmin.email}</Descriptions.Item>
-            <Descriptions.Item label="角色">{roleNameMap[activeAdmin.role] || activeAdmin.role}</Descriptions.Item>
+            <Descriptions.Item label="角色">
+              {roleNameMap[makeRoleIdentityKey(activeAdmin.role_scope, activeAdmin.role_logistics_provider_id, activeAdmin.role)] || activeAdmin.role}
+            </Descriptions.Item>
+            <Descriptions.Item label="角色作用域">{activeAdmin.role_scope === 'logistics' ? '物流商' : '平台'}</Descriptions.Item>
+            <Descriptions.Item label="归属物流商">
+              {activeAdmin.logistics_provider_id
+                ? (logisticsOptions.find((item) => item.id === activeAdmin.logistics_provider_id)?.name || `ID: ${activeAdmin.logistics_provider_id}`)
+                : '-'}
+            </Descriptions.Item>
             <Descriptions.Item label="状态">{activeAdmin.status}</Descriptions.Item>
             <Descriptions.Item label="上次登录">
               {activeAdmin.last_login ? new Date(activeAdmin.last_login).toLocaleString('zh-CN', { hour12: false }) : '-'}
@@ -669,11 +804,64 @@ export default function AdminsTab({
             </Form.Item>
 
             <Form.Item
+              label="角色作用域"
+              name="role_scope"
+              rules={[{ required: true, message: '请选择角色作用域' }]}
+            >
+              <Select
+                options={[
+                  { label: '平台', value: 'platform' },
+                  { label: '物流商', value: 'logistics' },
+                ]}
+                onChange={(nextScope) => {
+                  const logisticsProviderId = form.getFieldValue('logistics_provider_id');
+                  const targetProvider = nextScope === 'logistics' ? (logisticsProviderId || null) : null;
+                  const matched = Object.entries(roleOptionMap)
+                    .find(([, meta]) => meta.scope === nextScope && (meta.logistics_provider_id ?? null) === targetProvider);
+                  form.setFieldsValue({ role_key: matched ? matched[0] : undefined });
+                }}
+              />
+            </Form.Item>
+
+            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.role_scope !== cur.role_scope}>
+              {({ getFieldValue }) => {
+                if (getFieldValue('role_scope') !== 'logistics') return null;
+                return (
+                  <Form.Item
+                    label="归属物流商"
+                    name="logistics_provider_id"
+                    rules={[{ required: true, message: '请选择归属物流商' }]}
+                  >
+                    <Select
+                      options={logisticsOptions.map((item) => ({ label: item.name, value: item.id }))}
+                      onChange={(providerId) => {
+                        const scope = form.getFieldValue('role_scope') || 'platform';
+                        const matched = Object.entries(roleOptionMap)
+                          .find(([, meta]) => meta.scope === scope && (meta.logistics_provider_id ?? null) === (providerId ?? null));
+                        form.setFieldsValue({ role_key: matched ? matched[0] : undefined });
+                      }}
+                    />
+                  </Form.Item>
+                );
+              }}
+            </Form.Item>
+
+            <Form.Item
               label="角色"
-              name="role"
+              name="role_key"
               rules={[{ required: true, message: '请选择角色' }]}
             >
-              <Select options={roleOptions} />
+              <Select
+                options={roleOptions.filter((opt) => {
+                  const meta = roleOptionMap[opt.value];
+                  if (!meta) return false;
+                  const scope = form.getFieldValue('role_scope') || 'platform';
+                  const providerId = form.getFieldValue('logistics_provider_id') || null;
+                  if (scope !== meta.scope) return false;
+                  if (scope === 'logistics' && (meta.logistics_provider_id ?? null) !== providerId) return false;
+                  return true;
+                })}
+              />
             </Form.Item>
 
             <Form.Item

@@ -208,6 +208,10 @@ const toId = (raw: string): number | null => {
   return normalized;
 };
 
+const normalizeRoleScope = (raw: unknown): 'platform' | 'logistics' => {
+  return String(raw || '').trim().toLowerCase() === 'logistics' ? 'logistics' : 'platform';
+};
+
 const getLoginKey = (req: Request, username: string): string => {
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   return `${ip}:${username.toLowerCase()}`;
@@ -355,7 +359,10 @@ const requirePermission = (code: PermissionCode) => {
       res.status(401).json({ error: '管理员状态异常' });
       return;
     }
-    const permissions = await getPermissionsForRoleFromDb(admin.role);
+    const permissions = await getPermissionsForRoleFromDb(admin.role, {
+      scope: normalizeRoleScope(admin.role_scope),
+      logistics_provider_id: admin.role_logistics_provider_id,
+    });
     if (!permissions.includes(code)) {
       await logAdminAudit({
         adminId: req.adminId,
@@ -464,8 +471,17 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         username: admin.username,
         email: admin.email,
         role: admin.role,
-        role_name: await getRoleNameByCode(admin.role),
-        permissions: await getPermissionsForRoleFromDb(admin.role),
+        role_scope: normalizeRoleScope(admin.role_scope),
+        role_logistics_provider_id: admin.role_logistics_provider_id ?? null,
+        logistics_provider_id: admin.logistics_provider_id ?? null,
+        role_name: await getRoleNameByCode(admin.role, {
+          scope: normalizeRoleScope(admin.role_scope),
+          logistics_provider_id: admin.role_logistics_provider_id,
+        }),
+        permissions: await getPermissionsForRoleFromDb(admin.role, {
+          scope: normalizeRoleScope(admin.role_scope),
+          logistics_provider_id: admin.role_logistics_provider_id,
+        }),
       },
     });
   } catch (error) {
@@ -501,8 +517,17 @@ router.get('/session', adminAuth, async (req: AdminRequest, res: Response): Prom
       username: admin.username,
       email: admin.email,
       role: admin.role,
-      role_name: await getRoleNameByCode(admin.role),
-      permissions: await getPermissionsForRoleFromDb(admin.role),
+      role_scope: normalizeRoleScope(admin.role_scope),
+      role_logistics_provider_id: admin.role_logistics_provider_id ?? null,
+      logistics_provider_id: admin.logistics_provider_id ?? null,
+      role_name: await getRoleNameByCode(admin.role, {
+        scope: normalizeRoleScope(admin.role_scope),
+        logistics_provider_id: admin.role_logistics_provider_id,
+      }),
+      permissions: await getPermissionsForRoleFromDb(admin.role, {
+        scope: normalizeRoleScope(admin.role_scope),
+        logistics_provider_id: admin.role_logistics_provider_id,
+      }),
     },
     csrfToken,
   });
@@ -541,7 +566,21 @@ router.get('/audit-logs', adminAuth, requirePermission(PERMISSIONS.AUDIT_VIEW), 
 });
 
 router.get('/roles', adminAuth, requirePermission(PERMISSIONS.ADMIN_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
-  const roles = await listRolesWithPermissions();
+  const scopeRaw = String(req.query.scope || '').trim().toLowerCase();
+  const scope = scopeRaw === 'logistics' ? 'logistics' : scopeRaw === 'platform' ? 'platform' : undefined;
+  const providerRaw = String(req.query.logistics_provider_id || '').trim();
+  const logisticsProviderId = providerRaw === '' ? undefined : toId(providerRaw);
+
+  if (providerRaw !== '' && logisticsProviderId === null) {
+    res.status(400).json({ error: 'logistics_provider_id 不合法' });
+    return;
+  }
+  if (scope !== 'logistics' && logisticsProviderId !== undefined) {
+    res.status(400).json({ error: '仅 logistics scope 支持 logistics_provider_id' });
+    return;
+  }
+
+  const roles = await listRolesWithPermissions(scope, logisticsProviderId);
   res.json({
     roles,
     allPermissions: ALL_PERMISSION_CODES,
@@ -551,6 +590,13 @@ router.get('/roles', adminAuth, requirePermission(PERMISSIONS.ADMIN_VIEW), async
 router.post('/roles', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_CREATE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
   const code = String(req.body?.code || '').trim().toLowerCase();
   const name = String(req.body?.name || '').trim();
+  const scopeRaw = String(req.body?.scope || '').trim().toLowerCase();
+  const scope = scopeRaw === 'logistics' ? 'logistics' : 'platform';
+  const logisticsProviderIdRaw = req.body?.logistics_provider_id;
+  const logisticsProviderId =
+    logisticsProviderIdRaw === undefined || logisticsProviderIdRaw === null || logisticsProviderIdRaw === ''
+      ? null
+      : toId(String(logisticsProviderIdRaw));
   const permissions = Array.isArray(req.body?.permissions) ? req.body.permissions : [];
 
   if (!/^[a-z][a-z0-9_]{1,31}$/.test(code)) {
@@ -566,7 +612,22 @@ router.post('/roles', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_
     return;
   }
 
-  const result = await createRoleWithPermissions({ code, name, permissions });
+  if (scope === 'logistics' && !logisticsProviderId) {
+    res.status(400).json({ error: '物流商角色必须指定 logistics_provider_id' });
+    return;
+  }
+  if (scope === 'platform' && logisticsProviderId) {
+    res.status(400).json({ error: '平台角色不允许指定 logistics_provider_id' });
+    return;
+  }
+
+  const result = await createRoleWithPermissions({
+    code,
+    name,
+    scope,
+    logistics_provider_id: scope === 'logistics' ? logisticsProviderId : null,
+    permissions,
+  });
   if (result === 'duplicate') {
     await logAdminAudit({
       adminId: req.adminId,
@@ -592,7 +653,20 @@ router.post('/roles', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_
 
 router.put('/roles/:code', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_UPDATE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
   const code = String(req.params.code || '').trim();
+  const scopeRaw = String(req.body?.scope || req.query.scope || '').trim().toLowerCase();
+  const scope = scopeRaw === 'logistics' ? 'logistics' : 'platform';
+  const providerRaw = String(req.body?.logistics_provider_id ?? req.query.logistics_provider_id ?? '').trim();
+  const logisticsProviderId = providerRaw === '' ? null : toId(providerRaw);
   const payload: { name?: string; permissions?: string[] } = {};
+
+  if (scope === 'logistics' && !logisticsProviderId) {
+    res.status(400).json({ error: '物流商角色必须指定 logistics_provider_id' });
+    return;
+  }
+  if (scope === 'platform' && logisticsProviderId) {
+    res.status(400).json({ error: '平台角色不允许指定 logistics_provider_id' });
+    return;
+  }
 
   if (typeof req.body?.name === 'string') {
     const n = req.body.name.trim();
@@ -610,7 +684,10 @@ router.put('/roles/:code', adminAuth, csrfGuard, requirePermission(PERMISSIONS.A
     return;
   }
 
-  const result = await updateRoleWithPermissions(code, payload);
+  const result = await updateRoleWithPermissions(code, payload, {
+    scope,
+    logistics_provider_id: scope === 'logistics' ? logisticsProviderId : null,
+  });
   if (result === 'not_found') {
     res.status(404).json({ error: '角色不存在' });
     return;
@@ -629,7 +706,24 @@ router.put('/roles/:code', adminAuth, csrfGuard, requirePermission(PERMISSIONS.A
 
 router.delete('/roles/:code', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_DELETE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
   const code = String(req.params.code || '').trim();
-  const result = await deleteRole(code);
+  const scopeRaw = String(req.query.scope || '').trim().toLowerCase();
+  const scope = scopeRaw === 'logistics' ? 'logistics' : 'platform';
+  const providerRaw = String(req.query.logistics_provider_id || '').trim();
+  const logisticsProviderId = providerRaw === '' ? null : toId(providerRaw);
+
+  if (scope === 'logistics' && !logisticsProviderId) {
+    res.status(400).json({ error: '物流商角色必须指定 logistics_provider_id' });
+    return;
+  }
+  if (scope === 'platform' && logisticsProviderId) {
+    res.status(400).json({ error: '平台角色不允许指定 logistics_provider_id' });
+    return;
+  }
+
+  const result = await deleteRole(code, {
+    scope,
+    logistics_provider_id: scope === 'logistics' ? logisticsProviderId : null,
+  });
 
   if (result === 'not_found') {
     res.status(404).json({ error: '角色不存在' });
@@ -1140,11 +1234,14 @@ router.get('/admins/search', adminAuth, requirePermission(PERMISSIONS.ADMIN_VIEW
 });
 
 router.post('/admins', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_CREATE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
-  const { username, password, email, role } = req.body as {
+  const { username, password, email, role, role_scope, role_logistics_provider_id, logistics_provider_id } = req.body as {
     username?: string;
     password?: string;
     email?: string;
     role?: string;
+    role_scope?: string;
+    role_logistics_provider_id?: number | string | null;
+    logistics_provider_id?: number | string | null;
   };
 
   if (!username || !password || !email) {
@@ -1172,13 +1269,32 @@ router.post('/admins', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN
   }
 
   const normalizedRole = String(role || 'admin').trim();
-  if (!(await roleExists(normalizedRole))) {
+  const normalizedRoleScope = normalizeRoleScope(role_scope);
+  const normalizedRoleProviderId = normalizedRoleScope === 'logistics' ? toId(String(role_logistics_provider_id ?? '')) : null;
+  const normalizedAdminProviderId = logistics_provider_id === undefined || logistics_provider_id === null || logistics_provider_id === ''
+    ? null
+    : toId(String(logistics_provider_id));
+
+  if (normalizedRoleScope === 'logistics' && !normalizedRoleProviderId) {
+    res.status(400).json({ error: '物流商角色必须指定 role_logistics_provider_id' });
+    return;
+  }
+  if (normalizedRoleScope === 'platform' && normalizedRoleProviderId) {
+    res.status(400).json({ error: '平台角色不允许指定 role_logistics_provider_id' });
+    return;
+  }
+  if (normalizedRoleScope === 'logistics' && (!normalizedAdminProviderId || normalizedAdminProviderId !== normalizedRoleProviderId)) {
+    res.status(400).json({ error: '物流商管理员归属必须与角色归属一致' });
+    return;
+  }
+
+  if (!(await roleExists(normalizedRole, { scope: normalizedRoleScope, logistics_provider_id: normalizedRoleProviderId }))) {
     await logAdminAudit({
       adminId: req.adminId,
       action: 'admin.create',
       result: 'failed',
       ip: getRequestIp(req),
-      detail: `invalid_role=${normalizedRole}`,
+      detail: `invalid_role=${normalizedRole},scope=${normalizedRoleScope},provider=${normalizedRoleProviderId ?? 'null'}`,
     });
     res.status(400).json({ error: '管理员角色不合法' });
     return;
@@ -1189,6 +1305,9 @@ router.post('/admins', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN
     password,
     email: email.trim(),
     role: normalizedRole,
+    role_scope: normalizedRoleScope,
+    role_logistics_provider_id: normalizedRoleProviderId,
+    logistics_provider_id: normalizedAdminProviderId,
   });
 
   if (!admin) {
@@ -1290,14 +1409,31 @@ router.put('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.AD
     return;
   }
 
-  const { username, email, role, password } = req.body as {
+  const { username, email, role, role_scope, role_logistics_provider_id, logistics_provider_id, password } = req.body as {
     username?: string;
     email?: string;
     role?: string;
+    role_scope?: string;
+    role_logistics_provider_id?: number | string | null;
+    logistics_provider_id?: number | string | null;
     password?: string;
   };
 
-  const payload: { username?: string; email?: string; role?: string; password?: string } = {};
+  const payload: {
+    username?: string;
+    email?: string;
+    role?: string;
+    role_scope?: 'platform' | 'logistics';
+    role_logistics_provider_id?: number | null;
+    logistics_provider_id?: number | null;
+    password?: string;
+  } = {};
+
+  const targetAdmin = await getAdminById(adminId);
+  if (!targetAdmin) {
+    res.status(404).json({ error: '管理员不存在' });
+    return;
+  }
 
   if (typeof username === 'string') {
     const v = username.trim();
@@ -1317,11 +1453,20 @@ router.put('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.AD
   }
   if (typeof role === 'string') {
     const v = role.trim();
-    if (!(await roleExists(v))) {
-      res.status(400).json({ error: '管理员角色不合法' });
-      return;
-    }
     payload.role = v;
+  }
+  if (role_scope !== undefined) {
+    payload.role_scope = normalizeRoleScope(role_scope);
+  }
+  if (role_logistics_provider_id !== undefined) {
+    payload.role_logistics_provider_id = role_logistics_provider_id === null || role_logistics_provider_id === ''
+      ? null
+      : toId(String(role_logistics_provider_id));
+  }
+  if (logistics_provider_id !== undefined) {
+    payload.logistics_provider_id = logistics_provider_id === null || logistics_provider_id === ''
+      ? null
+      : toId(String(logistics_provider_id));
   }
   if (typeof password === 'string' && password.length > 0) {
     if (password.length < 12) {
@@ -1331,7 +1476,33 @@ router.put('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.AD
     payload.password = password;
   }
 
-  if (adminId === req.adminId && payload.role && payload.role !== 'super_admin') {
+  const nextRole = payload.role ?? targetAdmin.role;
+  const nextRoleScope = payload.role_scope ?? normalizeRoleScope(targetAdmin.role_scope);
+  const nextRoleProviderId = payload.role_logistics_provider_id !== undefined
+    ? payload.role_logistics_provider_id
+    : (targetAdmin.role_logistics_provider_id ?? null);
+  const nextAdminProviderId = payload.logistics_provider_id !== undefined
+    ? payload.logistics_provider_id
+    : (targetAdmin.logistics_provider_id ?? null);
+
+  if (nextRoleScope === 'logistics' && !nextRoleProviderId) {
+    res.status(400).json({ error: '物流商角色必须指定 role_logistics_provider_id' });
+    return;
+  }
+  if (nextRoleScope === 'platform' && nextRoleProviderId) {
+    res.status(400).json({ error: '平台角色不允许指定 role_logistics_provider_id' });
+    return;
+  }
+  if (nextRoleScope === 'logistics' && (!nextAdminProviderId || nextAdminProviderId !== nextRoleProviderId)) {
+    res.status(400).json({ error: '物流商管理员归属必须与角色归属一致' });
+    return;
+  }
+  if (!(await roleExists(nextRole, { scope: nextRoleScope, logistics_provider_id: nextRoleProviderId }))) {
+    res.status(400).json({ error: '管理员角色不合法' });
+    return;
+  }
+
+  if (adminId === req.adminId && (nextRole !== 'super_admin' || nextRoleScope !== 'platform')) {
     res.status(400).json({ error: '不能修改当前登录账号的超级管理员角色' });
     return;
   }

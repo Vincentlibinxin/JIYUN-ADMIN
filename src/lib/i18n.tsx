@@ -26,7 +26,7 @@ const dictionaries: Record<LangCode, Dictionary> = {
     'menu.parcels': '包裹管理',
     'menu.logistics': '物流商管理',
     'menu.admins': '系统管理员',
-    'menu.adminManage': '管理员管理',
+    'menu.adminManage': '管理员',
     'menu.adminPermissions': '系统管理权限',
 
     'login.username': '管理员用户名',

@@ -238,36 +238,146 @@ export const initDb = async (): Promise<void> => {
         password VARCHAR(255) NOT NULL,
         email VARCHAR(255) NOT NULL,
         role VARCHAR(32) DEFAULT 'admin',
+        role_scope VARCHAR(16) NOT NULL DEFAULT 'platform',
+        role_logistics_provider_id INT DEFAULT NULL,
+        logistics_provider_id INT DEFAULT NULL,
         status VARCHAR(32) DEFAULT 'active',
         last_login DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_admin_username (username)
+        INDEX idx_admin_username (username),
+        INDEX idx_admin_role_scope (role_scope),
+        INDEX idx_admin_role_provider (role_logistics_provider_id),
+        INDEX idx_admin_provider (logistics_provider_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    const [adminUserCols] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'admin_users'`
+    );
+    const existingAdminUserCols = new Set((adminUserCols as any[]).map((r: any) => r.COLUMN_NAME));
+    if (!existingAdminUserCols.has('role_scope')) {
+      await connection.execute(`ALTER TABLE admin_users ADD COLUMN role_scope VARCHAR(16) NOT NULL DEFAULT 'platform' AFTER role`);
+    }
+    if (!existingAdminUserCols.has('role_logistics_provider_id')) {
+      await connection.execute(`ALTER TABLE admin_users ADD COLUMN role_logistics_provider_id INT DEFAULT NULL AFTER role_scope`);
+    }
+    if (!existingAdminUserCols.has('logistics_provider_id')) {
+      await connection.execute(`ALTER TABLE admin_users ADD COLUMN logistics_provider_id INT DEFAULT NULL AFTER role_logistics_provider_id`);
+    }
+    const [adminUserIndexes] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'admin_users'`
+    );
+    const existingAdminUserIndexes = new Set((adminUserIndexes as any[]).map((r: any) => r.INDEX_NAME));
+    if (!existingAdminUserIndexes.has('idx_admin_role_scope')) {
+      await connection.execute(`ALTER TABLE admin_users ADD INDEX idx_admin_role_scope (role_scope)`);
+    }
+    if (!existingAdminUserIndexes.has('idx_admin_role_provider')) {
+      await connection.execute(`ALTER TABLE admin_users ADD INDEX idx_admin_role_provider (role_logistics_provider_id)`);
+    }
+    if (!existingAdminUserIndexes.has('idx_admin_provider')) {
+      await connection.execute(`ALTER TABLE admin_users ADD INDEX idx_admin_provider (logistics_provider_id)`);
+    }
 
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS admin_roles (
         id INT AUTO_INCREMENT PRIMARY KEY,
         code VARCHAR(32) NOT NULL,
         name VARCHAR(64) NOT NULL,
+        scope VARCHAR(16) NOT NULL DEFAULT 'platform',
+        logistics_provider_id INT DEFAULT NULL,
         is_system TINYINT(1) NOT NULL DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY uk_role_code (code)
+        UNIQUE KEY uk_role_scope_provider_code (scope, logistics_provider_id, code),
+        INDEX idx_role_scope (scope),
+        INDEX idx_role_provider (logistics_provider_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    // Add role scope/provider columns and indexes to admin_roles for existing databases
+    const [roleCols] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'admin_roles'`
+    );
+    const existingRoleCols = new Set((roleCols as any[]).map((r: any) => r.COLUMN_NAME));
+    if (!existingRoleCols.has('scope')) {
+      await connection.execute(`ALTER TABLE admin_roles ADD COLUMN scope VARCHAR(16) NOT NULL DEFAULT 'platform' AFTER name`);
+    }
+    if (!existingRoleCols.has('logistics_provider_id')) {
+      await connection.execute(`ALTER TABLE admin_roles ADD COLUMN logistics_provider_id INT DEFAULT NULL AFTER scope`);
+    }
+    const [roleIndexes] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'admin_roles'`
+    );
+    const existingRoleIndexes = new Set((roleIndexes as any[]).map((r: any) => r.INDEX_NAME));
+    if (existingRoleIndexes.has('uk_role_code')) {
+      await connection.execute(`ALTER TABLE admin_roles DROP INDEX uk_role_code`);
+    }
+    if (!existingRoleIndexes.has('idx_role_scope')) {
+      await connection.execute(`ALTER TABLE admin_roles ADD INDEX idx_role_scope (scope)`);
+    }
+    if (!existingRoleIndexes.has('idx_role_provider')) {
+      await connection.execute(`ALTER TABLE admin_roles ADD INDEX idx_role_provider (logistics_provider_id)`);
+    }
+    if (!existingRoleIndexes.has('uk_role_scope_provider_code')) {
+      await connection.execute(`ALTER TABLE admin_roles ADD UNIQUE KEY uk_role_scope_provider_code (scope, logistics_provider_id, code)`);
+    }
 
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS admin_role_permissions (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
-        role VARCHAR(32) NOT NULL,
+        role_id INT NOT NULL,
+        role VARCHAR(32) DEFAULT NULL,
         permission_code VARCHAR(64) NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY uk_role_permission (role, permission_code),
+        UNIQUE KEY uk_role_permission_id (role_id, permission_code),
+        INDEX idx_role_id (role_id),
         INDEX idx_role (role)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    const [arpCols] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'admin_role_permissions'`
+    );
+    const existingArpCols = new Set((arpCols as any[]).map((r: any) => r.COLUMN_NAME));
+    if (!existingArpCols.has('role_id')) {
+      await connection.execute(`ALTER TABLE admin_role_permissions ADD COLUMN role_id INT NULL AFTER id`);
+    }
+    if (!existingArpCols.has('role')) {
+      await connection.execute(`ALTER TABLE admin_role_permissions ADD COLUMN role VARCHAR(32) DEFAULT NULL AFTER role_id`);
+    }
+
+    const [arpIndexes] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'admin_role_permissions'`
+    );
+    const existingArpIndexes = new Set((arpIndexes as any[]).map((r: any) => r.INDEX_NAME));
+    if (existingArpIndexes.has('uk_role_permission')) {
+      await connection.execute(`ALTER TABLE admin_role_permissions DROP INDEX uk_role_permission`);
+    }
+    if (!existingArpIndexes.has('idx_role_id')) {
+      await connection.execute(`ALTER TABLE admin_role_permissions ADD INDEX idx_role_id (role_id)`);
+    }
+    if (!existingArpIndexes.has('idx_role')) {
+      await connection.execute(`ALTER TABLE admin_role_permissions ADD INDEX idx_role (role)`);
+    }
+
+    await connection.execute(`
+      UPDATE admin_role_permissions arp
+      JOIN admin_roles ar ON ar.code = arp.role
+      SET arp.role_id = ar.id
+      WHERE arp.role_id IS NULL
+    `);
+
+    const [arpNullRows] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT COUNT(*) AS count FROM admin_role_permissions WHERE role_id IS NULL`
+    );
+    const arpNullCount = Number(arpNullRows?.[0]?.count || 0);
+    if (arpNullCount === 0 && existingArpCols.has('role_id')) {
+      await connection.execute(`ALTER TABLE admin_role_permissions MODIFY COLUMN role_id INT NOT NULL`);
+    }
+    if (!existingArpIndexes.has('uk_role_permission_id')) {
+      await connection.execute(`ALTER TABLE admin_role_permissions ADD UNIQUE KEY uk_role_permission_id (role_id, permission_code)`);
+    }
 
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS parcels (
@@ -426,8 +536,8 @@ export const initDb = async (): Promise<void> => {
 
       const hashed = bcrypt.hashSync(defaultPassword, 10);
       await connection.execute(
-        'INSERT INTO admin_users (username, password, email, role) VALUES (?, ?, ?, ?)',
-        [defaultUsername, hashed, defaultEmail, 'super_admin']
+        'INSERT INTO admin_users (username, password, email, role, role_scope, role_logistics_provider_id, logistics_provider_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [defaultUsername, hashed, defaultEmail, 'super_admin', 'platform', null, null]
       );
     }
 
@@ -444,21 +554,6 @@ export const initDb = async (): Promise<void> => {
       );
     }
 
-      for (const [role, defaultPermissions] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
-        const [rows] = await connection.execute<mysql.RowDataPacket[]>(
-          'SELECT COUNT(*) as count FROM admin_role_permissions WHERE role = ?',
-          [role]
-        );
-        const count = Number(rows?.[0]?.count || 0);
-        if (count > 0) continue;
-        for (const permissionCode of defaultPermissions) {
-          await connection.execute(
-            'INSERT INTO admin_role_permissions (role, permission_code) VALUES (?, ?)',
-            [role, permissionCode]
-          );
-        }
-      }
-
       const DEFAULT_ROLE_NAMES: Record<string, string> = {
         super_admin: '超级管理员',
         admin: '管理员',
@@ -470,9 +565,31 @@ export const initDb = async (): Promise<void> => {
         );
         if (roleRows && roleRows.length > 0) continue;
         await connection.execute(
-          'INSERT INTO admin_roles (code, name, is_system) VALUES (?, ?, 1)',
-          [role, DEFAULT_ROLE_NAMES[role] || role]
+          'INSERT INTO admin_roles (code, name, scope, logistics_provider_id, is_system) VALUES (?, ?, ?, ?, 1)',
+          [role, DEFAULT_ROLE_NAMES[role] || role, 'platform', null]
         );
+      }
+
+      for (const [role, defaultPermissions] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
+        const roleRow = await querySingle<{ id: number }>(
+          'SELECT id FROM admin_roles WHERE code = ? AND scope = ? AND logistics_provider_id <=> ? LIMIT 1',
+          [role, 'platform', null]
+        );
+        const roleId = Number(roleRow?.id || 0);
+        if (!roleId) continue;
+
+        const [rows] = await connection.execute<mysql.RowDataPacket[]>(
+          'SELECT COUNT(*) as count FROM admin_role_permissions WHERE role_id = ?',
+          [roleId]
+        );
+        const count = Number(rows?.[0]?.count || 0);
+        if (count > 0) continue;
+        for (const permissionCode of defaultPermissions) {
+          await connection.execute(
+            'INSERT INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
+            [roleId, role, permissionCode]
+          );
+        }
       }
   } finally {
     connection.release();
@@ -487,14 +604,41 @@ export const getAdminById = async (adminId: number): Promise<any | null> => {
   return querySingle<any>('SELECT * FROM admin_users WHERE id = ? AND deleted_at IS NULL LIMIT 1', [adminId]);
 };
 
-export const getPermissionsForRoleFromDb = async (role: string | undefined | null): Promise<PermissionCode[]> => {
+export const getPermissionsForRoleFromDb = async (
+  role: string | undefined | null,
+  options?: { scope?: 'platform' | 'logistics'; logistics_provider_id?: number | null }
+): Promise<PermissionCode[]> => {
   if (!role) return [];
   // 超级管理员始终拥有全部权限，防止误配置导致系统失控
-  if (role === 'super_admin') return [...ALL_PERMISSION_CODES];
-  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    'SELECT permission_code FROM admin_role_permissions WHERE role = ? ORDER BY permission_code ASC',
-    [role]
-  );
+  if (role === 'super_admin' && (options?.scope || 'platform') === 'platform') return [...ALL_PERMISSION_CODES];
+
+  const scope = options?.scope === 'logistics' ? 'logistics' : 'platform';
+  const logisticsProviderId =
+    scope === 'logistics'
+      ? Number.isInteger(options?.logistics_provider_id) && Number(options?.logistics_provider_id) > 0
+        ? Number(options?.logistics_provider_id)
+        : null
+      : null;
+
+  const roleRow = await getRoleRowByCode(role, { scope, logistics_provider_id: logisticsProviderId });
+  let rows: mysql.RowDataPacket[] = [];
+  if (roleRow?.id) {
+    const [byRoleId] = await pool.execute<mysql.RowDataPacket[]>(
+      'SELECT permission_code FROM admin_role_permissions WHERE role_id = ? ORDER BY permission_code ASC',
+      [roleRow.id]
+    );
+    rows = byRoleId || [];
+  }
+
+  // 兼容历史数据：旧版本仅按 role 字符串存储权限
+  if (rows.length === 0) {
+    const [legacyRows] = await pool.execute<mysql.RowDataPacket[]>(
+      'SELECT permission_code FROM admin_role_permissions WHERE role = ? ORDER BY permission_code ASC',
+      [role]
+    );
+    rows = legacyRows || [];
+  }
+
   if (!rows || rows.length === 0) {
     return DEFAULT_ROLE_PERMISSIONS[role] || [];
   }
@@ -513,17 +657,22 @@ export const getRolePermissionsConfig = async (): Promise<Record<string, Permiss
 };
 
 export const replaceRolePermissions = async (role: string, permissions: string[]): Promise<void> => {
+  const roleRow = await getRoleRowByCode(role, { scope: 'platform', logistics_provider_id: null });
+  if (!roleRow?.id) {
+    throw new Error(`Role not found: ${role}`);
+  }
+
   const validSet = new Set<string>(ALL_PERMISSION_CODES);
   const deduped = Array.from(new Set(permissions.map((p) => String(p || '').trim()).filter((p) => validSet.has(p)))) as PermissionCode[];
 
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    await connection.execute('DELETE FROM admin_role_permissions WHERE role = ?', [role]);
+    await connection.execute('DELETE FROM admin_role_permissions WHERE role_id = ?', [roleRow.id]);
     for (const permissionCode of deduped) {
       await connection.execute(
-        'INSERT INTO admin_role_permissions (role, permission_code) VALUES (?, ?)',
-        [role, permissionCode]
+        'INSERT INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
+        [roleRow.id, role, permissionCode]
       );
     }
     await connection.commit();
@@ -537,43 +686,114 @@ export const replaceRolePermissions = async (role: string, permissions: string[]
 
 // ====== 角色（RBAC）CRUD ======
 
+export type RoleScope = 'platform' | 'logistics';
+
+interface RoleQueryOptions {
+  scope?: RoleScope;
+  logistics_provider_id?: number | null;
+}
+
 export interface RoleWithPermissions {
   code: string;
   name: string;
+  scope: RoleScope;
+  logistics_provider_id: number | null;
   is_system: boolean;
   permissions: PermissionCode[];
   admin_count: number;
 }
 
-export const roleExists = async (code: string): Promise<boolean> => {
-  const row = await querySingle<{ id: number }>('SELECT id FROM admin_roles WHERE code = ? LIMIT 1', [code]);
+const normalizeRoleQueryOptions = (options?: RoleQueryOptions) => {
+  const scope: RoleScope = options?.scope === 'logistics' ? 'logistics' : 'platform';
+  const logisticsProviderId =
+    scope === 'logistics'
+      ? Number.isInteger(options?.logistics_provider_id) && Number(options?.logistics_provider_id) > 0
+        ? Number(options?.logistics_provider_id)
+        : null
+      : null;
+  return { scope, logisticsProviderId };
+};
+
+const getRoleRowByCode = async (code: string, options?: RoleQueryOptions) => {
+  const { scope, logisticsProviderId } = normalizeRoleQueryOptions(options);
+  return querySingle<{ id: number; code: string; name: string; is_system: number; scope: RoleScope; logistics_provider_id: number | null }>(
+    'SELECT id, code, name, is_system, scope, logistics_provider_id FROM admin_roles WHERE code = ? AND scope = ? AND logistics_provider_id <=> ? LIMIT 1',
+    [code, scope, logisticsProviderId]
+  );
+};
+
+export const roleExists = async (code: string, options?: RoleQueryOptions): Promise<boolean> => {
+  const row = await getRoleRowByCode(code, options);
   return !!row;
 };
 
-export const getRoleNameByCode = async (code: string): Promise<string | null> => {
-  const row = await querySingle<{ name: string }>('SELECT name FROM admin_roles WHERE code = ? LIMIT 1', [code]);
+export const getRoleNameByCode = async (code: string, options?: RoleQueryOptions): Promise<string | null> => {
+  const row = await getRoleRowByCode(code, options);
   return row ? row.name : null;
 };
 
-export const countAdminsByRole = async (code: string): Promise<number> => {
+export const countAdminsByRole = async (code: string, options?: RoleQueryOptions): Promise<number> => {
+  const { scope, logisticsProviderId } = normalizeRoleQueryOptions(options);
+  if (scope === 'logistics') {
+    const row = await querySingle<{ count: number }>(
+      `SELECT COUNT(*) as count
+       FROM admin_users a
+       WHERE a.role = ?
+         AND a.role_scope = 'logistics'
+         AND a.role_logistics_provider_id <=> ?
+         AND a.deleted_at IS NULL`,
+      [code, logisticsProviderId]
+    );
+    return row ? Number(row.count) : 0;
+  }
+
   const row = await querySingle<{ count: number }>(
-    'SELECT COUNT(*) as count FROM admin_users WHERE role = ? AND deleted_at IS NULL',
+    `SELECT COUNT(*) as count
+     FROM admin_users
+     WHERE role = ?
+       AND role_scope = 'platform'
+       AND role_logistics_provider_id IS NULL
+       AND deleted_at IS NULL`,
     [code]
   );
   return row ? Number(row.count) : 0;
 };
 
-export const listRolesWithPermissions = async (): Promise<RoleWithPermissions[]> => {
+export const listRolesWithPermissions = async (scope?: RoleScope, logisticsProviderId?: number | null): Promise<RoleWithPermissions[]> => {
+  const whereClauses: string[] = [];
+  const args: unknown[] = [];
+  if (scope) {
+    whereClauses.push('scope = ?');
+    args.push(scope);
+  }
+  if (scope === 'logistics' && logisticsProviderId !== undefined) {
+    whereClauses.push('logistics_provider_id <=> ?');
+    args.push(logisticsProviderId);
+  }
+  const where = whereClauses.length > 0 ? ` WHERE ${whereClauses.join(' AND ')}` : '';
   const [roles] = await pool.execute<mysql.RowDataPacket[]>(
-    'SELECT code, name, is_system FROM admin_roles ORDER BY is_system DESC, created_at ASC'
+    `SELECT id, code, name, scope, logistics_provider_id, is_system FROM admin_roles${where} ORDER BY is_system DESC, created_at ASC`,
+    args
   );
   const result: RoleWithPermissions[] = [];
   for (const r of roles as any[]) {
-    const permissions = await getPermissionsForRoleFromDb(r.code);
-    const adminCount = await countAdminsByRole(r.code);
+    const [permRows] = await pool.execute<mysql.RowDataPacket[]>(
+      'SELECT permission_code FROM admin_role_permissions WHERE role_id = ? ORDER BY permission_code ASC',
+      [r.id]
+    );
+    const validSet = new Set<string>(ALL_PERMISSION_CODES);
+    const permissions = (permRows || [])
+      .map((row: any) => String(row.permission_code || '').trim())
+      .filter((code): code is PermissionCode => validSet.has(code));
+    const adminCount = await countAdminsByRole(r.code, {
+      scope: r.scope === 'logistics' ? 'logistics' : 'platform',
+      logistics_provider_id: r.logistics_provider_id === null ? null : Number(r.logistics_provider_id),
+    });
     result.push({
       code: r.code,
       name: r.name,
+      scope: (r.scope === 'logistics' ? 'logistics' : 'platform'),
+      logistics_provider_id: r.logistics_provider_id === null ? null : Number(r.logistics_provider_id),
       is_system: !!r.is_system,
       permissions,
       admin_count: adminCount,
@@ -585,9 +805,19 @@ export const listRolesWithPermissions = async (): Promise<RoleWithPermissions[]>
 export const createRoleWithPermissions = async (params: {
   code: string;
   name: string;
+  scope?: RoleScope;
+  logistics_provider_id?: number | null;
   permissions: string[];
 }): Promise<'created' | 'duplicate'> => {
-  const exists = await roleExists(params.code);
+  const scope: RoleScope = params.scope === 'logistics' ? 'logistics' : 'platform';
+  const logisticsProviderId =
+    scope === 'logistics'
+      ? Number.isInteger(params.logistics_provider_id) && Number(params.logistics_provider_id) > 0
+        ? Number(params.logistics_provider_id)
+        : null
+      : null;
+
+  const exists = await roleExists(params.code, { scope, logistics_provider_id: logisticsProviderId });
   if (exists) return 'duplicate';
 
   const validSet = new Set<string>(ALL_PERMISSION_CODES);
@@ -598,12 +828,16 @@ export const createRoleWithPermissions = async (params: {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    await connection.execute('INSERT INTO admin_roles (code, name, is_system) VALUES (?, ?, 0)', [
+    const [inserted] = await connection.execute<mysql.ResultSetHeader>('INSERT INTO admin_roles (code, name, scope, logistics_provider_id, is_system) VALUES (?, ?, ?, ?, 0)', [
       params.code,
       params.name,
+      scope,
+      logisticsProviderId,
     ]);
+    const roleId = inserted.insertId;
     for (const permissionCode of deduped) {
-      await connection.execute('INSERT INTO admin_role_permissions (role, permission_code) VALUES (?, ?)', [
+      await connection.execute('INSERT INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)', [
+        roleId,
         params.code,
         permissionCode,
       ]);
@@ -620,30 +854,32 @@ export const createRoleWithPermissions = async (params: {
 
 export const updateRoleWithPermissions = async (
   code: string,
-  params: { name?: string; permissions?: string[] }
+  params: { name?: string; permissions?: string[] },
+  options?: RoleQueryOptions
 ): Promise<'updated' | 'not_found'> => {
-  const exists = await roleExists(code);
-  if (!exists) return 'not_found';
+  const roleRow = await getRoleRowByCode(code, options);
+  if (!roleRow) return 'not_found';
 
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
     if (params.name !== undefined) {
-      await connection.execute('UPDATE admin_roles SET name = ?, updated_at = NOW() WHERE code = ?', [
+      await connection.execute('UPDATE admin_roles SET name = ?, updated_at = NOW() WHERE id = ?', [
         params.name,
-        code,
+        roleRow.id,
       ]);
     }
     // 超级管理员权限恒为全部，不允许通过此处修改
-    if (params.permissions !== undefined && code !== 'super_admin') {
+    if (params.permissions !== undefined && roleRow.code !== 'super_admin') {
       const validSet = new Set<string>(ALL_PERMISSION_CODES);
       const deduped = Array.from(
         new Set(params.permissions.map((p) => String(p || '').trim()).filter((p) => validSet.has(p)))
       );
-      await connection.execute('DELETE FROM admin_role_permissions WHERE role = ?', [code]);
+      await connection.execute('DELETE FROM admin_role_permissions WHERE role_id = ?', [roleRow.id]);
       for (const permissionCode of deduped) {
-        await connection.execute('INSERT INTO admin_role_permissions (role, permission_code) VALUES (?, ?)', [
-          code,
+        await connection.execute('INSERT INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)', [
+          roleRow.id,
+          roleRow.code,
           permissionCode,
         ]);
       }
@@ -658,21 +894,18 @@ export const updateRoleWithPermissions = async (
   }
 };
 
-export const deleteRole = async (code: string): Promise<'deleted' | 'system' | 'in_use' | 'not_found'> => {
-  const role = await querySingle<{ is_system: number }>(
-    'SELECT is_system FROM admin_roles WHERE code = ? LIMIT 1',
-    [code]
-  );
+export const deleteRole = async (code: string, options?: RoleQueryOptions): Promise<'deleted' | 'system' | 'in_use' | 'not_found'> => {
+  const role = await getRoleRowByCode(code, options);
   if (!role) return 'not_found';
   if (Number(role.is_system) === 1) return 'system';
-  const count = await countAdminsByRole(code);
+  const count = await countAdminsByRole(code, options);
   if (count > 0) return 'in_use';
 
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    await connection.execute('DELETE FROM admin_role_permissions WHERE role = ?', [code]);
-    await connection.execute('DELETE FROM admin_roles WHERE code = ?', [code]);
+    await connection.execute('DELETE FROM admin_role_permissions WHERE role_id = ?', [role.id]);
+    await connection.execute('DELETE FROM admin_roles WHERE id = ?', [role.id]);
     await connection.commit();
     return 'deleted';
   } catch (error) {
@@ -1430,7 +1663,7 @@ export const getStatusLogsPaged = async (
   };
 };
 
-const ADMINS_SORT_COLUMNS = new Set(['id', 'username', 'email', 'role', 'status', 'last_login', 'created_at']);
+const ADMINS_SORT_COLUMNS = new Set(['id', 'username', 'email', 'role', 'role_scope', 'role_logistics_provider_id', 'logistics_provider_id', 'status', 'last_login', 'created_at']);
 
 export const getAdminsPaged = async (
   page: number,
@@ -1451,7 +1684,7 @@ export const getAdminsPaged = async (
   const offset = (safePage - 1) * safeLimit;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, username, email, role, status, last_login, created_at, updated_at, deleted_at
+    `SELECT id, username, email, role, role_scope, role_logistics_provider_id, logistics_provider_id, status, last_login, created_at, updated_at, deleted_at
      FROM admin_users
      ${whereSql}
      ORDER BY ${orderBy}
@@ -1475,42 +1708,67 @@ export const getAdminsPaged = async (
 export const searchAdmins = async (keyword: string): Promise<any[]> => {
   const like = `%${keyword}%`;
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, username, email, role, status, last_login, created_at, updated_at
+    `SELECT id, username, email, role, role_scope, role_logistics_provider_id, logistics_provider_id, status, last_login, created_at, updated_at
      FROM admin_users
      WHERE deleted_at IS NULL AND (
        CAST(id AS CHAR) LIKE ?
        OR username LIKE ?
        OR email LIKE ?
        OR role LIKE ?
+       OR role_scope LIKE ?
+       OR CAST(role_logistics_provider_id AS CHAR) LIKE ?
+       OR CAST(logistics_provider_id AS CHAR) LIKE ?
        OR status LIKE ?
      )
      ORDER BY created_at DESC`,
-    [like, like, like, like, like]
+    [like, like, like, like, like, like, like, like]
   );
   return rows as any[];
 };
 
-export const createAdmin = async (payload: { username: string; password: string; email: string; role: string }) => {
+export const createAdmin = async (payload: {
+  username: string;
+  password: string;
+  email: string;
+  role: string;
+  role_scope?: 'platform' | 'logistics';
+  role_logistics_provider_id?: number | null;
+  logistics_provider_id?: number | null;
+}) => {
   const existing = await getAdminByUsername(payload.username);
   if (existing) return null;
 
   const hashed = await bcrypt.hash(payload.password, 10);
+  const roleScope = payload.role_scope === 'logistics' ? 'logistics' : 'platform';
+  const roleProviderId = roleScope === 'logistics' ? (payload.role_logistics_provider_id || null) : null;
+  const adminProviderId = payload.logistics_provider_id || null;
   const [result] = await pool.execute<mysql.ResultSetHeader>(
-    'INSERT INTO admin_users (username, password, email, role, status) VALUES (?, ?, ?, ?, ?)',
-    [payload.username, hashed, payload.email, payload.role || 'admin', 'active']
+    'INSERT INTO admin_users (username, password, email, role, role_scope, role_logistics_provider_id, logistics_provider_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [payload.username, hashed, payload.email, payload.role || 'admin', roleScope, roleProviderId, adminProviderId, 'active']
   );
   return {
     id: result.insertId,
     username: payload.username,
     email: payload.email,
     role: payload.role || 'admin',
+    role_scope: roleScope,
+    role_logistics_provider_id: roleProviderId,
+    logistics_provider_id: adminProviderId,
     status: 'active',
   };
 };
 
 export const updateAdminAccount = async (
   adminId: number,
-  payload: { username?: string; email?: string; role?: string; password?: string }
+  payload: {
+    username?: string;
+    email?: string;
+    role?: string;
+    role_scope?: 'platform' | 'logistics';
+    role_logistics_provider_id?: number | null;
+    logistics_provider_id?: number | null;
+    password?: string;
+  }
 ): Promise<'updated' | 'duplicate_username' | 'not_found'> => {
   const sets: string[] = ['updated_at = NOW()'];
   const params: any[] = [];
@@ -1534,6 +1792,18 @@ export const updateAdminAccount = async (
   if (payload.role !== undefined) {
     sets.push('role = ?');
     params.push(payload.role.trim());
+  }
+  if (payload.role_scope !== undefined) {
+    sets.push('role_scope = ?');
+    params.push(payload.role_scope === 'logistics' ? 'logistics' : 'platform');
+  }
+  if (payload.role_logistics_provider_id !== undefined) {
+    sets.push('role_logistics_provider_id = ?');
+    params.push(payload.role_logistics_provider_id || null);
+  }
+  if (payload.logistics_provider_id !== undefined) {
+    sets.push('logistics_provider_id = ?');
+    params.push(payload.logistics_provider_id || null);
   }
   if (payload.password !== undefined) {
     const hashed = await bcrypt.hash(payload.password, 10);

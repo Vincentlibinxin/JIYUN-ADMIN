@@ -68,6 +68,9 @@ interface AdminUser {
   username: string;
   email: string;
   role: string;
+  role_scope: 'platform' | 'logistics';
+  role_logistics_provider_id: number | null;
+  logistics_provider_id: number | null;
   status: string;
   last_login: string | null;
   created_at: string;
@@ -913,7 +916,15 @@ export default function AdminDashboard() {
     } catch { setError('批量删除失败'); }
   };
 
-  const createAdminUser = async (payload: { username: string; email: string; role: string; password: string }): Promise<boolean> => {
+  const createAdminUser = async (payload: {
+    username: string;
+    email: string;
+    role: string;
+    role_scope: 'platform' | 'logistics';
+    role_logistics_provider_id: number | null;
+    logistics_provider_id: number | null;
+    password: string;
+  }): Promise<boolean> => {
     try {
       const response = await adminFetch('/admin/admins', {
         method: 'POST',
@@ -935,7 +946,15 @@ export default function AdminDashboard() {
 
   const updateAdminAccount = async (
     adminId: number,
-    payload: { username: string; email: string; role: string; password?: string }
+    payload: {
+      username: string;
+      email: string;
+      role: string;
+      role_scope: 'platform' | 'logistics';
+      role_logistics_provider_id: number | null;
+      logistics_provider_id: number | null;
+      password?: string;
+    }
   ): Promise<boolean> => {
     try {
       const response = await adminFetch(`/admin/admins/${adminId}`, {

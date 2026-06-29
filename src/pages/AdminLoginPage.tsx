@@ -121,15 +121,14 @@ export default function AdminLoginPage() {
             name="admin_login"
             onFinish={handleLogin}
             size="large"
-            style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}
+            style={{ width: '100%' }}
           >
             {messageContextHolder}
 
             <Form.Item
               name="username"
               rules={[{ required: true, message: t('login.usernameRequired') }]}
-              style={{ marginBottom: 16, width: '100%', display: 'flex', justifyContent: 'center' }}
-              className={styles.formItemWrapper}
+              style={{ marginBottom: 16 }}
             >
               <Input
                 prefix={<UserOutlined style={{ color: '#94a3b8', marginRight: 8, fontSize: 18 }} />}
@@ -141,8 +140,7 @@ export default function AdminLoginPage() {
             <Form.Item
               name="password"
               rules={[{ required: true, message: t('login.passwordRequired') }]}
-              style={{ marginBottom: 24, width: '100%', display: 'flex', justifyContent: 'center' }}
-              className={styles.formItemWrapper}
+              style={{ marginBottom: 24 }}
             >
               <Input.Password
                 prefix={<LockOutlined style={{ color: '#94a3b8', marginRight: 8, fontSize: 18 }} />}
@@ -155,12 +153,12 @@ export default function AdminLoginPage() {
               />
             </Form.Item>
 
-            <Form.Item style={{ marginBottom: 0, width: '100%', display: 'flex', justifyContent: 'center' }} className={styles.formItemWrapper}>
+            <Form.Item style={{ marginBottom: 0 }}>
               <Button
                 type="primary"
                 htmlType="submit"
                 loading={loading}
-                style={{ width: '100%' }}
+                block
                 icon={!loading && <LoginOutlined />}
                 className={styles.loginBtn}
               >

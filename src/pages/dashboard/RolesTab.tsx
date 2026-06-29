@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, Checkbox, Form, Input, Modal, Pagination as AntPagination, Popconfirm, Space, Table, Tag, Tooltip, message } from 'antd';
+import { Button, Card, Checkbox, Form, Input, Modal, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tag, Tooltip, message } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
@@ -8,9 +8,16 @@ import { PERMISSIONS } from '../../lib/permissions';
 interface RoleItem {
   code: string;
   name: string;
+  scope: 'platform' | 'logistics';
+  logistics_provider_id: number | null;
   is_system: boolean;
   permissions: string[];
   admin_count: number;
+}
+
+interface LogisticsOption {
+  id: number;
+  name: string;
 }
 
 interface RolesTabProps {
@@ -82,7 +89,10 @@ const ALL_PERMISSION_CODES = PERMISSION_GROUPS.flatMap((g) => g.items.map((i) =>
 
 export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }: RolesTabProps) {
   const [roles, setRoles] = useState<RoleItem[]>([]);
+  const [logisticsOptions, setLogisticsOptions] = useState<LogisticsOption[]>([]);
   const [loading, setLoading] = useState(false);
+  const [scopeFilter, setScopeFilter] = useState<'platform' | 'logistics'>('platform');
+  const [providerFilter, setProviderFilter] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -101,12 +111,20 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
   const [messageApi, messageContextHolder] = message.useMessage();
   const [form] = Form.useForm();
 
+  const roleKey = (role: Pick<RoleItem, 'scope' | 'logistics_provider_id' | 'code'>): string => {
+    return `${role.scope}:${role.logistics_provider_id ?? 0}:${role.code}`;
+  };
+
   const isSuperAdminEditing = modalMode === 'edit' && editingRole?.code === 'super_admin';
 
   const fetchRoles = async () => {
     try {
       setLoading(true);
-      const response = await adminFetch('/admin/roles');
+      const params = new URLSearchParams({ scope: scopeFilter });
+      if (scopeFilter === 'logistics' && providerFilter) {
+        params.set('logistics_provider_id', String(providerFilter));
+      }
+      const response = await adminFetch(`/admin/roles?${params.toString()}`);
       if (response.status === 401) return;
       if (!response.ok) throw new Error('fetch roles failed');
       const data = await response.json();
@@ -121,7 +139,22 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
   useEffect(() => {
     void fetchRoles();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey]);
+  }, [refreshKey, scopeFilter, providerFilter]);
+
+  useEffect(() => {
+    const fetchLogisticsOptions = async () => {
+      try {
+        const response = await adminFetch('/admin/logistics/options');
+        if (response.status === 401) return;
+        if (!response.ok) throw new Error('fetch logistics options failed');
+        const data = await response.json();
+        setLogisticsOptions(Array.isArray(data?.data) ? data.data : []);
+      } catch {
+        // 保持页面可用，失败时不阻塞角色管理
+      }
+    };
+    void fetchLogisticsOptions();
+  }, []);
 
   useLayoutEffect(() => {
     const updateTableHeight = () => {
@@ -145,7 +178,12 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
   const openCreate = () => {
     setModalMode('create');
     setEditingRole(null);
-    form.resetFields();
+    form.setFieldsValue({
+      scope: scopeFilter,
+      logistics_provider_id: scopeFilter === 'logistics' ? providerFilter : null,
+      name: undefined,
+      code: undefined,
+    });
     setSelectedPermissions([]);
     setModalOpen(true);
   };
@@ -153,7 +191,12 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
   const openEdit = (role: RoleItem) => {
     setModalMode('edit');
     setEditingRole(role);
-    form.setFieldsValue({ name: role.name, code: role.code });
+    form.setFieldsValue({
+      name: role.name,
+      code: role.code,
+      scope: role.scope,
+      logistics_provider_id: role.logistics_provider_id,
+    });
     setSelectedPermissions(role.code === 'super_admin' ? [...ALL_PERMISSION_CODES] : [...role.permissions]);
     setModalOpen(true);
   };
@@ -178,6 +221,11 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
           body: JSON.stringify({
             code: String(values.code || '').trim().toLowerCase(),
             name: String(values.name || '').trim(),
+            scope: values.scope === 'logistics' ? 'logistics' : 'platform',
+            logistics_provider_id:
+              values.scope === 'logistics'
+                ? (values.logistics_provider_id ? Number(values.logistics_provider_id) : null)
+                : null,
             permissions: selectedPermissions,
           }),
         });
@@ -192,6 +240,8 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
           method: 'PUT',
           body: JSON.stringify({
             name: String(values.name || '').trim(),
+            scope: editingRole.scope,
+            logistics_provider_id: editingRole.logistics_provider_id,
             permissions: selectedPermissions,
           }),
         });
@@ -211,7 +261,11 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
 
   const handleDelete = async (role: RoleItem) => {
     try {
-      const response = await adminFetch(`/admin/roles/${encodeURIComponent(role.code)}`, { method: 'DELETE' });
+      const params = new URLSearchParams({ scope: role.scope });
+      if (role.scope === 'logistics' && role.logistics_provider_id) {
+        params.set('logistics_provider_id', String(role.logistics_provider_id));
+      }
+      const response = await adminFetch(`/admin/roles/${encodeURIComponent(role.code)}?${params.toString()}`, { method: 'DELETE' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         messageApi.error(data?.error || '删除角色失败');
@@ -225,7 +279,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
   };
 
   const handleBatchDelete = async () => {
-    const targets = roles.filter((r) => selectedRowKeys.includes(r.code) && !r.is_system);
+    const targets = roles.filter((r) => selectedRowKeys.includes(roleKey(r)) && !r.is_system);
     if (targets.length === 0) {
       messageApi.info('所选角色均为系统内置角色，无法删除');
       return;
@@ -233,7 +287,11 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
     let ok = 0;
     for (const role of targets) {
       try {
-        const response = await adminFetch(`/admin/roles/${encodeURIComponent(role.code)}`, { method: 'DELETE' });
+        const params = new URLSearchParams({ scope: role.scope });
+        if (role.scope === 'logistics' && role.logistics_provider_id) {
+          params.set('logistics_provider_id', String(role.logistics_provider_id));
+        }
+        const response = await adminFetch(`/admin/roles/${encodeURIComponent(role.code)}?${params.toString()}`, { method: 'DELETE' });
         if (response.ok) ok += 1;
       } catch {
         // 单个失败忽略，继续处理其余
@@ -289,18 +347,18 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
     if (currentPage > maxPage) setCurrentPage(maxPage);
   }, [processedRoles.length, pageSize, currentPage]);
 
-  const visibleRowKeys = pagedRoles.map((r) => r.code);
-  const selectedVisibleCount = visibleRowKeys.filter((c) => selectedRowKeys.includes(c)).length;
-  const allSelected = visibleRowKeys.length > 0 && selectedVisibleCount === visibleRowKeys.length;
-  const indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleRowKeys.length;
+  const visibleRoleKeys = pagedRoles.map((r) => roleKey(r));
+  const selectedVisibleCount = visibleRoleKeys.filter((c) => selectedRowKeys.includes(c)).length;
+  const allSelected = visibleRoleKeys.length > 0 && selectedVisibleCount === visibleRoleKeys.length;
+  const indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleRoleKeys.length;
 
   const handleSelectAll = (checked: boolean) => {
-    setSelectedRowKeys(checked ? visibleRowKeys : []);
+    setSelectedRowKeys(checked ? visibleRoleKeys : []);
   };
 
-  const handleSelectRow = (code: string, checked: boolean) => {
+  const handleSelectRow = (rowKey: string, checked: boolean) => {
     setSelectedRowKeys((prev) =>
-      checked ? (prev.includes(code) ? prev : [...prev, code]) : prev.filter((c) => c !== code)
+      checked ? (prev.includes(rowKey) ? prev : [...prev, rowKey]) : prev.filter((c) => c !== rowKey)
     );
   };
 
@@ -363,8 +421,8 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
           render: (_, record, index) => (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '8px' }}>
               <Checkbox
-                checked={selectedRowKeys.includes(record.code)}
-                onChange={(e) => handleSelectRow(record.code, e.target.checked)}
+                checked={selectedRowKeys.includes(roleKey(record))}
+                onChange={(e) => handleSelectRow(roleKey(record), e.target.checked)}
                 onClick={(e) => e.stopPropagation()}
               />
               <span>{(currentPage - 1) * pageSize + index + 1}</span>
@@ -405,6 +463,37 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
           key: 'code_child',
           width: 180,
           render: (_, record) => <Tag>{record.code}</Tag>,
+        },
+      ],
+    },
+    {
+      title: '作用域',
+      key: 'scope',
+      width: 120,
+      children: [
+        {
+          title: <span style={{ fontSize: 12, color: '#999' }}>作用域</span>,
+          key: 'scope_child',
+          width: 120,
+          render: (_, record) =>
+            record.scope === 'logistics' ? <Tag color="orange">物流商</Tag> : <Tag color="default">平台</Tag>,
+        },
+      ],
+    },
+    {
+      title: '归属物流商',
+      key: 'logistics_provider_id',
+      width: 170,
+      children: [
+        {
+          title: <span style={{ fontSize: 12, color: '#999' }}>归属物流商</span>,
+          key: 'logistics_provider_child',
+          width: 170,
+          render: (_, record) => {
+            if (record.scope !== 'logistics') return <span style={{ color: '#999' }}>-</span>;
+            const provider = logisticsOptions.find((item) => item.id === record.logistics_provider_id);
+            return <span>{provider?.name || `ID: ${record.logistics_provider_id ?? '-'}`}</span>;
+          },
         },
       ],
     },
@@ -504,6 +593,36 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
             <Button icon={<ReloadOutlined />} onClick={() => void fetchRoles()}>
               刷新
             </Button>
+            <Select<'platform' | 'logistics'>
+              value={scopeFilter}
+              style={{ width: 130 }}
+              options={[
+                { value: 'platform', label: '平台角色' },
+                { value: 'logistics', label: '物流商角色' },
+              ]}
+              onChange={(value) => {
+                setScopeFilter(value);
+                setCurrentPage(1);
+                setSelectedRowKeys([]);
+                if (value === 'platform') {
+                  setProviderFilter(null);
+                }
+              }}
+            />
+            {scopeFilter === 'logistics' && (
+              <Select<number>
+                allowClear
+                placeholder="全部物流商"
+                style={{ width: 220 }}
+                value={providerFilter ?? undefined}
+                options={logisticsOptions.map((item) => ({ value: item.id, label: item.name }))}
+                onChange={(value) => {
+                  setProviderFilter(value ?? null);
+                  setCurrentPage(1);
+                  setSelectedRowKeys([]);
+                }}
+              />
+            )}
             {canDelete && (
               <Popconfirm
                 title={`确定删除选中的 ${selectedRowKeys.length} 个角色？`}
@@ -545,8 +664,8 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
 
       <div ref={tableHostRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <Table<RoleItem>
-          rowKey="code"
-          rowClassName={(record) => (selectedRowKeys.includes(record.code) ? 'row-selected' : '')}
+          rowKey={(record) => roleKey(record)}
+          rowClassName={(record) => (selectedRowKeys.includes(roleKey(record)) ? 'row-selected' : '')}
           loading={loading}
           columns={columns}
           dataSource={pagedRoles}
@@ -641,6 +760,38 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
             extra={modalMode === 'create' ? '英文唯一标识，创建后不可修改，如 warehouse_admin' : '系统标识不可修改'}
           >
             <Input placeholder="如：warehouse_admin" disabled={modalMode === 'edit'} />
+          </Form.Item>
+          <Form.Item
+            label="角色作用域"
+            name="scope"
+            rules={[{ required: true, message: '请选择角色作用域' }]}
+          >
+            <Select
+              disabled={modalMode === 'edit'}
+              options={[
+                { value: 'platform', label: '平台角色' },
+                { value: 'logistics', label: '物流商角色' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.scope !== cur.scope}>
+            {({ getFieldValue }) => {
+              const scope = getFieldValue('scope');
+              if (scope !== 'logistics') return null;
+              return (
+                <Form.Item
+                  label="归属物流商"
+                  name="logistics_provider_id"
+                  rules={[{ required: true, message: '请选择归属物流商' }]}
+                >
+                  <Select
+                    placeholder="请选择物流商"
+                    disabled={modalMode === 'edit'}
+                    options={logisticsOptions.map((item) => ({ value: item.id, label: item.name }))}
+                  />
+                </Form.Item>
+              );
+            }}
           </Form.Item>
         </Form>
 
