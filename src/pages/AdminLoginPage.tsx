@@ -111,7 +111,7 @@ export default function AdminLoginPage() {
                 <div className={styles.dividerGradientRight} />
               </div>
               <Text className={styles.subtitle}>
-                RONGTAI ADMINISTRATION SYSTEM
+                ADMINISTRATION SYSTEM
               </Text>
             </div>
           </div>
@@ -121,7 +121,7 @@ export default function AdminLoginPage() {
             name="admin_login"
             onFinish={handleLogin}
             size="large"
-            style={{ width: '100%' }}
+            style={{ width: '75%', margin: '0 auto' }}
           >
             {messageContextHolder}
 
@@ -170,7 +170,7 @@ export default function AdminLoginPage() {
           {/* Footer */}
           <div className={styles.footer}>
             <Text className={styles.footerText}>
-              © 2026 RONGTAI STRAIT EXPRESS
+              © 2026 WISE-BORDERS STRAIT EXPRESS
             </Text>
           </div>
         </div>

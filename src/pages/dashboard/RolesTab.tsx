@@ -91,8 +91,6 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
   const [roles, setRoles] = useState<RoleItem[]>([]);
   const [logisticsOptions, setLogisticsOptions] = useState<LogisticsOption[]>([]);
   const [loading, setLoading] = useState(false);
-  const [scopeFilter, setScopeFilter] = useState<'platform' | 'logistics'>('platform');
-  const [providerFilter, setProviderFilter] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -120,11 +118,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
   const fetchRoles = async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams({ scope: scopeFilter });
-      if (scopeFilter === 'logistics' && providerFilter) {
-        params.set('logistics_provider_id', String(providerFilter));
-      }
-      const response = await adminFetch(`/admin/roles?${params.toString()}`);
+      const response = await adminFetch('/admin/roles');
       if (response.status === 401) return;
       if (!response.ok) throw new Error('fetch roles failed');
       const data = await response.json();
@@ -139,7 +133,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
   useEffect(() => {
     void fetchRoles();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey, scopeFilter, providerFilter]);
+  }, [refreshKey]);
 
   useEffect(() => {
     const fetchLogisticsOptions = async () => {
@@ -179,8 +173,8 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
     setModalMode('create');
     setEditingRole(null);
     form.setFieldsValue({
-      scope: scopeFilter,
-      logistics_provider_id: scopeFilter === 'logistics' ? providerFilter : null,
+      scope: 'platform',
+      logistics_provider_id: null,
       name: undefined,
       code: undefined,
     });
@@ -590,39 +584,6 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
       <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
         <div style={{ flex: '0 0 auto' }}>
           <Space>
-            <Button icon={<ReloadOutlined />} onClick={() => void fetchRoles()}>
-              刷新
-            </Button>
-            <Select<'platform' | 'logistics'>
-              value={scopeFilter}
-              style={{ width: 130 }}
-              options={[
-                { value: 'platform', label: '平台角色' },
-                { value: 'logistics', label: '物流商角色' },
-              ]}
-              onChange={(value) => {
-                setScopeFilter(value);
-                setCurrentPage(1);
-                setSelectedRowKeys([]);
-                if (value === 'platform') {
-                  setProviderFilter(null);
-                }
-              }}
-            />
-            {scopeFilter === 'logistics' && (
-              <Select<number>
-                allowClear
-                placeholder="全部物流商"
-                style={{ width: 220 }}
-                value={providerFilter ?? undefined}
-                options={logisticsOptions.map((item) => ({ value: item.id, label: item.name }))}
-                onChange={(value) => {
-                  setProviderFilter(value ?? null);
-                  setCurrentPage(1);
-                  setSelectedRowKeys([]);
-                }}
-              />
-            )}
             {canDelete && (
               <Popconfirm
                 title={`确定删除选中的 ${selectedRowKeys.length} 个角色？`}
