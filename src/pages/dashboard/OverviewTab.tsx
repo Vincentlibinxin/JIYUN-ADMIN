@@ -1,9 +1,9 @@
 import React from 'react';
-import { Row, Col, Card, Statistic, Tag, Progress, Typography, Space } from 'antd';
+import { Row, Col, Card, Statistic, Tag, Typography } from 'antd';
 import { UserOutlined, FileTextOutlined, InboxOutlined, CheckCircleOutlined, ArrowUpOutlined } from '@ant-design/icons';
 import { useI18n } from '../../lib/i18n';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface Stats {
   totalUsers: number;
@@ -19,7 +19,7 @@ export default function OverviewTab({ stats }: OverviewTabProps) {
   const { t } = useI18n();
 
   return (
-    <div style={{ padding: '16px' }}>
+    <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 180px)' }}>
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={8}>
           <Card bordered={false} hoverable>
@@ -64,56 +64,37 @@ export default function OverviewTab({ stats }: OverviewTabProps) {
         </Col>
       </Row>
 
-      <Row gutter={[16, 16]} style={{ marginTop: '16px' }}>
-        {/* 系統狀態 */}
-        <Col xs={24} md={12}>
-          <Card title={t('dashboard.systemStatus') || '系統狀態'} bordered={false} style={{ height: '100%' }}>
-            <Space direction="vertical" style={{ width: '100%' }} size="large">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#f5f5f5', borderRadius: '4px' }}>
+      {/* 系統狀態放在首頁底部，橫向排开 */}
+      <div style={{ marginTop: 'auto', paddingTop: '24px' }}>
+        <Card title={t('dashboard.systemStatus') || '系統狀態'} bordered={false}>
+          <Row gutter={[16, 16]}>
+            <Col xs={24} sm={8}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#f5f5f5', borderRadius: '8px' }}>
                 <Text strong>{t('dashboard.apiServer') || 'API 伺服器'}</Text>
-                <Tag icon={<CheckCircleOutlined />} color="success">
+                <Tag icon={<CheckCircleOutlined />} color="success" style={{ margin: 0, padding: '2px 8px' }}>
                   {t('dashboard.operatingNormally') || '正常運作'}
                 </Tag>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#f5f5f5', borderRadius: '4px' }}>
+            </Col>
+            <Col xs={24} sm={8}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#f5f5f5', borderRadius: '8px' }}>
                 <Text strong>{t('dashboard.dbConnection') || '資料庫連線'}</Text>
-                <Tag icon={<CheckCircleOutlined />} color="success">
+                <Tag icon={<CheckCircleOutlined />} color="success" style={{ margin: 0, padding: '2px 8px' }}>
                   {t('dashboard.operatingNormally') || '正常運作'}
                 </Tag>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#f5f5f5', borderRadius: '4px' }}>
+            </Col>
+            <Col xs={24} sm={8}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#f5f5f5', borderRadius: '8px' }}>
                 <Text strong>{t('dashboard.appStatus') || '應用狀態'}</Text>
-                <Tag icon={<CheckCircleOutlined />} color="success">
+                <Tag icon={<CheckCircleOutlined />} color="success" style={{ margin: 0, padding: '2px 8px' }}>
                   {t('dashboard.running') || '運作中'}
                 </Tag>
               </div>
-            </Space>
-          </Card>
-        </Col>
-
-        {/* 快速統計 */}
-        <Col xs={24} md={12}>
-          <Card title={t('dashboard.quickStats') || '快速概覽統計'} bordered={false} style={{ height: '100%' }}>
-            <Space direction="vertical" style={{ width: '100%' }} size="middle">
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <Text>{t('dashboard.newUsersToday') || '今日新增會員'}</Text>
-                  <Text strong style={{ color: '#1677ff' }}>+{Math.floor(stats.totalUsers * 0.15)}</Text>
-                </div>
-                <Progress percent={45} status="active" />
-              </div>
-              
-              <div style={{ marginTop: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <Text>{t('dashboard.newOrdersToday') || '今日新增訂單'}</Text>
-                  <Text strong style={{ color: '#52c41a' }}>+{Math.floor(stats.totalOrders * 0.2)}</Text>
-                </div>
-                <Progress percent={65} status="active" strokeColor="#52c41a" />
-              </div>
-            </Space>
-          </Card>
-        </Col>
-      </Row>
+            </Col>
+          </Row>
+        </Card>
+      </div>
     </div>
   );
 }
