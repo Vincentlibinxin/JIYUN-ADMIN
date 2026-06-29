@@ -1,7 +1,7 @@
 ﻿import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
-import { ALL_PERMISSION_CODES, DEFAULT_ROLE_PERMISSIONS, type PermissionCode } from './permissions';
+import { ALL_PERMISSION_CODES, DEFAULT_ROLE_PERMISSIONS, LOGISTICS_ALLOWED_PERMISSIONS, PERMISSIONS, type PermissionCode } from './permissions';
 
 dotenv.config({ path: '.env.api' });
 dotenv.config();
@@ -249,6 +249,7 @@ export const initDb = async (): Promise<void> => {
         role_logistics_provider_id INT DEFAULT NULL,
         logistics_provider_id INT DEFAULT NULL,
         status VARCHAR(32) DEFAULT 'active',
+        is_system TINYINT(1) NOT NULL DEFAULT 0,
         last_login DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -271,6 +272,9 @@ export const initDb = async (): Promise<void> => {
     }
     if (!existingAdminUserCols.has('logistics_provider_id')) {
       await connection.execute(`ALTER TABLE admin_users ADD COLUMN logistics_provider_id INT DEFAULT NULL AFTER role_logistics_provider_id`);
+    }
+    if (!existingAdminUserCols.has('is_system')) {
+      await connection.execute(`ALTER TABLE admin_users ADD COLUMN is_system TINYINT(1) NOT NULL DEFAULT 0 AFTER status`);
     }
     const [adminUserIndexes] = await connection.execute<mysql.RowDataPacket[]>(
       `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'admin_users'`
@@ -599,9 +603,12 @@ export const initDb = async (): Promise<void> => {
         }
       }
 
-      // 幂等回填：确保内置 admin 角色拥有「角色管理」权限（role.*）。
+      // 幂等回填：确保内置 admin 角色拥有「角色管理」权限（平台角色 + 物流商角色）。
       // 现有库 admin 已有权限记录，上面的播种会因 count>0 跳过，故此处单独补齐。
-      const ROLE_MANAGEMENT_CODES = ['role.view', 'role.create', 'role.update', 'role.delete'];
+      const ROLE_MANAGEMENT_CODES = [
+        'role.platform.view', 'role.platform.create', 'role.platform.update', 'role.platform.delete',
+        'role.logistics.view', 'role.logistics.create', 'role.logistics.update', 'role.logistics.delete',
+      ];
       const adminRoleRow = await querySingle<{ id: number }>(
         'SELECT id FROM admin_roles WHERE code = ? AND scope = ? AND logistics_provider_id <=> ? LIMIT 1',
         ['admin', 'platform', null]
@@ -614,6 +621,19 @@ export const initDb = async (): Promise<void> => {
             [adminRoleId, 'admin', permissionCode]
           );
         }
+      }
+
+      // 迁移清理：删除已废弃的旧角色管理权限码（role.* 已拆分为 role.platform.* / role.logistics.*）。
+      await connection.execute(
+        "DELETE FROM admin_role_permissions WHERE permission_code IN ('role.view', 'role.create', 'role.update', 'role.delete')"
+      );
+
+      // 回填：为所有现有物流商补齐【初始角色】与【初始管理员账号】（幂等）。
+      const [providerRows] = await connection.execute<mysql.RowDataPacket[]>(
+        'SELECT id, code, name FROM logistics_providers WHERE deleted_at IS NULL'
+      );
+      for (const provider of providerRows as any[]) {
+        await ensureLogisticsInitialAccess({ id: provider.id, code: provider.code, name: provider.name });
       }
   } finally {
     connection.release();
@@ -952,7 +972,8 @@ export const getUsersPaged = async (
   sortKey?: string,
   sortOrder?: string,
   columnFilters?: Record<string, string>,
-  dateFilters?: Record<string, [string, string]>
+  dateFilters?: Record<string, [string, string]>,
+  logisticsProviderId?: number | null
 ) => {
   const orderBy = `u.${toSafeOrderBy(sortKey, sortOrder, USERS_SORT_COLUMNS, 'created_at')}`;
 
@@ -970,6 +991,10 @@ export const getUsersPaged = async (
   if (logisticsFilter) {
     allClauses.push(`CAST(lp.name AS CHAR) LIKE ?`);
     params.push(`%${logisticsFilter.trim()}%`);
+  }
+  if (logisticsProviderId !== undefined && logisticsProviderId !== null) {
+    allClauses.push('u.logistics_provider_id = ?');
+    params.push(logisticsProviderId);
   }
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
 
@@ -1004,9 +1029,11 @@ export const getUsersPaged = async (
   };
 };
 
-export const searchUsersPaged = async (keyword: string, page: number, limit: number, sortKey?: string, sortOrder?: string) => {
+export const searchUsersPaged = async (keyword: string, page: number, limit: number, sortKey?: string, sortOrder?: string, logisticsProviderId?: number | null) => {
   const like = `%${keyword}%`;
   const orderBy = `u.${toSafeOrderBy(sortKey, sortOrder, USERS_SORT_COLUMNS, 'created_at')}`;
+  const provClause = (logisticsProviderId !== undefined && logisticsProviderId !== null) ? ' AND u.logistics_provider_id = ?' : '';
+  const provParams: any[] = provClause ? [logisticsProviderId] : [];
   return toPagedResult(
     page,
     limit,
@@ -1017,10 +1044,10 @@ export const searchUsersPaged = async (keyword: string, page: number, limit: num
                 u.created_at, u.updated_at
          FROM users u
          LEFT JOIN logistics_providers lp ON u.logistics_provider_id = lp.id
-         WHERE u.deleted_at IS NULL AND (u.username LIKE ? OR u.phone LIKE ? OR u.email LIKE ? OR u.real_name LIKE ?)
+         WHERE u.deleted_at IS NULL AND (u.username LIKE ? OR u.phone LIKE ? OR u.email LIKE ? OR u.real_name LIKE ?)${provClause}
          ORDER BY ${orderBy}
          LIMIT ${safeLimit} OFFSET ${offset}`,
-        [like, like, like, like]
+        [like, like, like, like, ...provParams]
       );
       return rows as any[];
     },
@@ -1028,8 +1055,8 @@ export const searchUsersPaged = async (keyword: string, page: number, limit: num
       const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
         `SELECT COUNT(*) as count
          FROM users u
-         WHERE u.deleted_at IS NULL AND (u.username LIKE ? OR u.phone LIKE ? OR u.email LIKE ? OR u.real_name LIKE ?)`,
-        [like, like, like, like]
+         WHERE u.deleted_at IS NULL AND (u.username LIKE ? OR u.phone LIKE ? OR u.email LIKE ? OR u.real_name LIKE ?)${provClause}`,
+        [like, like, like, like, ...provParams]
       );
       return Number(countRows?.[0]?.count || 0);
     }
@@ -1082,7 +1109,8 @@ export const getOrdersPaged = async (
   sortKey?: string,
   sortOrder?: string,
   columnFilters?: Record<string, string>,
-  dateFilters?: Record<string, [string, string]>
+  dateFilters?: Record<string, [string, string]>,
+  logisticsProviderId?: number | null
 ) => {
   const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
   const safeLimit = toSafeInt(limit, 10, 1, 500);
@@ -1092,6 +1120,10 @@ export const getOrdersPaged = async (
   const colFilter = buildColumnFilters(cleanedFilters, dateFilters, ORDERS_SORT_COLUMNS);
   const allClauses = [deletedClause, ...dateRange.clauses, ...colFilter.clauses];
   const allParams = [...dateRange.params, ...colFilter.params];
+  if (logisticsProviderId !== undefined && logisticsProviderId !== null) {
+    allClauses.push('user_id IN (SELECT id FROM users WHERE logistics_provider_id = ? AND deleted_at IS NULL)');
+    allParams.push(logisticsProviderId);
+  }
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
   const orderBy = toSafeOrderBy(sortKey, sortOrder, ORDERS_SORT_COLUMNS, 'created_at');
 
@@ -1119,11 +1151,16 @@ export const getOrdersPaged = async (
   };
 };
 
-export const searchOrders = async (keyword: string, startDate?: string, endDate?: string): Promise<any[]> => {
+export const searchOrders = async (keyword: string, startDate?: string, endDate?: string, logisticsProviderId?: number | null): Promise<any[]> => {
   const like = `%${keyword}%`;
   const { clauses, params } = buildCreatedAtFilter(startDate, endDate);
   const keywordClause = '(CAST(id AS CHAR) LIKE ? OR CAST(user_id AS CHAR) LIKE ? OR status LIKE ?)';
   const allClauses = ['deleted_at IS NULL', keywordClause, ...clauses];
+  const provParams: any[] = [];
+  if (logisticsProviderId !== undefined && logisticsProviderId !== null) {
+    allClauses.push('user_id IN (SELECT id FROM users WHERE logistics_provider_id = ? AND deleted_at IS NULL)');
+    provParams.push(logisticsProviderId);
+  }
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
@@ -1131,7 +1168,7 @@ export const searchOrders = async (keyword: string, startDate?: string, endDate?
      FROM orders
      ${whereSql}
      ORDER BY created_at DESC`,
-    [like, like, like, ...params]
+    [like, like, like, ...params, ...provParams]
   );
   return rows as any[];
 };
@@ -1224,7 +1261,8 @@ export const getParcelsPaged = async (
   sortKey?: string,
   sortOrder?: string,
   columnFilters?: Record<string, string>,
-  dateFilters?: Record<string, [string, string]>
+  dateFilters?: Record<string, [string, string]>,
+  logisticsProviderId?: number | null
 ) => {
   const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
   const safeLimit = toSafeInt(limit, 10, 1, 500);
@@ -1279,6 +1317,10 @@ export const getParcelsPaged = async (
     allClauses.push(`CAST(lp.name AS CHAR) LIKE ?`);
     allParams.push(`%${logisticsFilter.trim()}%`);
   }
+  if (logisticsProviderId !== undefined && logisticsProviderId !== null) {
+    allClauses.push('p.logistics_provider_id = ?');
+    allParams.push(logisticsProviderId);
+  }
 
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
   const safeSort = sortKey === PARCELS_USERNAME_COL ? 'u.username' : undefined;
@@ -1327,7 +1369,8 @@ export const getParcelsForExport = async (
   sortKey?: string,
   sortOrder?: string,
   columnFilters?: Record<string, string>,
-  dateFilters?: Record<string, [string, string]>
+  dateFilters?: Record<string, [string, string]>,
+  logisticsProviderId?: number | null
 ) => {
   const parcelColFilters = columnFilters ? { ...columnFilters } : undefined;
   let usernameFilter: string | undefined;
@@ -1368,6 +1411,10 @@ export const getParcelsForExport = async (
     );
     allParams.push(`%${itemsFilter.trim()}%`);
   }
+  if (logisticsProviderId !== undefined && logisticsProviderId !== null) {
+    allClauses.push('p.logistics_provider_id = ?');
+    allParams.push(logisticsProviderId);
+  }
 
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
   const safeSort = sortKey === PARCELS_USERNAME_COL ? 'u.username' : undefined;
@@ -1393,7 +1440,7 @@ export const getParcelsForExport = async (
   return rows as any[];
 };
 
-export const searchParcels = async (keyword: string, startDate?: string, endDate?: string): Promise<any[]> => {
+export const searchParcels = async (keyword: string, startDate?: string, endDate?: string, logisticsProviderId?: number | null): Promise<any[]> => {
   const like = `%${keyword}%`;
   const { clauses, params } = buildCreatedAtFilter(startDate, endDate, 'p.');
   const keywordClause = `(
@@ -1406,6 +1453,11 @@ export const searchParcels = async (keyword: string, startDate?: string, endDate
     OR u.username LIKE ?
   )`;
   const allClauses = ['p.deleted_at IS NULL', keywordClause, ...clauses];
+  const provParams: any[] = [];
+  if (logisticsProviderId !== undefined && logisticsProviderId !== null) {
+    allClauses.push('p.logistics_provider_id = ?');
+    provParams.push(logisticsProviderId);
+  }
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
@@ -1422,7 +1474,7 @@ export const searchParcels = async (keyword: string, startDate?: string, endDate
      LEFT JOIN logistics_providers lp ON p.logistics_provider_id = lp.id
      ${whereSql}
      ORDER BY p.created_at DESC`,
-    [like, like, like, like, like, like, like, ...params]
+    [like, like, like, like, like, like, like, ...params, ...provParams]
   );
   return rows as any[];
 };
@@ -1631,6 +1683,7 @@ export const getStatusLogsPaged = async (
   keyword?: string,
   startDate?: string,
   endDate?: string,
+  logisticsProviderId?: number | null,
 ) => {
   const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
   const safeLimit = toSafeInt(limit, 20, 1, 500);
@@ -1653,6 +1706,10 @@ export const getStatusLogsPaged = async (
   }
   if (startDate) { allClauses.push('psl.created_at >= ?'); allParams.push(startDate); }
   if (endDate) { allClauses.push('psl.created_at <= ?'); allParams.push(endDate + ' 23:59:59'); }
+  if (logisticsProviderId !== undefined && logisticsProviderId !== null) {
+    allClauses.push('p.logistics_provider_id = ?');
+    allParams.push(logisticsProviderId);
+  }
 
   const whereSql = allClauses.length > 0 ? `WHERE ${allClauses.join(' AND ')}` : '';
 
@@ -1695,12 +1752,17 @@ export const getAdminsPaged = async (
   sortKey?: string,
   sortOrder?: string,
   columnFilters?: Record<string, string>,
-  dateFilters?: Record<string, [string, string]>
+  dateFilters?: Record<string, [string, string]>,
+  logisticsProviderId?: number | null
 ) => {
   const orderBy = toSafeOrderBy(sortKey, sortOrder, ADMINS_SORT_COLUMNS, 'created_at');
   const { clause: deletedClause, cleanedFilters } = buildDeletedFilter(columnFilters);
   const { clauses, params } = buildColumnFilters(cleanedFilters, dateFilters, ADMINS_SORT_COLUMNS);
   const allClauses = [deletedClause, ...clauses];
+  if (logisticsProviderId !== undefined && logisticsProviderId !== null) {
+    allClauses.push('logistics_provider_id = ?');
+    params.push(logisticsProviderId);
+  }
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
 
   const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
@@ -1708,7 +1770,7 @@ export const getAdminsPaged = async (
   const offset = (safePage - 1) * safeLimit;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, username, email, role, role_scope, role_logistics_provider_id, logistics_provider_id, status, last_login, created_at, updated_at, deleted_at
+    `SELECT id, username, email, role, role_scope, role_logistics_provider_id, logistics_provider_id, status, is_system, last_login, created_at, updated_at, deleted_at
      FROM admin_users
      ${whereSql}
      ORDER BY ${orderBy}
@@ -1729,10 +1791,12 @@ export const getAdminsPaged = async (
   };
 };
 
-export const searchAdmins = async (keyword: string): Promise<any[]> => {
+export const searchAdmins = async (keyword: string, logisticsProviderId?: number | null): Promise<any[]> => {
   const like = `%${keyword}%`;
+  const provClause = (logisticsProviderId !== undefined && logisticsProviderId !== null) ? ' AND logistics_provider_id = ?' : '';
+  const provParams: any[] = provClause ? [logisticsProviderId] : [];
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, username, email, role, role_scope, role_logistics_provider_id, logistics_provider_id, status, last_login, created_at, updated_at
+    `SELECT id, username, email, role, role_scope, role_logistics_provider_id, logistics_provider_id, status, is_system, last_login, created_at, updated_at
      FROM admin_users
      WHERE deleted_at IS NULL AND (
        CAST(id AS CHAR) LIKE ?
@@ -1743,9 +1807,9 @@ export const searchAdmins = async (keyword: string): Promise<any[]> => {
        OR CAST(role_logistics_provider_id AS CHAR) LIKE ?
        OR CAST(logistics_provider_id AS CHAR) LIKE ?
        OR status LIKE ?
-     )
+     )${provClause}
      ORDER BY created_at DESC`,
-    [like, like, like, like, like, like, like, like]
+    [like, like, like, like, like, like, like, like, ...provParams]
   );
   return rows as any[];
 };
@@ -1863,17 +1927,21 @@ export const deleteAdmin = async (adminId: number): Promise<boolean> => {
   return result.affectedRows > 0;
 };
 
-export const batchDeleteUsers = async (ids: number[]): Promise<number> => {
+export const batchDeleteUsers = async (ids: number[], logisticsProviderId?: number | null): Promise<number> => {
   if (!ids.length) return 0;
   const placeholders = ids.map(() => '?').join(',');
-  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE users SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`, ids);
+  const provClause = (logisticsProviderId !== undefined && logisticsProviderId !== null) ? ' AND logistics_provider_id = ?' : '';
+  const provParams = provClause ? [logisticsProviderId] : [];
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE users SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL${provClause}`, [...ids, ...provParams]);
   return result.affectedRows;
 };
 
-export const batchDeleteOrders = async (ids: number[]): Promise<number> => {
+export const batchDeleteOrders = async (ids: number[], logisticsProviderId?: number | null): Promise<number> => {
   if (!ids.length) return 0;
   const placeholders = ids.map(() => '?').join(',');
-  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE orders SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`, ids);
+  const provClause = (logisticsProviderId !== undefined && logisticsProviderId !== null) ? ' AND user_id IN (SELECT id FROM users WHERE logistics_provider_id = ?)' : '';
+  const provParams = provClause ? [logisticsProviderId] : [];
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE orders SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL${provClause}`, [...ids, ...provParams]);
   return result.affectedRows;
 };
 
@@ -1884,18 +1952,48 @@ export const batchDeleteSms = async (ids: number[]): Promise<number> => {
   return result.affectedRows;
 };
 
-export const batchDeleteParcels = async (ids: number[]): Promise<number> => {
+export const batchDeleteParcels = async (ids: number[], logisticsProviderId?: number | null): Promise<number> => {
   if (!ids.length) return 0;
   const placeholders = ids.map(() => '?').join(',');
-  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE parcels SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`, ids);
+  const provClause = (logisticsProviderId !== undefined && logisticsProviderId !== null) ? ' AND logistics_provider_id = ?' : '';
+  const provParams = provClause ? [logisticsProviderId] : [];
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE parcels SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL${provClause}`, [...ids, ...provParams]);
   return result.affectedRows;
 };
 
-export const batchDeleteAdmins = async (ids: number[]): Promise<number> => {
+export const batchDeleteAdmins = async (ids: number[], logisticsProviderId?: number | null): Promise<number> => {
   if (!ids.length) return 0;
   const placeholders = ids.map(() => '?').join(',');
-  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE admin_users SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`, ids);
+  const provClause = (logisticsProviderId !== undefined && logisticsProviderId !== null) ? ' AND logistics_provider_id = ?' : '';
+  const provParams = provClause ? [logisticsProviderId] : [];
+  // 初始管理员账号（is_system=1）不可删除
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE admin_users SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL AND is_system = 0${provClause}`, [...ids, ...provParams]);
   return result.affectedRows;
+};
+
+// 资源归属查询：返回资源所属物流商ID；记录不存在返回 undefined，未绑定物流商返回 null
+export const getParcelOwnerProviderId = async (parcelId: number): Promise<number | null | undefined> => {
+  const row = await querySingle<{ logistics_provider_id: number | null }>(
+    'SELECT logistics_provider_id FROM parcels WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+    [parcelId]
+  );
+  return row ? (row.logistics_provider_id ?? null) : undefined;
+};
+
+export const getUserOwnerProviderId = async (userId: number): Promise<number | null | undefined> => {
+  const row = await querySingle<{ logistics_provider_id: number | null }>(
+    'SELECT logistics_provider_id FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+    [userId]
+  );
+  return row ? (row.logistics_provider_id ?? null) : undefined;
+};
+
+export const getOrderOwnerProviderId = async (orderId: number): Promise<number | null | undefined> => {
+  const row = await querySingle<{ logistics_provider_id: number | null }>(
+    'SELECT u.logistics_provider_id FROM orders o LEFT JOIN users u ON o.user_id = u.id WHERE o.id = ? AND o.deleted_at IS NULL LIMIT 1',
+    [orderId]
+  );
+  return row ? (row.logistics_provider_id ?? null) : undefined;
 };
 
 const LOGISTICS_SORT_COLUMNS = new Set(['id', 'name', 'code', 'contact_name', 'contact_phone', 'email', 'website', 'status', 'created_at']);
@@ -1994,6 +2092,73 @@ export const createLogisticsProvider = async (payload: {
     ]
   );
   return { id: result.insertId, ...payload, status };
+};
+
+export const getLogisticsProviderByCode = async (code: string): Promise<{ id: number; name: string; code: string | null } | null> => {
+  const normalized = String(code || '').trim().toLowerCase();
+  if (!normalized) return null;
+  return querySingle<{ id: number; name: string; code: string | null }>(
+    `SELECT id, name, code FROM logistics_providers WHERE LOWER(code) = ? AND deleted_at IS NULL LIMIT 1`,
+    [normalized]
+  );
+};
+
+/**
+ * 为指定物流商补齐【初始角色】与【初始管理员账号】（幂等，可重复调用）。
+ * - 初始角色：name="Admin"，code="admin"，scope="logistics"，is_system=1（不可删除）
+ * - 初始管理员账号：username=admin@<物流商代号>，初始密码 88888888，is_system=1（不可删除）
+ */
+export const ensureLogisticsInitialAccess = async (provider: { id: number; code?: string | null; name?: string | null }): Promise<void> => {
+  const providerId = Number(provider.id);
+  if (!Number.isInteger(providerId) || providerId <= 0) return;
+
+  const normalizedCode = String(provider.code || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const codeForUser = normalizedCode || `lp${providerId}`;
+
+  // 1) 初始角色 Admin / admin（物流商作用域）
+  const existingRole = await querySingle<{ id: number }>(
+    `SELECT id FROM admin_roles WHERE code = ? AND scope = ? AND logistics_provider_id <=> ? LIMIT 1`,
+    ['admin', 'logistics', providerId]
+  );
+  let roleId = Number(existingRole?.id || 0);
+  if (!roleId) {
+    const [inserted] = await pool.execute<mysql.ResultSetHeader>(
+      `INSERT INTO admin_roles (code, name, scope, logistics_provider_id, is_system) VALUES (?, ?, ?, ?, 1)`,
+      ['admin', 'Admin', 'logistics', providerId]
+    );
+    roleId = inserted.insertId;
+    for (const permissionCode of LOGISTICS_ALLOWED_PERMISSIONS) {
+      await pool.execute(
+        `INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)`,
+        [roleId, 'admin', permissionCode]
+      );
+    }
+  } else {
+    // 确保 is_system 标记存在（旧数据补标记，防止被删除）
+    await pool.execute(`UPDATE admin_roles SET is_system = 1 WHERE id = ?`, [roleId]);
+    // 旧物流商角色补发「概览首页」权限（该权限为新增项，历史角色尚未拥有）
+    await pool.execute(
+      `INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)`,
+      [roleId, 'admin', PERMISSIONS.OVERVIEW_VIEW]
+    );
+  }
+
+  // 2) 初始管理员账号 admin@<代号>
+  const username = `admin@${codeForUser}`;
+  const existingAdmin = await querySingle<{ id: number }>(
+    `SELECT id FROM admin_users WHERE username = ? LIMIT 1`,
+    [username]
+  );
+  if (!existingAdmin) {
+    const hashed = await bcrypt.hash('88888888', 10);
+    await pool.execute(
+      `INSERT INTO admin_users (username, password, email, role, role_scope, role_logistics_provider_id, logistics_provider_id, status, is_system)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      [username, hashed, `${username}.local`, 'admin', 'logistics', providerId, providerId, 'active']
+    );
+  } else {
+    await pool.execute(`UPDATE admin_users SET is_system = 1 WHERE id = ?`, [existingAdmin.id]);
+  }
 };
 
 export const updateLogisticsProvider = async (id: number, payload: {

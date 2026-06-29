@@ -577,7 +577,7 @@ export default function LogisticsTab({
 
   return (
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+      <div style={{ padding: '6px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
         <div style={{ flex: '0 0 auto', display: 'flex', gap: 8 }}>
           {canManage && (
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
@@ -691,8 +691,16 @@ export default function LogisticsTab({
           >
             <Input placeholder="请输入物流商名称" maxLength={128} />
           </Form.Item>
-          <Form.Item name="code" label="代号/编码">
-            <Input placeholder="请输入代号或编码" maxLength={64} />
+          <Form.Item
+            name="code"
+            label="代号/编码"
+            rules={modalMode === 'create' ? [
+              { required: true, message: '请输入物流商代号' },
+              { pattern: /^[a-z][a-z0-9]*$/, message: '以小写字母开头，仅含小写字母或数字' },
+            ] : []}
+            extra={modalMode === 'create' ? '将用于生成初始管理员账号 admin@代号（初始密码 88888888）' : undefined}
+          >
+            <Input placeholder="如 haoyun，将生成 admin@haoyun" maxLength={64} disabled={modalMode === 'edit'} />
           </Form.Item>
           <Form.Item name="contact_name" label="联系人">
             <Input placeholder="请输入联系人" maxLength={64} />

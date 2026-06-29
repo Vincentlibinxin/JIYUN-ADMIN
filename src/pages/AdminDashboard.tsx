@@ -1,6 +1,6 @@
 ﻿import AdminLayout from '../app/layouts/AdminLayout';
 import { useState, useEffect } from 'react';
-import { message } from 'antd';
+import { message, Tabs } from 'antd';
 import { Home, Users, User, ShoppingCart, MessageCircle, Package, ClipboardList, Shield } from 'lucide-react';
 
 import { adminFetch } from '../lib/api';
@@ -168,6 +168,49 @@ export default function AdminDashboard() {
   const [adminDateFilters, setAdminDateFilters] = useState<Record<string, [string, string]>>({});
   const [logisticsColumnFilters, setLogisticsColumnFilters] = useState<Record<string, string>>({});
   const [logisticsDateFilters, setLogisticsDateFilters] = useState<Record<string, [string, string]>>({});
+
+  const hasAdminView = hasPermission(PERMISSIONS.ADMIN_VIEW);
+  const hasPlatformRoleView = hasPermission(PERMISSIONS.ROLE_PLATFORM_VIEW);
+  const hasLogisticsRoleView = hasPermission(PERMISSIONS.ROLE_LOGISTICS_VIEW);
+  const systemAdminTabs = [
+    hasAdminView ? { key: 'admins', label: '管理员' } : null,
+    hasPlatformRoleView ? { key: 'platform-permissions', label: '平台权限' } : null,
+    hasLogisticsRoleView ? { key: 'logistics-permissions', label: '物流商权限' } : null,
+  ].filter(Boolean) as Array<{ key: string; label: string }>;
+
+  const handleMenuClick = (key: string) => {
+    if (key === 'admins') {
+      const nextTab = systemAdminTabs[0]?.key ?? 'admins';
+      setActiveMenu('admins');
+      setActiveTab(nextTab);
+      return;
+    }
+    setActiveMenu(key);
+    setActiveTab(key);
+  };
+
+  // 计算登录后默认落地页：物流商等无「概览」权限的账号不显示首页，跳转到第一个可访问页面
+  const resolveLandingTab = (): { menu: string; tab: string } => {
+    if (hasPermission(PERMISSIONS.OVERVIEW_VIEW)) return { menu: 'overview', tab: 'overview' };
+    if (hasPermission(PERMISSIONS.PARCEL_VIEW)) return { menu: 'parcels', tab: 'parcels' };
+    if (hasPermission(PERMISSIONS.ORDER_VIEW)) return { menu: 'orders', tab: 'orders' };
+    if (hasPermission(PERMISSIONS.SMS_VIEW)) return { menu: 'sms', tab: 'sms' };
+    if (hasPermission(PERMISSIONS.LOGISTICS_VIEW)) return { menu: 'logistics', tab: 'logistics' };
+    if (hasPermission(PERMISSIONS.USER_VIEW)) return { menu: 'users', tab: 'users' };
+    if (systemAdminTabs.length > 0) return { menu: 'admins', tab: systemAdminTabs[0].key };
+    return { menu: 'overview', tab: 'overview' };
+  };
+
+  useEffect(() => {
+    if (authLoading || !adminUser) return;
+    // 当前停留在无权限的概览页时，自动切换到第一个可访问页面
+    if (activeTab === 'overview' && !hasPermission(PERMISSIONS.OVERVIEW_VIEW)) {
+      const landing = resolveLandingTab();
+      setActiveMenu(landing.menu);
+      setActiveTab(landing.tab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, adminUser]);
 
   const ensureAuthorized = (response: Response): boolean => {
     if (response.status === 401) {
@@ -1165,6 +1208,9 @@ export default function AdminDashboard() {
         setAdminDateFilters({});
         fetchAdmins(1, 50, 'created_at', 'desc', {}, {});
         break;
+      case 'platform-permissions':
+      case 'logistics-permissions':
+        break;
       case 'logistics':
         setLogisticsSearchQuery('');
         setLogisticsSort({ key: 'created_at', direction: 'desc' });
@@ -1178,18 +1224,92 @@ export default function AdminDashboard() {
   };
 
   return (
-    <AdminLayout activeMenu={activeMenu} onMenuClick={(key) => { setActiveMenu(key); setActiveTab(key); }} onRefresh={handleRefresh}>
+    <AdminLayout activeMenu={activeMenu} onMenuClick={handleMenuClick} onRefresh={handleRefresh}>
           {messageContextHolder}
           <div key={refreshKey} style={{ display: 'contents' }}>
 
-          {/* 系统管理权限（角色 CRUD）页面 */}
-          {activeTab === 'system-admin-permissions' && (
-            <RolesTab
-              canCreate={hasPermission(PERMISSIONS.ROLE_CREATE)}
-              canUpdate={hasPermission(PERMISSIONS.ROLE_UPDATE)}
-              canDelete={hasPermission(PERMISSIONS.ROLE_DELETE)}
-              refreshKey={refreshKey}
-            />
+          {(activeTab === 'admins' || activeTab === 'platform-permissions' || activeTab === 'logistics-permissions') && (
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+              <div
+                style={{
+                  padding: '8px 12px 0',
+                  borderBottom: '1px solid #eef2f6',
+                  background: '#f8fafc',
+                  flexShrink: 0,
+                }}
+              >
+                <Tabs
+                  activeKey={activeTab}
+                  size="small"
+                  items={systemAdminTabs}
+                  onChange={(key) => {
+                    setActiveMenu('admins');
+                    setActiveTab(key);
+                  }}
+                  tabBarStyle={{ margin: 0, padding: '0 4px' }}
+                />
+              </div>
+
+              <div style={{ flex: 1, minHeight: 0 }}>
+                {activeTab === 'platform-permissions' && (
+                  <RolesTab
+                    scope="platform"
+                    canCreate={hasPermission(PERMISSIONS.ROLE_PLATFORM_CREATE)}
+                    canUpdate={hasPermission(PERMISSIONS.ROLE_PLATFORM_UPDATE)}
+                    canDelete={hasPermission(PERMISSIONS.ROLE_PLATFORM_DELETE)}
+                    refreshKey={refreshKey}
+                  />
+                )}
+
+                {activeTab === 'logistics-permissions' && (
+                  <RolesTab
+                    scope="logistics"
+                    canCreate={hasPermission(PERMISSIONS.ROLE_LOGISTICS_CREATE)}
+                    canUpdate={hasPermission(PERMISSIONS.ROLE_LOGISTICS_UPDATE)}
+                    canDelete={hasPermission(PERMISSIONS.ROLE_LOGISTICS_DELETE)}
+                    refreshKey={refreshKey}
+                  />
+                )}
+
+                {activeTab === 'admins' && (
+                  <AdminsTab
+                    admins={admins}
+                    loading={adminsLoading}
+                    searchQuery={adminSearchQuery}
+                    onSearchQueryChange={setAdminSearchQuery}
+                    onSearch={searchAdmins}
+                    onReset={resetAdminSearch}
+                    currentPage={adminPage}
+                    pageSize={adminPageSize}
+                    totalItems={adminTotalItems}
+                    onPageChange={fetchAdmins}
+                    onPageSizeChange={handleAdminPageSizeChange}
+                    sortKey={adminSort.key}
+                    sortDirection={adminSort.direction}
+                    onSortChange={(key, direction) => {
+                      setAdminSort({ key, direction });
+                      fetchAdmins(adminPage, adminPageSize, key, direction);
+                    }}
+                    onCreate={createAdminUser}
+                    onUpdate={updateAdminAccount}
+                    onToggleStatus={updateAdminAccountStatus}
+                    onDelete={deleteAdminUser}
+                    onBatchDelete={batchDeleteAdminUsers}
+                    canManage={hasPermission(PERMISSIONS.ADMIN_CREATE)}
+                    canDelete={hasPermission(PERMISSIONS.ADMIN_DELETE)}
+                    canUpdate={hasPermission(PERMISSIONS.ADMIN_UPDATE)}
+                    canUpdateStatus={hasPermission(PERMISSIONS.ADMIN_UPDATE_STATUS)}
+                    currentAdminId={adminUser?.id}
+                    refreshKey={refreshKey}
+                    onColumnFilterChange={(cf, df) => {
+                      setAdminColumnFilters(cf);
+                      setAdminDateFilters(df);
+                      fetchAdmins(1, adminPageSize, adminSort.key, adminSort.direction, cf, df);
+                    }}
+                  />
+                )}
+              </div>
+            </div>
           )}
 
           {/* 概覽頁面 */}
@@ -1343,45 +1463,6 @@ export default function AdminDashboard() {
                 setParcelColumnFilters(cf);
                 setParcelDateFilters(df);
                 fetchParcels(1, parcelPageSize, parcelStartDate, parcelEndDate, parcelSort.key, parcelSort.direction, cf, df);
-              }}
-            />
-          )}
-
-          {/* 管理員頁面 */}
-          {activeTab === 'admins' && (
-            <AdminsTab
-              admins={admins}
-              loading={adminsLoading}
-              searchQuery={adminSearchQuery}
-              onSearchQueryChange={setAdminSearchQuery}
-              onSearch={searchAdmins}
-              onReset={resetAdminSearch}
-              currentPage={adminPage}
-              pageSize={adminPageSize}
-              totalItems={adminTotalItems}
-              onPageChange={fetchAdmins}
-              onPageSizeChange={handleAdminPageSizeChange}
-              sortKey={adminSort.key}
-              sortDirection={adminSort.direction}
-              onSortChange={(key, direction) => {
-                setAdminSort({ key, direction });
-                fetchAdmins(adminPage, adminPageSize, key, direction);
-              }}
-              onCreate={createAdminUser}
-              onUpdate={updateAdminAccount}
-              onToggleStatus={updateAdminAccountStatus}
-              onDelete={deleteAdminUser}
-              onBatchDelete={batchDeleteAdminUsers}
-              canManage={hasPermission(PERMISSIONS.ADMIN_CREATE)}
-              canDelete={hasPermission(PERMISSIONS.ADMIN_DELETE)}
-              canUpdate={hasPermission(PERMISSIONS.ADMIN_UPDATE)}
-              canUpdateStatus={hasPermission(PERMISSIONS.ADMIN_UPDATE_STATUS)}
-              currentAdminId={adminUser?.id}
-              refreshKey={refreshKey}
-              onColumnFilterChange={(cf, df) => {
-                setAdminColumnFilters(cf);
-                setAdminDateFilters(df);
-                fetchAdmins(1, adminPageSize, adminSort.key, adminSort.direction, cf, df);
               }}
             />
           )}

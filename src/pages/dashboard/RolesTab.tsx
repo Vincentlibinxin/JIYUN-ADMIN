@@ -25,9 +25,19 @@ interface RolesTabProps {
   canUpdate?: boolean;
   canDelete?: boolean;
   refreshKey?: number;
+  scope?: 'platform' | 'logistics';
 }
 
+// 物流商权限可配置的权限分组（其余分组仅平台角色可配置）
+const LOGISTICS_GROUP_NAMES = ['概览', '系统管理员', '会员', '包裹', '订单', '物流商角色'];
+
 const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; label: string }> }> = [
+  {
+    group: '概览',
+    items: [
+      { code: PERMISSIONS.OVERVIEW_VIEW, label: '查看概览' },
+    ],
+  },
   {
     group: '系统管理员',
     items: [
@@ -39,12 +49,21 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
     ],
   },
   {
-    group: '角色管理',
+    group: '平台角色',
     items: [
-      { code: PERMISSIONS.ROLE_VIEW, label: '查看角色' },
-      { code: PERMISSIONS.ROLE_CREATE, label: '新增角色' },
-      { code: PERMISSIONS.ROLE_UPDATE, label: '修改角色' },
-      { code: PERMISSIONS.ROLE_DELETE, label: '删除角色' },
+      { code: PERMISSIONS.ROLE_PLATFORM_VIEW, label: '查看平台角色' },
+      { code: PERMISSIONS.ROLE_PLATFORM_CREATE, label: '新增平台角色' },
+      { code: PERMISSIONS.ROLE_PLATFORM_UPDATE, label: '修改平台角色' },
+      { code: PERMISSIONS.ROLE_PLATFORM_DELETE, label: '删除平台角色' },
+    ],
+  },
+  {
+    group: '物流商角色',
+    items: [
+      { code: PERMISSIONS.ROLE_LOGISTICS_VIEW, label: '查看物流商角色' },
+      { code: PERMISSIONS.ROLE_LOGISTICS_CREATE, label: '新增物流商角色' },
+      { code: PERMISSIONS.ROLE_LOGISTICS_UPDATE, label: '修改物流商角色' },
+      { code: PERMISSIONS.ROLE_LOGISTICS_DELETE, label: '删除物流商角色' },
     ],
   },
   {
@@ -89,14 +108,18 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
       { code: PERMISSIONS.SMS_VIEW, label: '查看短信记录' },
       { code: PERMISSIONS.SMS_DELETE, label: '删除短信记录' },
       { code: PERMISSIONS.AUDIT_VIEW, label: '查看审计日志' },
-      { code: PERMISSIONS.OVERVIEW_VIEW, label: '查看概览' },
     ],
   },
 ];
 
 const ALL_PERMISSION_CODES = PERMISSION_GROUPS.flatMap((g) => g.items.map((i) => i.code));
 
-export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }: RolesTabProps) {
+export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, scope = 'platform' }: RolesTabProps) {
+  const visibleGroups = useMemo(
+    () => (scope === 'logistics' ? PERMISSION_GROUPS.filter((g) => LOGISTICS_GROUP_NAMES.includes(g.group)) : PERMISSION_GROUPS),
+    [scope]
+  );
+  const scopedAllCodes = useMemo(() => visibleGroups.flatMap((g) => g.items.map((i) => i.code)), [visibleGroups]);
   const [roles, setRoles] = useState<RoleItem[]>([]);
   const [logisticsOptions, setLogisticsOptions] = useState<LogisticsOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -182,7 +205,6 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
     setModalMode('create');
     setEditingRole(null);
     form.setFieldsValue({
-      scope: 'platform',
       logistics_provider_id: null,
       name: undefined,
       code: undefined,
@@ -197,7 +219,6 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
     form.setFieldsValue({
       name: role.name,
       code: role.code,
-      scope: role.scope,
       logistics_provider_id: role.logistics_provider_id,
     });
     setSelectedPermissions(role.code === 'super_admin' ? [...ALL_PERMISSION_CODES] : [...role.permissions]);
@@ -224,9 +245,9 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
           body: JSON.stringify({
             code: String(values.code || '').trim().toLowerCase(),
             name: String(values.name || '').trim(),
-            scope: values.scope === 'logistics' ? 'logistics' : 'platform',
+            scope: scope === 'logistics' ? 'logistics' : 'platform',
             logistics_provider_id:
-              values.scope === 'logistics'
+              scope === 'logistics'
                 ? (values.logistics_provider_id ? Number(values.logistics_provider_id) : null)
                 : null,
             permissions: selectedPermissions,
@@ -312,6 +333,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
     const codeKw = (columnFilters['code'] || '').toLowerCase();
     const adminKw = (columnFilters['admin_count'] || '').toLowerCase();
     const list = roles.filter((r) => {
+      if (r.scope !== scope) return false;
       if (kw && !r.name.toLowerCase().includes(kw) && !r.code.toLowerCase().includes(kw)) return false;
       if (nameKw && !r.name.toLowerCase().includes(nameKw)) return false;
       if (codeKw && !r.code.toLowerCase().includes(codeKw)) return false;
@@ -324,8 +346,8 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
         let va: number | string;
         let vb: number | string;
         if (sortKey === 'permission_count') {
-          va = a.code === 'super_admin' ? ALL_PERMISSION_CODES.length : a.permissions.length;
-          vb = b.code === 'super_admin' ? ALL_PERMISSION_CODES.length : b.permissions.length;
+          va = a.code === 'super_admin' ? scopedAllCodes.length : a.permissions.length;
+          vb = b.code === 'super_admin' ? scopedAllCodes.length : b.permissions.length;
         } else if (sortKey === 'admin_count') {
           va = a.admin_count;
           vb = b.admin_count;
@@ -338,7 +360,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
       });
     }
     return list;
-  }, [roles, searchQuery, columnFilters, sortKey, sortDirection]);
+  }, [roles, scope, scopedAllCodes, searchQuery, columnFilters, sortKey, sortDirection]);
 
   const pagedRoles = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -469,37 +491,26 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
         },
       ],
     },
-    {
-      title: '作用域',
-      key: 'scope',
-      width: 120,
-      children: [
-        {
-          title: <span style={{ fontSize: 12, color: '#999' }}>作用域</span>,
-          key: 'scope_child',
-          width: 120,
-          render: (_, record) =>
-            record.scope === 'logistics' ? <Tag color="orange">物流商</Tag> : <Tag color="default">平台</Tag>,
-        },
-      ],
-    },
-    {
-      title: '归属物流商',
-      key: 'logistics_provider_id',
-      width: 170,
-      children: [
-        {
-          title: <span style={{ fontSize: 12, color: '#999' }}>归属物流商</span>,
-          key: 'logistics_provider_child',
-          width: 170,
-          render: (_, record) => {
-            if (record.scope !== 'logistics') return <span style={{ color: '#999' }}>-</span>;
-            const provider = logisticsOptions.find((item) => item.id === record.logistics_provider_id);
-            return <span>{provider?.name || `ID: ${record.logistics_provider_id ?? '-'}`}</span>;
+    ...(scope === 'logistics'
+      ? ([
+          {
+            title: '归属物流商',
+            key: 'logistics_provider_id',
+            width: 170,
+            children: [
+              {
+                title: <span style={{ fontSize: 12, color: '#999' }}>归属物流商</span>,
+                key: 'logistics_provider_child',
+                width: 170,
+                render: (_, record) => {
+                  const provider = logisticsOptions.find((item) => item.id === record.logistics_provider_id);
+                  return <span>{provider?.name || `ID: ${record.logistics_provider_id ?? '-'}`}</span>;
+                },
+              },
+            ],
           },
-        },
-      ],
-    },
+        ] as ColumnsType<RoleItem>)
+      : []),
     {
       title: '关联管理员',
       key: 'admin_count',
@@ -528,8 +539,8 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
           width: 140,
           render: (_, record) =>
             record.code === 'super_admin'
-              ? `全部（${ALL_PERMISSION_CODES.length}）`
-              : `${record.permissions.length} / ${ALL_PERMISSION_CODES.length}`,
+              ? `全部（${scopedAllCodes.length}）`
+              : `${record.permissions.length} / ${scopedAllCodes.length}`,
         },
       ],
     },
@@ -590,7 +601,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
   return (
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
       {messageContextHolder}
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+      <div style={{ padding: '6px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
         <div style={{ flex: '0 0 auto' }}>
           <Space>
             {canDelete && (
@@ -731,38 +742,19 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
           >
             <Input placeholder="如：warehouse_admin" disabled={modalMode === 'edit'} />
           </Form.Item>
-          <Form.Item
-            label="角色作用域"
-            name="scope"
-            rules={[{ required: true, message: '请选择角色作用域' }]}
-          >
-            <Select
-              disabled={modalMode === 'edit'}
-              options={[
-                { value: 'platform', label: '平台角色' },
-                { value: 'logistics', label: '物流商角色' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.scope !== cur.scope}>
-            {({ getFieldValue }) => {
-              const scope = getFieldValue('scope');
-              if (scope !== 'logistics') return null;
-              return (
-                <Form.Item
-                  label="归属物流商"
-                  name="logistics_provider_id"
-                  rules={[{ required: true, message: '请选择归属物流商' }]}
-                >
-                  <Select
-                    placeholder="请选择物流商"
-                    disabled={modalMode === 'edit'}
-                    options={logisticsOptions.map((item) => ({ value: item.id, label: item.name }))}
-                  />
-                </Form.Item>
-              );
-            }}
-          </Form.Item>
+          {scope === 'logistics' && (
+            <Form.Item
+              label="归属物流商"
+              name="logistics_provider_id"
+              rules={[{ required: true, message: '请选择归属物流商' }]}
+            >
+              <Select
+                placeholder="请选择物流商"
+                disabled={modalMode === 'edit'}
+                options={logisticsOptions.map((item) => ({ value: item.id, label: item.name }))}
+              />
+            </Form.Item>
+          )}
         </Form>
 
         <div style={{ marginTop: 8 }}>
@@ -771,7 +763,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey }
             {isSuperAdminEditing && <span style={{ color: '#6b7280', fontWeight: 400, marginLeft: 8 }}>超级管理员恒拥有全部权限，不可修改</span>}
           </div>
           <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, maxHeight: 360, overflow: 'auto' }}>
-            {PERMISSION_GROUPS.map((group) => {
+            {visibleGroups.map((group) => {
               const codes = group.items.map((i) => i.code);
               const checkedCount = codes.filter((c) => selectedPermissions.includes(c)).length;
               const allChecked = checkedCount === codes.length;

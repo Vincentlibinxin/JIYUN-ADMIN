@@ -53,13 +53,7 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
   };
 
   const currentLangLabel = langOptions.find((item) => item.key === lang)?.label || 'Language';
-
-  const adminChildren = ([
-    { key: 'admins', icon: <SafetyCertificateOutlined />, label: t('menu.adminManage'), perm: PERMISSIONS.ADMIN_VIEW },
-    { key: 'system-admin-permissions', icon: <SafetyCertificateOutlined />, label: t('menu.adminPermissions'), perm: PERMISSIONS.ROLE_VIEW },
-  ] as Array<{ key: string; icon: React.ReactNode; label: string; perm: PermissionCode }>)
-    .filter((item) => hasPermission(item.perm))
-    .map(({ key, icon, label }) => ({ key, icon, label }));
+  const hasSystemAdminAccess = hasPermission(PERMISSIONS.ADMIN_VIEW) || hasPermission(PERMISSIONS.ROLE_PLATFORM_VIEW) || hasPermission(PERMISSIONS.ROLE_LOGISTICS_VIEW);
 
   const menuItems = ([
     { key: 'overview', icon: <DashboardOutlined />, label: t('menu.overview'), perm: PERMISSIONS.OVERVIEW_VIEW },
@@ -68,10 +62,10 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
     { key: 'sms', icon: <MessageOutlined />, label: t('menu.sms'), perm: PERMISSIONS.SMS_VIEW },
     { key: 'logistics', icon: <CarOutlined />, label: t('menu.logistics'), perm: PERMISSIONS.LOGISTICS_VIEW },
     { key: 'users', icon: <TeamOutlined />, label: t('menu.users'), perm: PERMISSIONS.USER_VIEW },
-    { key: 'admins-group', icon: <SafetyCertificateOutlined />, label: t('menu.admins'), perm: PERMISSIONS.ADMIN_VIEW, children: adminChildren },
-  ] as Array<{ key: string; icon: React.ReactNode; label: string; perm: PermissionCode; children?: Array<{ key: string; icon: React.ReactNode; label: string }> }>)
-    .filter((item) => (item.children ? item.children.length > 0 : hasPermission(item.perm)))
-    .map(({ key, icon, label, children }) => ({ key, icon, label, children }));
+    { key: 'admins', icon: <SafetyCertificateOutlined />, label: t('menu.admins'), perm: null },
+  ] as Array<{ key: string; icon: React.ReactNode; label: string; perm: PermissionCode | null }>)
+    .filter((item) => (item.key === 'admins' ? hasSystemAdminAccess : (item.perm ? hasPermission(item.perm) : false)))
+    .map(({ key, icon, label }) => ({ key, icon, label }));
 
   const findMenuLabel = (items: any[], targetKey: string): string | undefined => {
     for (const item of items) {

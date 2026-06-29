@@ -16,6 +16,7 @@ interface AdminUser {
   last_login: string | null;
   created_at: string;
   deleted_at?: string | null;
+  is_system?: number | boolean;
 }
 
 interface LogisticsOption {
@@ -425,7 +426,7 @@ export default function AdminsTab({
   );
 
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
-  const visibleRowIds = admins.map((item) => item.id);
+  const visibleRowIds = admins.filter((item) => !item.is_system).map((item) => item.id);
   const selectedVisibleCount = visibleRowIds.filter((id) => selectedRowKeys.includes(id)).length;
   const allSelected = visibleRowIds.length > 0 && selectedVisibleCount === visibleRowIds.length;
   const indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleRowIds.length;
@@ -472,6 +473,7 @@ export default function AdminsTab({
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '8px' }}>
               <Checkbox
                 checked={selectedRowKeys.includes(record.id)}
+                disabled={Boolean(record.is_system)}
                 onChange={(e) => handleSelectRow(record.id, e.target.checked)}
                 onClick={(e) => e.stopPropagation()}
               />
@@ -612,6 +614,7 @@ export default function AdminsTab({
           align: 'center',
           render: (_, record) => {
             const isSelf = currentAdminId === record.id;
+            const isSystem = Boolean(record.is_system);
             return (
               <Space size={4}>
                 <Tooltip title="查看">
@@ -638,10 +641,10 @@ export default function AdminsTab({
                   okText="删除"
                   cancelText="取消"
                   onConfirm={() => onDelete(record.id)}
-                  disabled={!canDelete || isSelf}
+                  disabled={!canDelete || isSelf || isSystem}
                 >
-                  <Tooltip title="删除">
-                    <Button danger size="small" type="text" icon={<DeleteOutlined />} disabled={!canDelete || isSelf} />
+                  <Tooltip title={isSystem ? '物流商初始管理员账号不可删除' : '删除'}>
+                    <Button danger size="small" type="text" icon={<DeleteOutlined />} disabled={!canDelete || isSelf || isSystem} />
                   </Tooltip>
                 </Popconfirm>
               </Space>
@@ -656,7 +659,7 @@ export default function AdminsTab({
 
   return (
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+      <div style={{ padding: '6px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
         <div style={{ flex: '0 0 auto' }}>
           <Space>
             {canManage && (
