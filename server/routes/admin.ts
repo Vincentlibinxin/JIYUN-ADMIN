@@ -69,6 +69,17 @@ import {
   updateLogisticsProvider,
   deleteLogisticsProvider,
   batchDeleteLogisticsProviders,
+  getParcelStatusesPaged,
+  searchParcelStatuses,
+  getParcelStatusById,
+  getEnabledParcelStatuses,
+  getEnabledParcelStatusCodesByType,
+  findParcelStatusConflict,
+  createParcelStatus,
+  updateParcelStatusDict,
+  deleteParcelStatus,
+  batchDeleteParcelStatuses,
+  PARCEL_STATUS_TYPE_SET,
 } from '../db';
 
 const router = Router();
@@ -130,15 +141,7 @@ if (!JWT_SECRET || JWT_SECRET.length < 32 || JWT_SECRET === 'please-change-this-
 
 const ADMIN_STATUS_SET = new Set(['active', 'disabled']);
 const ORDER_STATUS_SET = new Set(['pending', 'paid', 'processing', 'shipped', 'completed', 'cancelled']);
-const PARCEL_STATUS_SET = new Set(['pending', 'received', 'in_transit', 'arrived', 'pickup_pending', 'delivered', 'exception']);
-const SUB_STATUS_SET = new Set([
-  'awaiting_shelving', 'packing', 'awaiting_dispatch',
-  'export_declaring', 'export_clearing', 'import_clearing', 'customs_released',
-  'linehaul_in_transit', 'arrived_destination',
-  'out_for_delivery', 'delivery_failed',
-  'locker_stored', 'pickup_notified', 'pickup_overtime', 'locker_returned',
-  'address_issue', 'customs_issue', 'lost', 'damaged', 'return_processing',
-]);
+// 包裹货物态/信息态的合法值以《包裹状态字典》为准，由 getEnabledParcelStatusCodesByType 动态校验。
 
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_BLOCK_MS = 15 * 60 * 1000;
@@ -426,6 +429,26 @@ const requirePermission = (code: PermissionCode) => {
     }
     next();
   };
+};
+
+// 仅平台作用域管理员可访问（依赖 requirePermission 已填充 req.adminScope）
+const requirePlatformScope = async (req: AdminRequest, res: Response, next: () => void): Promise<void> => {
+  if (req.adminScope === undefined) {
+    const permissions = await loadActorContext(req, res);
+    if (!permissions) return;
+  }
+  if (req.adminScope !== 'platform') {
+    await logAdminAudit({
+      adminId: req.adminId,
+      action: 'admin.scope_check',
+      result: 'denied',
+      ip: getRequestIp(req),
+      detail: `scope=${req.adminScope} require=platform`,
+    });
+    res.status(403).json({ error: '仅平台管理员可执行此操作' });
+    return;
+  }
+  next();
 };
 
 // 角色管理按作用域区分平台/物流商权限（scope 取自 body 或 query）
@@ -1174,8 +1197,9 @@ router.get('/parcels/status-logs', adminAuth, requirePermission(PERMISSIONS.PARC
 
 router.patch('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE_STATUS), async (req: AdminRequest, res: Response): Promise<void> => {
   const status = String(req.body?.status || '').trim();
-  if (!PARCEL_STATUS_SET.has(status)) {
-    res.status(400).json({ error: '包裹状态不合法' });
+  const cargoStatusCodes = await getEnabledParcelStatusCodesByType('货物态');
+  if (!cargoStatusCodes.has(status)) {
+    res.status(400).json({ error: '货物态不合法' });
     return;
   }
   const parcelId = toId(req.params.id);
@@ -1185,8 +1209,8 @@ router.patch('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS
   }
   if (denyCrossProvider(req, res, await getParcelOwnerProviderId(parcelId))) return;
   const subStatus = req.body?.sub_status !== undefined ? String(req.body.sub_status || '').trim() || null : undefined;
-  if (subStatus && !SUB_STATUS_SET.has(subStatus)) {
-    res.status(400).json({ error: '包裹子状态不合法' });
+  if (subStatus && !(await getEnabledParcelStatusCodesByType('信息态')).has(subStatus)) {
+    res.status(400).json({ error: '信息态不合法' });
     return;
   }
   const statusRemark = req.body?.status_remark !== undefined ? String(req.body.status_remark || '').trim().slice(0, 255) || null : undefined;
@@ -1302,6 +1326,17 @@ router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.P
   const h = Number(height_cm);
   if (isNaN(w) || w <= 0 || isNaN(l) || l <= 0 || isNaN(wi) || wi <= 0 || isNaN(h) || h <= 0) {
     res.status(400).json({ error: '重量和尺寸必须为正数' });
+    return;
+  }
+  // 货物态/信息态必须取自《包裹状态字典》对应类型的启用值
+  const editStatus = typeof status === 'string' ? status.trim() : '';
+  if (editStatus && !(await getEnabledParcelStatusCodesByType('货物态')).has(editStatus)) {
+    res.status(400).json({ error: '货物态不合法' });
+    return;
+  }
+  const editSubStatus = typeof sub_status === 'string' ? sub_status.trim() : '';
+  if (editSubStatus && !(await getEnabledParcelStatusCodesByType('信息态')).has(editSubStatus)) {
+    res.status(400).json({ error: '信息态不合法' });
     return;
   }
   let items: { name: string; value: number; quantity: number }[];
@@ -1992,6 +2027,168 @@ router.post('/logistics/batch-delete', adminAuth, csrfGuard, requirePermission(P
     return;
   }
   const deleted = await batchDeleteLogisticsProviders(numIds);
+  res.json({ message: `已删除 ${deleted} 条记录`, deleted });
+});
+
+// ============ 系统设置 - 包裹状态字典（仅平台管理员） ============
+router.get('/parcel-statuses', adminAuth, requirePermission(PERMISSIONS.PARCEL_STATUS_VIEW), requirePlatformScope, async (req: AdminRequest, res: Response): Promise<void> => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 20));
+  const sortKey = String(req.query.sortKey || '').trim() || undefined;
+  const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
+  const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
+  const result = await getParcelStatusesPaged(page, limit, sortKey, sortOrder, columnFilters, dateFilters);
+  res.json({
+    data: result.data,
+    pagination: { page, limit, total: result.total, pages: result.pages },
+  });
+});
+
+router.get('/parcel-statuses/search', adminAuth, requirePermission(PERMISSIONS.PARCEL_STATUS_VIEW), requirePlatformScope, async (req: AdminRequest, res: Response): Promise<void> => {
+  const keyword = String(req.query.q || '').trim();
+  if (!keyword) {
+    res.status(400).json({ error: '搜索关键词不能为空' });
+    return;
+  }
+  const data = await searchParcelStatuses(keyword);
+  res.json({ data, count: data.length });
+});
+
+// 供包裹管理下拉/标签使用：任何可查看包裹的管理员均可读取启用中的状态字典项
+router.get('/parcel-statuses/options', adminAuth, requirePermission(PERMISSIONS.PARCEL_VIEW), async (_req: AdminRequest, res: Response): Promise<void> => {
+  const data = await getEnabledParcelStatuses();
+  res.json({ data });
+});
+
+const validateParcelStatusInput = (body: Record<string, unknown>): { error?: string; value?: { status_id: number; status_code: string; status_name: string; status_type: string; status_category: string | null; is_enabled: boolean } } => {
+  const statusId = Number(body.status_id);
+  if (!Number.isInteger(statusId) || statusId <= 0) {
+    return { error: '状态ID必须为正整数' };
+  }
+  const statusCode = String(body.status_code ?? '').trim();
+  if (!/^[a-z][a-z0-9_]*$/.test(statusCode)) {
+    return { error: '状态编码必须以小写字母开头，仅含小写字母、数字或下划线' };
+  }
+  const statusName = String(body.status_name ?? '').trim();
+  if (!statusName) {
+    return { error: '状态名称不能为空' };
+  }
+  const statusType = String(body.status_type ?? '').trim();
+  if (!PARCEL_STATUS_TYPE_SET.has(statusType)) {
+    return { error: '状态类型必须为「货物态」或「信息态」' };
+  }
+  const statusCategory = String(body.status_category ?? '').trim();
+  const isEnabled = body.is_enabled === undefined ? true : Boolean(body.is_enabled);
+  return {
+    value: {
+      status_id: statusId,
+      status_code: statusCode,
+      status_name: statusName,
+      status_type: statusType,
+      status_category: statusCategory || null,
+      is_enabled: isEnabled,
+    },
+  };
+};
+
+router.post('/parcel-statuses', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_STATUS_CREATE), requirePlatformScope, async (req: AdminRequest, res: Response): Promise<void> => {
+  const { error, value } = validateParcelStatusInput(req.body as Record<string, unknown>);
+  if (error || !value) {
+    res.status(400).json({ error });
+    return;
+  }
+  const conflict = await findParcelStatusConflict(value.status_id, value.status_code);
+  if (conflict) {
+    res.status(409).json({ error: conflict.status_id === value.status_id ? '状态ID已存在' : '状态编码已存在' });
+    return;
+  }
+  const created = await createParcelStatus(value);
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'parcel_status.create',
+    targetType: 'parcel_status',
+    targetId: created.id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: `created_code=${value.status_code}`,
+  });
+  res.status(201).json({ message: '包裹状态已创建', id: created.id });
+});
+
+router.put('/parcel-statuses/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_STATUS_UPDATE), requirePlatformScope, async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '状态记录ID不合法' });
+    return;
+  }
+  const existing = await getParcelStatusById(id);
+  if (!existing) {
+    res.status(404).json({ error: '包裹状态不存在' });
+    return;
+  }
+  const { error, value } = validateParcelStatusInput(req.body as Record<string, unknown>);
+  if (error || !value) {
+    res.status(400).json({ error });
+    return;
+  }
+  const conflict = await findParcelStatusConflict(value.status_id, value.status_code, id);
+  if (conflict) {
+    res.status(409).json({ error: conflict.status_id === value.status_id ? '状态ID已存在' : '状态编码已存在' });
+    return;
+  }
+  const ok = await updateParcelStatusDict(id, value);
+  if (!ok) {
+    res.status(404).json({ error: '包裹状态不存在' });
+    return;
+  }
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'parcel_status.update',
+    targetType: 'parcel_status',
+    targetId: id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: 'parcel_status_updated',
+  });
+  res.json({ message: '包裹状态已更新', id });
+});
+
+router.delete('/parcel-statuses/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_STATUS_DELETE), requirePlatformScope, async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '状态记录ID不合法' });
+    return;
+  }
+  const ok = await deleteParcelStatus(id);
+  if (!ok) {
+    res.status(404).json({ error: '包裹状态不存在' });
+    return;
+  }
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'parcel_status.delete',
+    targetType: 'parcel_status',
+    targetId: id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: 'parcel_status_deleted',
+  });
+  res.json({ message: '包裹状态已删除', id });
+});
+
+router.post('/parcel-statuses/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_STATUS_DELETE), requirePlatformScope, async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: '请提供要删除的ID列表' });
+    return;
+  }
+  const numIds = ids.map(Number).filter(n => Number.isInteger(n) && n > 0);
+  if (numIds.length === 0) {
+    res.status(400).json({ error: 'ID列表不合法' });
+    return;
+  }
+  const deleted = await batchDeleteParcelStatuses(numIds);
   res.json({ message: `已删除 ${deleted} 条记录`, deleted });
 });
 

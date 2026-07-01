@@ -198,6 +198,71 @@ export const countActiveSuperAdmins = async (): Promise<number> => {
   return row ? row.count : 0;
 };
 
+// 《包裹状态字典》内置数据，用于首次初始化 parcel_statuses 表
+export const DEFAULT_PARCEL_STATUSES: Array<{
+  status_id: number;
+  status_code: string;
+  status_name: string;
+  status_type: '货物态' | '信息态';
+  status_category: string;
+}> = [
+  { status_id: 1001, status_code: 'order_created', status_name: '已下单', status_type: '信息态', status_category: '揽收' },
+  { status_id: 1002, status_code: 'awaiting_pickup', status_name: '待揽收', status_type: '货物态', status_category: '揽收' },
+  { status_id: 1003, status_code: 'picked_up', status_name: '已揽收', status_type: '货物态', status_category: '揽收' },
+  { status_id: 1004, status_code: 'awaiting_warehousing', status_name: '待入库', status_type: '货物态', status_category: '揽收' },
+  { status_id: 2001, status_code: 'warehoused', status_name: '已入库', status_type: '货物态', status_category: '仓储处理' },
+  { status_id: 2002, status_code: 'awaiting_shelving', status_name: '待上架', status_type: '货物态', status_category: '仓储处理' },
+  { status_id: 2003, status_code: 'shelved', status_name: '已上架', status_type: '货物态', status_category: '仓储处理' },
+  { status_id: 2004, status_code: 'packing', status_name: '打包中', status_type: '货物态', status_category: '仓储处理' },
+  { status_id: 2005, status_code: 'awaiting_dispatch', status_name: '待出库', status_type: '货物态', status_category: '仓储处理' },
+  { status_id: 2006, status_code: 'dispatched', status_name: '已出库', status_type: '货物态', status_category: '仓储处理' },
+  { status_id: 3001, status_code: 'export_declaration_submitted', status_name: '出口申报', status_type: '信息态', status_category: '出口清关' },
+  { status_id: 3002, status_code: 'export_declaration_rejected', status_name: '出口申报退单', status_type: '信息态', status_category: '出口清关' },
+  { status_id: 3003, status_code: 'export_risk_control', status_name: '出口系统布控', status_type: '信息态', status_category: '出口清关' },
+  { status_id: 3004, status_code: 'export_system_released', status_name: '出口系统放行', status_type: '信息态', status_category: '出口清关' },
+  { status_id: 3005, status_code: 'export_customs_clearing', status_name: '出口清关中', status_type: '货物态', status_category: '出口清关' },
+  { status_id: 3006, status_code: 'export_customs_inspection', status_name: '出口清关查验', status_type: '货物态', status_category: '出口清关' },
+  { status_id: 3007, status_code: 'export_customs_seized', status_name: '出口清关扣货', status_type: '货物态', status_category: '出口清关' },
+  { status_id: 3008, status_code: 'export_customs_returned', status_name: '出口清关退运', status_type: '货物态', status_category: '出口清关' },
+  { status_id: 3009, status_code: 'export_customs_destroyed', status_name: '出口清关销毁', status_type: '货物态', status_category: '出口清关' },
+  { status_id: 3010, status_code: 'export_customs_released', status_name: '出口清关放行', status_type: '货物态', status_category: '出口清关' },
+  { status_id: 4001, status_code: 'cross_border_departed', status_name: '跨境干线离港', status_type: '货物态', status_category: '跨境干线运输' },
+  { status_id: 4002, status_code: 'cross_border_in_transit', status_name: '跨境干线运输中', status_type: '货物态', status_category: '跨境干线运输' },
+  { status_id: 4003, status_code: 'cross_border_transshipment', status_name: '跨境干线中转', status_type: '货物态', status_category: '跨境干线运输' },
+  { status_id: 4004, status_code: 'cross_border_arrived', status_name: '跨境干线到港', status_type: '货物态', status_category: '跨境干线运输' },
+  { status_id: 5001, status_code: 'import_declaration_submitted', status_name: '进口申报', status_type: '信息态', status_category: '进口清关' },
+  { status_id: 5002, status_code: 'import_declaration_rejected', status_name: '进口申报退单', status_type: '信息态', status_category: '进口清关' },
+  { status_id: 5003, status_code: 'import_risk_control', status_name: '进口系统布控', status_type: '信息态', status_category: '进口清关' },
+  { status_id: 5004, status_code: 'import_system_released', status_name: '进口系统放行', status_type: '信息态', status_category: '进口清关' },
+  { status_id: 5005, status_code: 'import_customs_clearing', status_name: '进口清关中', status_type: '货物态', status_category: '进口清关' },
+  { status_id: 5006, status_code: 'import_customs_inspection', status_name: '进口清关查验', status_type: '货物态', status_category: '进口清关' },
+  { status_id: 5007, status_code: 'import_customs_seized', status_name: '进口清关扣货', status_type: '货物态', status_category: '进口清关' },
+  { status_id: 5008, status_code: 'import_customs_returned', status_name: '进口清关退运', status_type: '货物态', status_category: '进口清关' },
+  { status_id: 5009, status_code: 'import_customs_destroyed', status_name: '进口清关销毁', status_type: '货物态', status_category: '进口清关' },
+  { status_id: 5010, status_code: 'import_customs_released', status_name: '进口清关放行', status_type: '货物态', status_category: '进口清关' },
+  { status_id: 6001, status_code: 'destination_dispatch_outbound', status_name: '派送运输出库', status_type: '货物态', status_category: '目的地派送' },
+  { status_id: 6002, status_code: 'destination_dispatch_in_transit', status_name: '派送运输中', status_type: '货物态', status_category: '目的地派送' },
+  { status_id: 6003, status_code: 'destination_dispatch_inbound', status_name: '派送运输入库', status_type: '货物态', status_category: '目的地派送' },
+  { status_id: 6004, status_code: 'out_for_delivery', status_name: '派送中', status_type: '货物态', status_category: '目的地派送' },
+  { status_id: 6005, status_code: 'delivery_failed', status_name: '派送失败', status_type: '货物态', status_category: '目的地派送' },
+  { status_id: 6006, status_code: 'delivery_exception', status_name: '派送异常', status_type: '货物态', status_category: '目的地派送' },
+  { status_id: 6007, status_code: 'delivery_refused', status_name: '派送拒收', status_type: '货物态', status_category: '目的地派送' },
+  { status_id: 6101, status_code: 'self_pickup_inbound', status_name: '自提入仓', status_type: '货物态', status_category: '目的地自提' },
+  { status_id: 6102, status_code: 'self_pickup_ready', status_name: '自提待取', status_type: '货物态', status_category: '目的地自提' },
+  { status_id: 6201, status_code: 'delivered_signed', status_name: '签收完成', status_type: '货物态', status_category: '目的地签收' },
+  { status_id: 6202, status_code: 'delivered_signed_by_proxy', status_name: '签收(代收)', status_type: '货物态', status_category: '目的地签收' },
+  { status_id: 6203, status_code: 'delivered_self_pickup', status_name: '签收(自提)', status_type: '货物态', status_category: '目的地签收' },
+  { status_id: 6301, status_code: 'return_in_progress', status_name: '退件中', status_type: '货物态', status_category: '目的地退件' },
+  { status_id: 6302, status_code: 'returned_to_warehouse', status_name: '退回仓库', status_type: '货物态', status_category: '目的地退件' },
+  { status_id: 6303, status_code: 'returned_to_sender', status_name: '退回发件人', status_type: '货物态', status_category: '目的地退件' },
+  { status_id: 6304, status_code: 'return_completed', status_name: '退件完成', status_type: '货物态', status_category: '目的地退件' },
+  { status_id: 9101, status_code: 'cargo_exception', status_name: '货物异常', status_type: '货物态', status_category: '货物异常' },
+  { status_id: 9102, status_code: 'cargo_damaged', status_name: '货物破损', status_type: '货物态', status_category: '货物异常' },
+  { status_id: 9103, status_code: 'cargo_lost', status_name: '货物丢失', status_type: '货物态', status_category: '货物异常' },
+  { status_id: 9201, status_code: 'information_exception', status_name: '信息异常', status_type: '信息态', status_category: '信息异常' },
+  { status_id: 9202, status_code: 'recipient_information_error', status_name: '收件信息错误', status_type: '信息态', status_category: '信息异常' },
+];
+
 export const initDb = async (): Promise<void> => {
   const connection = await pool.getConnection();
   try {
@@ -403,7 +468,7 @@ export const initDb = async (): Promise<void> => {
         height_cm DOUBLE,
         volume DOUBLE,
         images TEXT,
-        status VARCHAR(64) DEFAULT 'pending',
+        status VARCHAR(64) DEFAULT 'warehoused',
         estimated_delivery DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -514,6 +579,64 @@ export const initDb = async (): Promise<void> => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // 系统设置 - 包裹状态字典（平台维护）
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS parcel_statuses (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        status_id INT NOT NULL,
+        status_code VARCHAR(64) NOT NULL,
+        status_name VARCHAR(64) NOT NULL,
+        status_type VARCHAR(16) NOT NULL DEFAULT '货物态',
+        status_category VARCHAR(64) DEFAULT NULL,
+        is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_parcel_status_id (status_id),
+        UNIQUE KEY uk_parcel_status_code (status_code),
+        INDEX idx_parcel_status_type (status_type),
+        INDEX idx_parcel_status_category (status_category)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // 首次初始化：按《包裹状态字典》灌入内置数据（仅当表为空时执行，幂等）
+    const [parcelStatusCountRows] = await connection.execute<mysql.RowDataPacket[]>(
+      'SELECT COUNT(*) as count FROM parcel_statuses'
+    );
+    if (Number(parcelStatusCountRows?.[0]?.count || 0) === 0) {
+      for (const item of DEFAULT_PARCEL_STATUSES) {
+        await connection.execute(
+          `INSERT INTO parcel_statuses (status_id, status_code, status_name, status_type, status_category, is_enabled)
+           VALUES (?, ?, ?, ?, ?, 1)`,
+          [item.status_id, item.status_code, item.status_name, item.status_type, item.status_category]
+        );
+      }
+    }
+
+    // 迁移：将历史遗留的包裹货物态旧值改为《包裹状态字典》中对应的货物态编码。
+    // 幂等：新编码不在旧值集合中，重复执行不会再次命中（WHERE ... IN 旧值集合）。
+    const LEGACY_STATUS_CASE = `CASE status
+        WHEN 'arrived' THEN 'cross_border_arrived'
+        WHEN 'received' THEN 'warehoused'
+        WHEN 'in_transit' THEN 'cross_border_in_transit'
+        WHEN 'exception' THEN 'cargo_exception'
+        WHEN 'pending' THEN 'awaiting_warehousing'
+        WHEN 'pickup_pending' THEN 'self_pickup_ready'
+        WHEN 'delivered' THEN 'delivered_signed'
+        ELSE status END`;
+    await connection.execute(
+      `UPDATE parcels SET status = ${LEGACY_STATUS_CASE}
+       WHERE status IN ('arrived','received','in_transit','exception','pending','pickup_pending','delivered')`
+    );
+    // 状态流转日志中的货物态编码同步迁移，保证历史记录与新字典一致
+    await connection.execute(
+      `UPDATE parcel_status_logs SET from_status = ${LEGACY_STATUS_CASE.replace(/status/g, 'from_status')}
+       WHERE from_status IN ('arrived','received','in_transit','exception','pending','pickup_pending','delivered')`
+    );
+    await connection.execute(
+      `UPDATE parcel_status_logs SET to_status = ${LEGACY_STATUS_CASE.replace(/status/g, 'to_status')}
+       WHERE to_status IN ('arrived','received','in_transit','exception','pending','pickup_pending','delivered')`
+    );
+
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS admin_audit_logs (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -616,6 +739,22 @@ export const initDb = async (): Promise<void> => {
       const adminRoleId = Number(adminRoleRow?.id || 0);
       if (adminRoleId) {
         for (const permissionCode of ROLE_MANAGEMENT_CODES) {
+          await connection.execute(
+            'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
+            [adminRoleId, 'admin', permissionCode]
+          );
+        }
+      }
+
+      // 幂等回填：确保内置 admin 角色拥有「系统设置 - 包裹状态字典」权限（平台专属）。
+      const PARCEL_STATUS_CODES = [
+        PERMISSIONS.PARCEL_STATUS_VIEW,
+        PERMISSIONS.PARCEL_STATUS_CREATE,
+        PERMISSIONS.PARCEL_STATUS_UPDATE,
+        PERMISSIONS.PARCEL_STATUS_DELETE,
+      ];
+      if (adminRoleId) {
+        for (const permissionCode of PARCEL_STATUS_CODES) {
           await connection.execute(
             'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
             [adminRoleId, 'admin', permissionCode]
@@ -1563,7 +1702,7 @@ export const createParcelInbound = async (payload: {
       parcelId = existing[0].id;
       await conn.execute(
         `UPDATE parcels SET weight = ?, length_cm = ?, width_cm = ?, height_cm = ?, volume = ?,
-         images = ?, shelf_location = ?, logistics_provider_id = ?, status = 'arrived', status_updated_at = NOW(),
+         images = ?, shelf_location = ?, logistics_provider_id = ?, status = 'warehoused', status_updated_at = NOW(),
          deleted_at = NULL, updated_at = NOW()
          WHERE id = ?`,
         [weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, logistics_provider_id || null, parcelId]
@@ -1574,7 +1713,7 @@ export const createParcelInbound = async (payload: {
       // Insert new parcel
       const [result] = await conn.execute<mysql.ResultSetHeader>(
         `INSERT INTO parcels (tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, logistics_provider_id, origin, destination, status, status_updated_at, user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 'arrived', NOW(), NULL)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 'warehoused', NOW(), NULL)`,
         [tracking_number, weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, logistics_provider_id || null]
       );
       parcelId = result.insertId;
@@ -2201,6 +2340,172 @@ export const batchDeleteLogisticsProviders = async (ids: number[]): Promise<numb
   if (!ids.length) return 0;
   const placeholders = ids.map(() => '?').join(',');
   const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE logistics_providers SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`, ids);
+  return result.affectedRows;
+};
+
+// ============ 系统设置 - 包裹状态字典 ============
+const PARCEL_STATUS_SORT_COLUMNS = new Set(['id', 'status_id', 'status_code', 'status_name', 'status_type', 'status_category', 'is_enabled', 'created_at', 'updated_at']);
+export const PARCEL_STATUS_TYPE_SET = new Set(['货物态', '信息态']);
+
+export const getParcelStatusesPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>
+) => {
+  const orderBy = toSafeOrderBy(sortKey, sortOrder, PARCEL_STATUS_SORT_COLUMNS, 'status_id');
+  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, PARCEL_STATUS_SORT_COLUMNS);
+  const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, status_id, status_code, status_name, status_type, status_category, is_enabled, created_at, updated_at
+     FROM parcel_statuses
+     ${whereSql}
+     ORDER BY ${orderBy}
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
+  );
+
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count FROM parcel_statuses ${whereSql}`,
+    params
+  );
+
+  const total = Number(countRows?.[0]?.count || 0);
+  return {
+    data: rows as any[],
+    total,
+    pages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+};
+
+export const searchParcelStatuses = async (keyword: string): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, status_id, status_code, status_name, status_type, status_category, is_enabled, created_at, updated_at
+     FROM parcel_statuses
+     WHERE CAST(status_id AS CHAR) LIKE ?
+       OR status_code LIKE ?
+       OR status_name LIKE ?
+       OR status_type LIKE ?
+       OR status_category LIKE ?
+     ORDER BY status_id ASC`,
+    [like, like, like, like, like]
+  );
+  return rows as any[];
+};
+
+export const getParcelStatusById = async (id: number): Promise<any | null> => {
+  return querySingle<any>('SELECT * FROM parcel_statuses WHERE id = ? LIMIT 1', [id]);
+};
+
+// 返回所有启用状态项（用于包裹管理下拉与标签映射）
+export const getEnabledParcelStatuses = async (): Promise<Array<{
+  status_code: string;
+  status_name: string;
+  status_type: string;
+  status_category: string | null;
+}>> => {
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT status_code, status_name, status_type, status_category
+     FROM parcel_statuses WHERE is_enabled = 1 ORDER BY status_id ASC`
+  );
+  return rows as any[];
+};
+
+// 返回指定状态类型（货物态/信息态）下所有启用的状态编码集合，用于接口层校验
+export const getEnabledParcelStatusCodesByType = async (type: string): Promise<Set<string>> => {
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT status_code FROM parcel_statuses WHERE is_enabled = 1 AND status_type = ?`,
+    [type]
+  );
+  return new Set((rows as any[]).map((r: any) => r.status_code));
+};
+
+export const findParcelStatusConflict = async (
+  statusId: number,
+  statusCode: string,
+  excludeId?: number
+): Promise<{ status_id: number; status_code: string } | null> => {
+  const params: any[] = [statusId, statusCode];
+  let sql = 'SELECT status_id, status_code FROM parcel_statuses WHERE (status_id = ? OR status_code = ?)';
+  if (excludeId) {
+    sql += ' AND id <> ?';
+    params.push(excludeId);
+  }
+  sql += ' LIMIT 1';
+  return querySingle<{ status_id: number; status_code: string }>(sql, params);
+};
+
+export const createParcelStatus = async (payload: {
+  status_id: number;
+  status_code: string;
+  status_name: string;
+  status_type: string;
+  status_category?: string | null;
+  is_enabled?: boolean;
+}) => {
+  const statusType = PARCEL_STATUS_TYPE_SET.has(payload.status_type) ? payload.status_type : '货物态';
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `INSERT INTO parcel_statuses (status_id, status_code, status_name, status_type, status_category, is_enabled)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      payload.status_id,
+      payload.status_code,
+      payload.status_name,
+      statusType,
+      payload.status_category || null,
+      payload.is_enabled === false ? 0 : 1,
+    ]
+  );
+  return { id: result.insertId };
+};
+
+export const updateParcelStatusDict = async (id: number, payload: {
+  status_id?: number;
+  status_code?: string;
+  status_name?: string;
+  status_type?: string;
+  status_category?: string | null;
+  is_enabled?: boolean;
+}): Promise<boolean> => {
+  const sets: string[] = ['updated_at = NOW()'];
+  const params: any[] = [];
+  if (payload.status_id !== undefined) { sets.push('status_id = ?'); params.push(payload.status_id); }
+  if (payload.status_code !== undefined) { sets.push('status_code = ?'); params.push(payload.status_code); }
+  if (payload.status_name !== undefined) { sets.push('status_name = ?'); params.push(payload.status_name); }
+  if (payload.status_type !== undefined) { sets.push('status_type = ?'); params.push(PARCEL_STATUS_TYPE_SET.has(payload.status_type) ? payload.status_type : '货物态'); }
+  if (payload.status_category !== undefined) { sets.push('status_category = ?'); params.push(payload.status_category || null); }
+  if (payload.is_enabled !== undefined) { sets.push('is_enabled = ?'); params.push(payload.is_enabled ? 1 : 0); }
+  params.push(id);
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `UPDATE parcel_statuses SET ${sets.join(', ')} WHERE id = ?`,
+    params
+  );
+  return result.affectedRows > 0;
+};
+
+export const deleteParcelStatus = async (id: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    'DELETE FROM parcel_statuses WHERE id = ?',
+    [id]
+  );
+  return result.affectedRows > 0;
+};
+
+export const batchDeleteParcelStatuses = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `DELETE FROM parcel_statuses WHERE id IN (${placeholders})`,
+    ids
+  );
   return result.affectedRows;
 };
 

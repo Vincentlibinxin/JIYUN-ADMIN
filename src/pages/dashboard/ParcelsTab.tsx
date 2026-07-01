@@ -181,6 +181,32 @@ export default function ParcelsTab({
     value: o.id,
   }));
 
+  // 《包裹状态字典》：货物态/信息态下拉与标签映射均来自字典（启用项）
+  const [statusDict, setStatusDict] = useState<{ status_code: string; status_name: string; status_type: string; status_category: string | null }[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await adminFetch('/admin/parcel-statuses/options');
+        if (res.ok) {
+          const j = await res.json();
+          setStatusDict(Array.isArray(j.data) ? j.data : []);
+        }
+      } catch { /* ignore */ }
+    })();
+  }, []);
+  const cargoStatusOptions = statusDict
+    .filter((s) => s.status_type === '货物态')
+    .map((s) => ({ label: s.status_name, value: s.status_code }));
+  const infoStatusOptions = statusDict
+    .filter((s) => s.status_type === '信息态')
+    .map((s) => ({ label: s.status_name, value: s.status_code }));
+  const statusNameMap: Record<string, string> = Object.fromEntries(statusDict.map((s) => [s.status_code, s.status_name]));
+  const statusCategoryMap: Record<string, string> = Object.fromEntries(statusDict.map((s) => [s.status_code, s.status_category || '']));
+  const statusColor = (code: string | null): string => {
+    if (!code) return 'default';
+    return (statusCategoryMap[code] || '').includes('异常') ? 'red' : 'blue';
+  };
+
   // 行内图片预览（列表图片列点击时使用）
   const [rowPreviewOpen, setRowPreviewOpen] = useState(false);
   const [rowPreviewUrls, setRowPreviewUrls] = useState<string[]>([]);
@@ -236,40 +262,21 @@ export default function ParcelsTab({
     fetchStatusLogs(1, logsPageSize);
   };
 
-  const STATUS_LABEL: Record<string, string> = {
-    pending: '待处理',
-    received: '已入库',
-    in_transit: '运输中',
-    arrived: '已到达',
-    pickup_pending: '待自提',
-    delivered: '已签收',
-    exception: '异常',
-  };
-  const STATUS_COLOR: Record<string, string> = {
-    pending: 'default',
-    received: 'processing',
-    in_transit: 'cyan',
-    arrived: 'blue',
-    pickup_pending: 'purple',
-    delivered: 'green',
-    exception: 'red',
-  };
-
   const logsColumns: ColumnsType<StatusLog> = [
     { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 170, render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '' },
     { title: '包裹ID', dataIndex: 'parcel_id', key: 'parcel_id', width: 80 },
     { title: '运单号', dataIndex: 'tracking_number', key: 'tracking_number', width: 160, render: (v: string | null) => v || '' },
     {
-      title: '状态变更', key: 'status_change', width: 200,
+      title: '货物态变更', key: 'status_change', width: 200,
       render: (_: unknown, r: StatusLog) => (
         <span>
-          <Tag color={STATUS_COLOR[r.from_status || ''] || 'default'}>{STATUS_LABEL[r.from_status || ''] || r.from_status || '无'}</Tag>
+          <Tag color={statusColor(r.from_status)}>{statusNameMap[r.from_status || ''] || r.from_status || '无'}</Tag>
           →
-          <Tag color={STATUS_COLOR[r.to_status] || 'default'}>{STATUS_LABEL[r.to_status] || r.to_status}</Tag>
+          <Tag color={statusColor(r.to_status)}>{statusNameMap[r.to_status] || r.to_status}</Tag>
         </span>
       ),
     },
-    { title: '子状态', dataIndex: 'sub_status', key: 'sub_status', width: 120, render: (v: string | null) => v || '' },
+    { title: '信息态', dataIndex: 'sub_status', key: 'sub_status', width: 120, render: (v: string | null) => (v ? (statusNameMap[v] || v) : '') },
     { title: '备注', dataIndex: 'remark', key: 'remark', width: 180, ellipsis: true, render: (v: string | null) => v || '' },
     { title: '操作人', dataIndex: 'operator_name', key: 'operator_name', width: 100, render: (v: string | null) => v || '系统' },
   ];
@@ -628,14 +635,14 @@ export default function ParcelsTab({
       ],
     },
     {
-      title: '状态',
+      title: '货物态',
       key: 'status',
       width: 160,
       sorter: true,
       sortOrder: sortKey === 'status' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
       children: [
         {
-          title: renderSearchInput('status', '状态'),
+          title: renderSearchInput('status', '货物态'),
           key: 'status_child',
           width: 160,
           render: (_, record) => (
@@ -646,15 +653,9 @@ export default function ParcelsTab({
               onChange={(value) => onUpdateStatus(record.id, value)}
               onClick={(e) => e.stopPropagation()}
               disabled={!canUpdateStatus}
-              options={[
-                { label: '待处理', value: 'pending' },
-                { label: '已收货', value: 'received' },
-                { label: '运输中', value: 'in_transit' },
-                { label: '已到达', value: 'arrived' },
-                { label: '待自提', value: 'pickup_pending' },
-                { label: '已签收', value: 'delivered' },
-                { label: '异常件', value: 'exception' },
-              ]}
+              showSearch
+              optionFilterProp="label"
+              options={cargoStatusOptions}
             />
           ),
         },
@@ -963,47 +964,22 @@ export default function ParcelsTab({
           </Row>
           <Row gutter={8}>
             <Col span={12}>
-              <Form.Item name="status" label="状态">
+              <Form.Item name="status" label="货物态">
                 <Select
-                  options={[
-                    { label: '待处理', value: 'pending' },
-                    { label: '已收货', value: 'received' },
-                    { label: '运输中', value: 'in_transit' },
-                    { label: '已到达', value: 'arrived' },
-                    { label: '待自提', value: 'pickup_pending' },
-                    { label: '已签收', value: 'delivered' },
-                    { label: '异常件', value: 'exception' },
-                  ]}
+                  showSearch
+                  optionFilterProp="label"
+                  options={cargoStatusOptions}
                 />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="sub_status" label="子状态">
+              <Form.Item name="sub_status" label="信息态">
                 <Select
                   allowClear
+                  showSearch
+                  optionFilterProp="label"
                   placeholder="可选"
-                  options={[
-                    { label: '待上架', value: 'awaiting_shelving' },
-                    { label: '打包中', value: 'packing' },
-                    { label: '待出库', value: 'awaiting_dispatch' },
-                    { label: '出口申报中', value: 'export_declaring' },
-                    { label: '出口清关中', value: 'export_clearing' },
-                    { label: '进口清关中', value: 'import_clearing' },
-                    { label: '海关放行', value: 'customs_released' },
-                    { label: '干线运输中', value: 'linehaul_in_transit' },
-                    { label: '到达目的地', value: 'arrived_destination' },
-                    { label: '已入柜', value: 'locker_stored' },
-                    { label: '已通知取件', value: 'pickup_notified' },
-                    { label: '超时未取', value: 'pickup_overtime' },
-                    { label: '退柜处理', value: 'locker_returned' },
-                    { label: '派送中', value: 'out_for_delivery' },
-                    { label: '派送失败', value: 'delivery_failed' },
-                    { label: '地址异常', value: 'address_issue' },
-                    { label: '清关异常', value: 'customs_issue' },
-                    { label: '包裹丢失', value: 'lost' },
-                    { label: '包裹破损', value: 'damaged' },
-                    { label: '退回中', value: 'return_processing' },
-                  ]}
+                  options={infoStatusOptions}
                 />
               </Form.Item>
             </Col>

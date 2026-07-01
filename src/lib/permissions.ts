@@ -42,6 +42,11 @@ export const PERMISSIONS = {
   SMS_DELETE: 'sms.delete',
 
   AUDIT_VIEW: 'audit.view',
+
+  PARCEL_STATUS_VIEW: 'parcel_status.view',
+  PARCEL_STATUS_CREATE: 'parcel_status.create',
+  PARCEL_STATUS_UPDATE: 'parcel_status.update',
+  PARCEL_STATUS_DELETE: 'parcel_status.delete',
 } as const;
 
 export type PermissionCode = typeof PERMISSIONS[keyof typeof PERMISSIONS];

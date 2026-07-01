@@ -26,6 +26,7 @@ const dictionaries: Record<LangCode, Dictionary> = {
     'menu.parcels': '包裹管理',
     'menu.logistics': '物流商管理',
     'menu.admins': '系统管理员',
+    'menu.system': '系统设置',
     'menu.adminManage': '管理员',
     'menu.adminPermissions': '系统管理权限',
 
@@ -74,6 +75,7 @@ const dictionaries: Record<LangCode, Dictionary> = {
     'menu.sms': '簡訊資訊',
     'menu.parcels': '包裹管理',
     'menu.admins': '系統管理員',
+    'menu.system': '系統設定',
     'menu.adminManage': '管理員管理',
     'menu.adminPermissions': '系統管理權限',
 
@@ -122,6 +124,7 @@ const dictionaries: Record<LangCode, Dictionary> = {
     'menu.sms': 'SMS',
     'menu.parcels': 'Parcels',
     'menu.admins': 'System Admins',
+    'menu.system': 'System Settings',
     'menu.adminManage': 'Admin Management',
     'menu.adminPermissions': 'System Permissions',
 
@@ -170,6 +173,7 @@ const dictionaries: Record<LangCode, Dictionary> = {
     'menu.sms': 'SMS',
     'menu.parcels': 'Bungkusan',
     'menu.admins': 'Pentadbir Sistem',
+    'menu.system': 'Tetapan Sistem',
 
     'login.username': 'Nama Pengguna Admin',
     'login.password': 'Kata Laluan Admin',

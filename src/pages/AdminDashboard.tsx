@@ -14,6 +14,7 @@ import ParcelsTab from './dashboard/ParcelsTab';
 import AdminsTab from './dashboard/AdminsTab';
 import LogisticsTab, { LogisticsProvider, LogisticsPayload } from './dashboard/LogisticsTab';
 import RolesTab from './dashboard/RolesTab';
+import ParcelStatusTab from './dashboard/ParcelStatusTab';
 import { exportParcelsToTemplate } from '../lib/parcelExport';
 
 interface User {
@@ -178,10 +179,21 @@ export default function AdminDashboard() {
     hasLogisticsRoleView ? { key: 'logistics-permissions', label: '物流商权限' } : null,
   ].filter(Boolean) as Array<{ key: string; label: string }>;
 
+  const hasParcelStatusView = hasPermission(PERMISSIONS.PARCEL_STATUS_VIEW);
+  const systemSettingsTabs = [
+    hasParcelStatusView ? { key: 'parcel-status', label: '包裹状态字典' } : null,
+  ].filter(Boolean) as Array<{ key: string; label: string }>;
+
   const handleMenuClick = (key: string) => {
     if (key === 'admins') {
       const nextTab = systemAdminTabs[0]?.key ?? 'admins';
       setActiveMenu('admins');
+      setActiveTab(nextTab);
+      return;
+    }
+    if (key === 'system') {
+      const nextTab = systemSettingsTabs[0]?.key ?? 'parcel-status';
+      setActiveMenu('system');
       setActiveTab(nextTab);
       return;
     }
@@ -1228,11 +1240,46 @@ export default function AdminDashboard() {
           {messageContextHolder}
           <div key={refreshKey} style={{ display: 'contents' }}>
 
+          {activeTab === 'parcel-status' && (
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+              <div
+                style={{
+                  padding: '0 12px',
+                  borderBottom: '1px solid #eef2f6',
+                  background: '#f8fafc',
+                  flexShrink: 0,
+                }}
+              >
+                <Tabs
+                  activeKey={activeTab}
+                  size="small"
+                  items={systemSettingsTabs}
+                  onChange={(key) => {
+                    setActiveMenu('system');
+                    setActiveTab(key);
+                  }}
+                  tabBarStyle={{ margin: 0, padding: '0 4px' }}
+                />
+              </div>
+
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                {activeTab === 'parcel-status' && (
+                  <ParcelStatusTab
+                    canCreate={hasPermission(PERMISSIONS.PARCEL_STATUS_CREATE)}
+                    canUpdate={hasPermission(PERMISSIONS.PARCEL_STATUS_UPDATE)}
+                    canDelete={hasPermission(PERMISSIONS.PARCEL_STATUS_DELETE)}
+                    refreshKey={refreshKey}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
           {(activeTab === 'admins' || activeTab === 'platform-permissions' || activeTab === 'logistics-permissions') && (
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
               <div
                 style={{
-                  padding: '8px 12px 0',
+                  padding: '0 12px',
                   borderBottom: '1px solid #eef2f6',
                   background: '#f8fafc',
                   flexShrink: 0,
@@ -1250,7 +1297,7 @@ export default function AdminDashboard() {
                 />
               </div>
 
-              <div style={{ flex: 1, minHeight: 0 }}>
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 {activeTab === 'platform-permissions' && (
                   <RolesTab
                     scope="platform"

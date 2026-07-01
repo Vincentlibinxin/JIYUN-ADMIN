@@ -110,6 +110,15 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
       { code: PERMISSIONS.AUDIT_VIEW, label: '查看审计日志' },
     ],
   },
+  {
+    group: '系统设置',
+    items: [
+      { code: PERMISSIONS.PARCEL_STATUS_VIEW, label: '查看包裹状态' },
+      { code: PERMISSIONS.PARCEL_STATUS_CREATE, label: '新增包裹状态' },
+      { code: PERMISSIONS.PARCEL_STATUS_UPDATE, label: '修改包裹状态' },
+      { code: PERMISSIONS.PARCEL_STATUS_DELETE, label: '删除包裹状态' },
+    ],
+  },
 ];
 
 const ALL_PERMISSION_CODES = PERMISSION_GROUPS.flatMap((g) => g.items.map((i) => i.code));
@@ -599,7 +608,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
   ];
 
   return (
-    <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
+    <Card style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }} bodyStyle={{ padding: 0, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }} bordered={false}>
       {messageContextHolder}
       <div style={{ padding: '6px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
         <div style={{ flex: '0 0 auto' }}>
@@ -681,7 +690,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
           padding: '6px 16px',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'flex-end',
+          justifyContent: 'flex-start',
         }}
       >
         <AntPagination

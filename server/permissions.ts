@@ -54,6 +54,12 @@ export const PERMISSIONS = {
 
   // 审计日志
   AUDIT_VIEW: 'audit.view',
+
+  // 系统设置 - 包裹状态字典（仅平台）
+  PARCEL_STATUS_VIEW: 'parcel_status.view',
+  PARCEL_STATUS_CREATE: 'parcel_status.create',
+  PARCEL_STATUS_UPDATE: 'parcel_status.update',
+  PARCEL_STATUS_DELETE: 'parcel_status.delete',
 } as const;
 
 export type PermissionCode = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -89,6 +95,12 @@ const ADMIN_PERMISSIONS: PermissionCode[] = [
   PERMISSIONS.LOGISTICS_VIEW,
 
   PERMISSIONS.SMS_VIEW,
+
+  // 系统设置 - 包裹状态字典（平台）
+  PERMISSIONS.PARCEL_STATUS_VIEW,
+  PERMISSIONS.PARCEL_STATUS_CREATE,
+  PERMISSIONS.PARCEL_STATUS_UPDATE,
+  PERMISSIONS.PARCEL_STATUS_DELETE,
 ];
 
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
