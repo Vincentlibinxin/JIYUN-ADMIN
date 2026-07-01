@@ -55,8 +55,8 @@ VITE_AUTO_LOGOUT_MINUTES=60
 
 已提供脚本：
 
-- `scripts/start-services.ps1`：自动停止 3001/3002 旧进程并启动 API + 前端预览
-- `scripts/stop-services.ps1`：停止 3001/3002 服务
+- `scripts/start-services.ps1`：仅停止并重启本项目 API（3001），并执行前端构建；不再停止/启动全局 Nginx
+- `scripts/stop-services.ps1`：仅停止本项目由 `start-services.ps1` 拉起的 API 进程
 
 注册开机自启动任务（管理员 PowerShell）：
 
@@ -113,4 +113,5 @@ Unregister-ScheduledTask -TaskName 'JiyunAdminAutoStart' -Confirm:$false
 说明：
 
 - `.env`、`.env.api` 已被 `.gitignore` 忽略，不会提交到仓库。
-- 建议生产服务器仅对外开放网关端口（如 443），3001/3002 仅内网或本机可访问。
+- 建议生产服务器仅对外开放网关端口（如 443），3001/3002/3443 仅内网或本机可访问。
+- 多项目共存时建议由单一全局 Nginx 统一管理 80/443，项目脚本只管理各自 API 进程，避免互相中断。

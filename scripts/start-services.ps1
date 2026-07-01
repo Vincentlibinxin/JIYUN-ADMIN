@@ -8,6 +8,7 @@ if (-not $npmCmd) {
 }
 $logDir = Join-Path $repoRoot 'logs'
 $logFile = Join-Path $logDir 'autostart.log'
+$apiPidFile = Join-Path $logDir 'api.pid'
 
 if (!(Test-Path $logDir)) {
   New-Item -ItemType Directory -Path $logDir | Out-Null
@@ -18,26 +19,54 @@ if (-not $npmCmd -or !(Test-Path $npmCmd)) {
   throw 'npm command not found in PATH'
 }
 
-function Stop-PortListeners([int[]]$ports) {
-  foreach ($port in $ports) {
-    $listeners = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-    if ($listeners) {
-      $ids = $listeners | Select-Object -ExpandProperty OwningProcess -Unique
-      foreach ($id in $ids) {
-        try {
-          Stop-Process -Id $id -Force -ErrorAction Stop
-          Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] Stopped PID=$id on port $port"
-        } catch {
-          Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] WARN: failed to stop PID=$id on port $port. $($_.Exception.Message)"
-        }
+function Stop-ManagedApiProcess() {
+  if (!(Test-Path $apiPidFile)) {
+    return
+  }
+
+  $rawPid = (Get-Content -Path $apiPidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+  $pid = 0
+  if ([int]::TryParse([string]$rawPid, [ref]$pid) -and $pid -gt 0) {
+    $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+    if ($proc) {
+      try {
+        Stop-Process -Id $pid -Force -ErrorAction Stop
+        Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] Stopped managed API process PID=$pid"
+      } catch {
+        Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] WARN: failed to stop managed API PID=$pid. $($_.Exception.Message)"
       }
     }
   }
+
+  Remove-Item -Path $apiPidFile -ErrorAction SilentlyContinue
+}
+
+function Assert-ApiPortAvailable([int]$port) {
+  $listeners = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+  if (!$listeners) {
+    return
+  }
+
+  $ids = $listeners | Select-Object -ExpandProperty OwningProcess -Unique
+  $details = @()
+  foreach ($id in $ids) {
+    $process = Get-Process -Id $id -ErrorAction SilentlyContinue
+    if ($process) {
+      $details += "$($process.ProcessName)#$id"
+    } else {
+      $details += "unknown#$id"
+    }
+  }
+
+  $detailText = if ($details.Count -gt 0) { $details -join ', ' } else { 'unknown process' }
+  Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] ERROR: API port $port is occupied by $detailText"
+  throw "Port $port is already in use by $detailText. To avoid cross-project conflicts, start-services.ps1 only manages this project's API process."
 }
 
 Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] Starting services from $repoRoot"
 
-Stop-PortListeners -ports @(3001, 3002)
+Stop-ManagedApiProcess
+Assert-ApiPortAvailable -port 3001
 
 Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] Building frontend assets before start"
 $buildOut = Join-Path $logDir 'build.out.log'
@@ -51,11 +80,12 @@ Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] Build finished succes
 
 $apiOut = Join-Path $logDir 'api.out.log'
 $apiErr = Join-Path $logDir 'api.err.log'
-$webOut = Join-Path $logDir 'web.out.log'
-$webErr = Join-Path $logDir 'web.err.log'
 
-Start-Process -FilePath $npmCmd -ArgumentList @('run', 'api') -WorkingDirectory $repoRoot -WindowStyle Hidden -RedirectStandardOutput $apiOut -RedirectStandardError $apiErr
-Start-Sleep -Seconds 1
-Start-Process -FilePath $npmCmd -ArgumentList @('run', 'preview', '--', '--host', '0.0.0.0', '--port', '3002') -WorkingDirectory $repoRoot -WindowStyle Hidden -RedirectStandardOutput $webOut -RedirectStandardError $webErr
+ # Start API service for this project only
+$apiProcess = Start-Process -FilePath $npmCmd -ArgumentList @('run', 'api') -WorkingDirectory $repoRoot -WindowStyle Hidden -RedirectStandardOutput $apiOut -RedirectStandardError $apiErr -PassThru
+Set-Content -Path $apiPidFile -Value $apiProcess.Id
+Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] API service launched (port 3001, PID=$($apiProcess.Id))"
+
+Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] NOTE: nginx is not started/stopped by this script. Manage shared nginx/portproxy globally to avoid conflicts with other projects."
 
 Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] Start commands launched"
