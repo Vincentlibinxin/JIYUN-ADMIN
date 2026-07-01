@@ -43,6 +43,7 @@ import {
   getParcelItems,
   getParcelsPaged,
   getParcelsForExport,
+  getParcelStatusCounts,
   getParcelStatusLogs,
   getStatusLogsPaged,
   searchAdmins,
@@ -1193,6 +1194,12 @@ router.get('/parcels/status-logs', adminAuth, requirePermission(PERMISSIONS.PARC
   const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
   const result = await getStatusLogsPaged(page, limit, keyword, startDate, endDate, getActorProviderFilter(req));
   res.json(result);
+});
+
+// 《包裹状态快筛栏》：统计各货物态/信息态下的包裹数量
+router.get('/parcels/status-counts', adminAuth, requirePermission(PERMISSIONS.PARCEL_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const data = await getParcelStatusCounts(getActorProviderFilter(req));
+  res.json(data);
 });
 
 router.patch('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE_STATUS), async (req: AdminRequest, res: Response): Promise<void> => {

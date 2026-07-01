@@ -207,6 +207,23 @@ export default function ParcelsTab({
     return (statusCategoryMap[code] || '').includes('异常') ? 'red' : 'blue';
   };
 
+  // 《包裹状态快筛栏》：各货物态/信息态下的包裹数量（全量统计，仅未删除包裹）
+  const [statusCounts, setStatusCounts] = useState<{ cargo: { code: string; count: number }[]; info: { code: string; count: number }[] }>({ cargo: [], info: [] });
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await adminFetch('/admin/parcels/status-counts');
+        if (res.ok) {
+          const j = await res.json();
+          setStatusCounts({
+            cargo: Array.isArray(j.cargo) ? j.cargo : [],
+            info: Array.isArray(j.info) ? j.info : [],
+          });
+        }
+      } catch { /* ignore */ }
+    })();
+  }, [parcels]);
+
   // 行内图片预览（列表图片列点击时使用）
   const [rowPreviewOpen, setRowPreviewOpen] = useState(false);
   const [rowPreviewUrls, setRowPreviewUrls] = useState<string[]>([]);
@@ -397,6 +414,21 @@ export default function ParcelsTab({
     }
     setDateFilters(newDateFilters);
     cleanFiltersAndNotify(columnFilters, newDateFilters);
+  };
+
+  // 《包裹状态快筛栏》：切换某个货物态/信息态的多选选中态，并触发筛选
+  const parseStatusIn = (key: 'status__in' | 'sub_status__in'): string[] =>
+    (columnFilters[key] || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const selectedCargoStatuses = parseStatusIn('status__in');
+  const selectedInfoStatuses = parseStatusIn('sub_status__in');
+  const toggleQuickStatus = (key: 'status__in' | 'sub_status__in', code: string) => {
+    const current = new Set(parseStatusIn(key));
+    if (current.has(code)) current.delete(code); else current.add(code);
+    const next = { ...columnFilters };
+    const arr = Array.from(current);
+    if (arr.length) next[key] = arr.join(','); else delete next[key];
+    setColumnFilters(next);
+    cleanFiltersAndNotify(next, dateFilters);
   };
 
   const resetFilters = () => {
@@ -772,6 +804,33 @@ export default function ParcelsTab({
 
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
+  // 《包裹状态快筛栏》：按状态字典顺序排列已有包裹的货物态/信息态
+  const cargoOrderIndex = new Map(statusDict.filter((s) => s.status_type === '货物态').map((s, i) => [s.status_code, i] as const));
+  const infoOrderIndex = new Map(statusDict.filter((s) => s.status_type === '信息态').map((s, i) => [s.status_code, i] as const));
+  const sortedCargoCounts = [...statusCounts.cargo].sort((a, b) => (cargoOrderIndex.get(a.code) ?? 999) - (cargoOrderIndex.get(b.code) ?? 999));
+  const sortedInfoCounts = [...statusCounts.info].sort((a, b) => (infoOrderIndex.get(a.code) ?? 999) - (infoOrderIndex.get(b.code) ?? 999));
+  const renderQuickStatusItem = (code: string, count: number, selected: boolean, onClick: () => void) => (
+    <div
+      key={code}
+      onClick={onClick}
+      style={{
+        cursor: 'pointer',
+        userSelect: 'none',
+        minWidth: 60,
+        padding: '3px 10px',
+        borderRadius: 6,
+        border: `1px solid ${selected ? '#1677ff' : '#d9d9d9'}`,
+        background: selected ? '#e6f4ff' : '#fff',
+        textAlign: 'center',
+        lineHeight: 1.35,
+        transition: 'all 0.15s',
+      }}
+    >
+      <div style={{ fontSize: 13, color: selected ? '#1677ff' : 'rgba(0,0,0,0.85)', whiteSpace: 'nowrap' }}>{statusNameMap[code] || code}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: selected ? '#1677ff' : '#8c8c8c' }}>{count}</div>
+    </div>
+  );
+
   return (
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
       <div style={{ padding: '6px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
@@ -820,6 +879,31 @@ export default function ParcelsTab({
           )}
         </div>
       </div>
+
+      {/* 包裹状态快筛栏：显示所有包裹已有的货物态/信息态（可多选），按钮下方为包裹数量 */}
+      {(sortedCargoCounts.length > 0 || sortedInfoCounts.length > 0) && (
+        <div style={{ padding: '8px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', columnGap: 20, rowGap: 10 }}>
+          {sortedCargoCounts.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <span style={{ fontSize: 12, color: '#8c8c8c', fontWeight: 500, whiteSpace: 'nowrap' }}>货物态</span>
+              {sortedCargoCounts.map((s) =>
+                renderQuickStatusItem(s.code, s.count, selectedCargoStatuses.includes(s.code), () => toggleQuickStatus('status__in', s.code)),
+              )}
+            </div>
+          )}
+          {sortedCargoCounts.length > 0 && sortedInfoCounts.length > 0 && (
+            <div style={{ alignSelf: 'stretch', width: 1, background: '#f0f0f0' }} />
+          )}
+          {sortedInfoCounts.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <span style={{ fontSize: 12, color: '#8c8c8c', fontWeight: 500, whiteSpace: 'nowrap' }}>信息态</span>
+              {sortedInfoCounts.map((s) =>
+                renderQuickStatusItem(s.code, s.count, selectedInfoStatuses.includes(s.code), () => toggleQuickStatus('sub_status__in', s.code)),
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <Modal
         title="包裹入库"

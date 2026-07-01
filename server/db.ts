@@ -149,6 +149,23 @@ const buildDeletedFilter = (
   return { clause, cleanedFilters: cleaned };
 };
 
+/**
+ * 从 columnFilters 中取出并移除多选状态快筛键（逗号分隔的编码列表），
+ * 返回去重后的编码数组，供 IN 匹配使用。
+ */
+const extractStatusInFilter = (
+  columnFilters: Record<string, string> | undefined,
+  key: string
+): string[] => {
+  if (!columnFilters || !columnFilters[key]) return [];
+  const codes = String(columnFilters[key])
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  delete columnFilters[key];
+  return Array.from(new Set(codes));
+};
+
 const getUsersCount = async (): Promise<number> => {
   const row = await querySingle<{ count: number }>('SELECT COUNT(*) as count FROM users');
   return row ? row.count : 0;
@@ -1429,6 +1446,9 @@ export const getParcelsPaged = async (
     logisticsFilter = parcelColFilters['logistics_provider'];
     delete parcelColFilters['logistics_provider'];
   }
+  // 状态快筛：货物态/信息态多选（IN 匹配），来自《包裹状态快筛栏》
+  const statusInFilter = extractStatusInFilter(parcelColFilters, 'status__in');
+  const subStatusInFilter = extractStatusInFilter(parcelColFilters, 'sub_status__in');
 
   const dateRange = buildCreatedAtFilter(startDate, endDate, 'p.');
   const { clause: deletedClause, cleanedFilters } = buildDeletedFilter(parcelColFilters, 'p.');
@@ -1455,6 +1475,14 @@ export const getParcelsPaged = async (
   if (logisticsFilter) {
     allClauses.push(`CAST(lp.name AS CHAR) LIKE ?`);
     allParams.push(`%${logisticsFilter.trim()}%`);
+  }
+  if (statusInFilter.length) {
+    allClauses.push(`p.status IN (${statusInFilter.map(() => '?').join(',')})`);
+    allParams.push(...statusInFilter);
+  }
+  if (subStatusInFilter.length) {
+    allClauses.push(`p.sub_status IN (${subStatusInFilter.map(() => '?').join(',')})`);
+    allParams.push(...subStatusInFilter);
   }
   if (logisticsProviderId !== undefined && logisticsProviderId !== null) {
     allClauses.push('p.logistics_provider_id = ?');
@@ -1502,6 +1530,43 @@ export const getParcelsPaged = async (
   };
 };
 
+/**
+ * 统计各货物态/信息态下的包裹数量（仅统计未删除包裹），供《包裹状态快筛栏》展示。
+ * 只返回实际存在包裹的状态编码，物流商管理员仅统计自身物流商下的包裹。
+ */
+export const getParcelStatusCounts = async (
+  logisticsProviderId?: number | null
+): Promise<{
+  cargo: Array<{ code: string; count: number }>;
+  info: Array<{ code: string; count: number }>;
+}> => {
+  const clauses = ['p.deleted_at IS NULL'];
+  const params: unknown[] = [];
+  if (logisticsProviderId !== undefined && logisticsProviderId !== null) {
+    clauses.push('p.logistics_provider_id = ?');
+    params.push(logisticsProviderId);
+  }
+  const whereSql = `WHERE ${clauses.join(' AND ')}`;
+
+  const [cargoRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT p.status AS code, COUNT(*) AS count
+     FROM parcels p ${whereSql} AND p.status IS NOT NULL AND p.status <> ''
+     GROUP BY p.status`,
+    params
+  );
+  const [infoRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT p.sub_status AS code, COUNT(*) AS count
+     FROM parcels p ${whereSql} AND p.sub_status IS NOT NULL AND p.sub_status <> ''
+     GROUP BY p.sub_status`,
+    params
+  );
+
+  return {
+    cargo: (cargoRows as any[]).map((r) => ({ code: String(r.code), count: Number(r.count) })),
+    info: (infoRows as any[]).map((r) => ({ code: String(r.code), count: Number(r.count) })),
+  };
+};
+
 export const getParcelsForExport = async (
   startDate?: string,
   endDate?: string,
@@ -1527,6 +1592,9 @@ export const getParcelsForExport = async (
     itemsFilter = parcelColFilters['items'];
     delete parcelColFilters['items'];
   }
+  // 状态快筛：货物态/信息态多选（IN 匹配），来自《包裹状态快筛栏》
+  const statusInFilter = extractStatusInFilter(parcelColFilters, 'status__in');
+  const subStatusInFilter = extractStatusInFilter(parcelColFilters, 'sub_status__in');
 
   const dateRange = buildCreatedAtFilter(startDate, endDate, 'p.');
   const { clause: deletedClause, cleanedFilters } = buildDeletedFilter(parcelColFilters, 'p.');
@@ -1549,6 +1617,14 @@ export const getParcelsForExport = async (
       `EXISTS (SELECT 1 FROM parcel_items pi WHERE pi.parcel_id = p.id AND pi.name LIKE ?)`
     );
     allParams.push(`%${itemsFilter.trim()}%`);
+  }
+  if (statusInFilter.length) {
+    allClauses.push(`p.status IN (${statusInFilter.map(() => '?').join(',')})`);
+    allParams.push(...statusInFilter);
+  }
+  if (subStatusInFilter.length) {
+    allClauses.push(`p.sub_status IN (${subStatusInFilter.map(() => '?').join(',')})`);
+    allParams.push(...subStatusInFilter);
   }
   if (logisticsProviderId !== undefined && logisticsProviderId !== null) {
     allClauses.push('p.logistics_provider_id = ?');
