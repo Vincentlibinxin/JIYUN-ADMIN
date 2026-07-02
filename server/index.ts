@@ -18,6 +18,7 @@ if (!requiredJwtSecret || requiredJwtSecret.length < 32 || requiredJwtSecret ===
 
 const app = express();
 const port = 3001;
+const host = process.env.API_HOST || '127.0.0.1';
 
 const defaultOrigins = ['http://localhost:3002', 'http://127.0.0.1:3002', 'http://localhost:3003', 'http://127.0.0.1:3003'];
 const configuredOrigins = (process.env.CORS_ORIGINS || '')
@@ -63,8 +64,8 @@ process.on('unhandledRejection', (reason) => {
 
 const start = async (): Promise<void> => {
   await initDb();
-  app.listen(port, '0.0.0.0', () => {
-    console.log(`[API] running on http://localhost:${port}`);
+  app.listen(port, host, () => {
+    console.log(`[API] running on http://${host}:${port}`);
   });
 };
 
