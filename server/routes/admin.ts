@@ -1831,7 +1831,11 @@ router.put('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.AD
       res.status(400).json({ error: '用户名不能为空' });
       return;
     }
-    payload.username = v;
+    // 账号（用户名）创建后不可修改：仅允许提交与现有账号一致的值，否则拒绝
+    if (v !== targetAdmin.username) {
+      res.status(400).json({ error: '管理员账号不可修改' });
+      return;
+    }
   }
   if (typeof email === 'string') {
     payload.email = email.trim();

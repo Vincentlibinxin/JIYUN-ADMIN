@@ -869,8 +869,13 @@ export default function AdminsTab({
                     label="账号"
                     name="username"
                     rules={[{ required: true, message: '请输入管理员账号' }]}
+                    extra={modalMode === 'edit' ? '账号创建后不可修改' : undefined}
                   >
-                    <Input maxLength={64} placeholder="请输入账号" />
+                    <Input
+                      maxLength={64}
+                      placeholder="请输入账号"
+                      disabled={modalMode === 'edit'}
+                    />
                   </Form.Item>
                 );
               }}
