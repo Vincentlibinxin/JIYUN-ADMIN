@@ -157,7 +157,23 @@ export default function AdminsTab({
   const [modalMode, setModalMode] = useState<'create' | 'edit' | 'view'>('view');
   const [activeAdmin, setActiveAdmin] = useState<AdminUser | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [isUnlocked, setIsUnlocked] = useState(false);
   const [form] = Form.useForm();
+
+  const handleUnlockAll = (e: React.SyntheticEvent<HTMLInputElement>) => {
+    e.currentTarget.readOnly = false;
+    setIsUnlocked(true);
+  };
+
+  // 保证电子邮件框在触发出下拉填充时永远是 readOnly。
+  // 这样，在用户点击账号/密码框触发自动填充时，
+  // 电子邮件框作为“只读”元素，Chrome的嗅探算法绝对不会把它作为账号填充的目标。
+  // 仅当用户自己真正去点击/聚焦此电子邮件框时才解除它的只读。
+  const [emailUnlocked, setEmailUnlocked] = useState(false);
+  const handleEmailUnlock = (e: React.SyntheticEvent<HTMLInputElement>) => {
+    e.currentTarget.readOnly = false;
+    setEmailUnlocked(true);
+  };
 
   const [roleOptions, setRoleOptions] = useState<Array<{ label: string; value: string }>>([
     { label: '管理员 (admin)', value: 'platform:0:admin' },
@@ -271,6 +287,8 @@ export default function AdminsTab({
     setActiveAdmin(null);
     setModalMode('create');
     form.resetFields();
+    setIsUnlocked(false);
+    setEmailUnlocked(false);
     if (isLogisticsActor) {
       // 物流商账号：作用域锁定为物流商，归属锁定为自身
       form.setFieldsValue({
@@ -304,6 +322,8 @@ export default function AdminsTab({
   const openEdit = (record: AdminUser) => {
     setActiveAdmin(record);
     setModalMode('edit');
+    setIsUnlocked(false);
+    setEmailUnlocked(false);
     form.setFieldsValue({
       username: record.username,
       email: record.email,
@@ -860,7 +880,15 @@ export default function AdminsTab({
                       ]}
                       extra={`创建成功后账号为「你输入的内容${suffix}」`}
                     >
-                      <Input maxLength={64} placeholder="仅字母和数字" addonAfter={suffix} />
+                      <Input
+                        maxLength={64}
+                        placeholder="仅字母和数字"
+                        addonAfter={suffix}
+                        readOnly={!isUnlocked}
+                        onMouseDown={handleUnlockAll}
+                        onTouchStart={handleUnlockAll}
+                        onFocus={handleUnlockAll}
+                      />
                     </Form.Item>
                   );
                 }
@@ -875,6 +903,10 @@ export default function AdminsTab({
                       maxLength={64}
                       placeholder="请输入账号"
                       disabled={modalMode === 'edit'}
+                      readOnly={!isUnlocked && modalMode !== 'edit'}
+                      onMouseDown={handleUnlockAll}
+                      onTouchStart={handleUnlockAll}
+                      onFocus={handleUnlockAll}
                     />
                   </Form.Item>
                 );
@@ -886,7 +918,15 @@ export default function AdminsTab({
               name="email"
               rules={[{ type: 'email', message: '邮箱格式不正确' }]}
             >
-              <Input maxLength={255} placeholder="请输入电子邮件（选填）" />
+              <Input
+                maxLength={255}
+                placeholder="请输入电子邮件（选填）"
+                autoComplete="off"
+                readOnly={!emailUnlocked}
+                onMouseDown={handleEmailUnlock}
+                onTouchStart={handleEmailUnlock}
+                onFocus={handleEmailUnlock}
+              />
             </Form.Item>
 
             <Form.Item
@@ -977,7 +1017,14 @@ export default function AdminsTab({
                   { min: 12, message: '密码至少 12 位' },
                 ]}
             >
-              <Input.Password placeholder={modalMode === 'create' ? '请输入密码（至少12位）' : '留空表示不修改'} />
+              <Input.Password
+                placeholder={modalMode === 'create' ? '请输入密码（至少12位）' : '留空表示不修改'}
+                readOnly={!isUnlocked}
+                onMouseDown={handleUnlockAll}
+                onTouchStart={handleUnlockAll}
+                onFocus={handleUnlockAll}
+                autoComplete="new-password"
+              />
             </Form.Item>
           </Form>
         )}

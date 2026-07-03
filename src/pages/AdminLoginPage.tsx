@@ -14,8 +14,17 @@ export default function AdminLoginPage() {
   const { login } = useAuth();
   const { t } = useI18n();
   const [loading, setLoading] = useState(false);
+  const [isUnlocked, setIsUnlocked] = useState(false);
   const [messageApi, messageContextHolder] = message.useMessage();
   const showError = (msg: string) => messageApi.error({ content: msg, duration: 3 });
+
+  // 一旦用户与任何一个输入框产生交互（MouseDown/Touch/Focus），
+  // 同步解锁全部账号密码输入框。
+  // 必须同时解锁，否则选择账号时，密码框若仍是 readOnly，浏览器将无法自动填入密码。
+  const handleUnlockAll = (e: React.SyntheticEvent<HTMLInputElement>) => {
+    e.currentTarget.readOnly = false;
+    setIsUnlocked(true);
+  };
 
   const formatRetryAfter = (seconds: number): string => {
     const safeSeconds = Math.max(0, Math.floor(seconds));
@@ -133,6 +142,11 @@ export default function AdminLoginPage() {
               <Input
                 prefix={<UserOutlined style={{ color: '#94a3b8', marginRight: 8, fontSize: 18 }} />}
                 placeholder={t('login.username')}
+                autoComplete="username"
+                readOnly={!isUnlocked}
+                onMouseDown={handleUnlockAll}
+                onTouchStart={handleUnlockAll}
+                onFocus={handleUnlockAll}
                 className={styles.input}
               />
             </Form.Item>
@@ -145,6 +159,11 @@ export default function AdminLoginPage() {
               <Input.Password
                 prefix={<LockOutlined style={{ color: '#94a3b8', marginRight: 8, fontSize: 18 }} />}
                 placeholder={t('login.password')}
+                autoComplete="current-password"
+                readOnly={!isUnlocked}
+                onMouseDown={handleUnlockAll}
+                onTouchStart={handleUnlockAll}
+                onFocus={handleUnlockAll}
                 className={`${styles.input} ${styles.passwordInput}`}
                 iconRender={(visible) => visible
                   ? <EyeOutlined style={{ color: '#64748b', fontSize: 16 }} />
