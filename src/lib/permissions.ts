@@ -38,6 +38,11 @@ export const PERMISSIONS = {
   LOGISTICS_UPDATE: 'logistics.update',
   LOGISTICS_DELETE: 'logistics.delete',
 
+  STORAGE_BIN_VIEW: 'storage_bin.view',
+  STORAGE_BIN_CREATE: 'storage_bin.create',
+  STORAGE_BIN_UPDATE: 'storage_bin.update',
+  STORAGE_BIN_DELETE: 'storage_bin.delete',
+
   SMS_VIEW: 'sms.view',
   SMS_DELETE: 'sms.delete',
 

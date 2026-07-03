@@ -26,10 +26,14 @@ interface RolesTabProps {
   canDelete?: boolean;
   refreshKey?: number;
   scope?: 'platform' | 'logistics';
+  // 当前登录账号的作用域与归属物流商（物流商账号用于锁定归属，避免读取全量物流商列表）
+  actorScope?: 'platform' | 'logistics';
+  actorProviderId?: number | null;
+  actorProviderName?: string | null;
 }
 
 // 物流商权限可配置的权限分组（其余分组仅平台角色可配置）
-const LOGISTICS_GROUP_NAMES = ['概览', '系统管理员', '会员', '包裹', '订单', '物流商角色'];
+const LOGISTICS_GROUP_NAMES = ['概览', '系统管理员', '会员', '包裹', '订单', '物流商角色', '库位管理'];
 
 const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; label: string }> }> = [
   {
@@ -103,6 +107,15 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
     ],
   },
   {
+    group: '库位管理',
+    items: [
+      { code: PERMISSIONS.STORAGE_BIN_VIEW, label: '查看库位' },
+      { code: PERMISSIONS.STORAGE_BIN_CREATE, label: '新增库位' },
+      { code: PERMISSIONS.STORAGE_BIN_UPDATE, label: '修改库位' },
+      { code: PERMISSIONS.STORAGE_BIN_DELETE, label: '删除库位' },
+    ],
+  },
+  {
     group: '短信与审计',
     items: [
       { code: PERMISSIONS.SMS_VIEW, label: '查看短信记录' },
@@ -123,7 +136,8 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
 
 const ALL_PERMISSION_CODES = PERMISSION_GROUPS.flatMap((g) => g.items.map((i) => i.code));
 
-export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, scope = 'platform' }: RolesTabProps) {
+export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, scope = 'platform', actorScope = 'platform', actorProviderId = null, actorProviderName = null }: RolesTabProps) {
+  const isLogisticsActor = actorScope === 'logistics';
   const visibleGroups = useMemo(
     () => (scope === 'logistics' ? PERMISSION_GROUPS.filter((g) => LOGISTICS_GROUP_NAMES.includes(g.group)) : PERMISSION_GROUPS),
     [scope]
@@ -178,6 +192,13 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
 
   useEffect(() => {
     const fetchLogisticsOptions = async () => {
+      // 物流商账号无 logistics.view 权限，无法读取物流商列表；直接用自身归属信息锁定
+      if (isLogisticsActor) {
+        if (actorProviderId) {
+          setLogisticsOptions([{ id: actorProviderId, name: actorProviderName || `ID: ${actorProviderId}` }]);
+        }
+        return;
+      }
       try {
         const response = await adminFetch('/admin/logistics/options');
         if (response.status === 401) return;
@@ -189,7 +210,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
       }
     };
     void fetchLogisticsOptions();
-  }, []);
+  }, [isLogisticsActor, actorProviderId, actorProviderName]);
 
   useLayoutEffect(() => {
     const updateTableHeight = () => {
@@ -214,7 +235,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
     setModalMode('create');
     setEditingRole(null);
     form.setFieldsValue({
-      logistics_provider_id: null,
+      logistics_provider_id: scope === 'logistics' && isLogisticsActor ? actorProviderId : null,
       name: undefined,
       code: undefined,
     });
@@ -756,10 +777,11 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
               label="归属物流商"
               name="logistics_provider_id"
               rules={[{ required: true, message: '请选择归属物流商' }]}
+              extra={isLogisticsActor ? '物流商账号仅可为本物流商创建角色' : undefined}
             >
               <Select
                 placeholder="请选择物流商"
-                disabled={modalMode === 'edit'}
+                disabled={modalMode === 'edit' || isLogisticsActor}
                 options={logisticsOptions.map((item) => ({ value: item.id, label: item.name }))}
               />
             </Form.Item>

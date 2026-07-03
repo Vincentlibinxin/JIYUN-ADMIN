@@ -53,6 +53,7 @@ interface ParcelsTabProps {
   onUpdateStatus: (parcelId: number, status: string) => void;
   onDelete: (id: number) => void;
   onBatchDelete: (ids: number[]) => void;
+  onBatchUpdateLogisticsProvider?: (ids: number[], logisticsProviderId: number) => Promise<boolean>;
   onExport?: () => void | Promise<void>;
   onInbound: (formData: FormData) => Promise<boolean>;
   onEdit: (id: number, formData: FormData) => Promise<boolean>;
@@ -84,6 +85,7 @@ export default function ParcelsTab({
   onUpdateStatus,
   onDelete,
   onBatchDelete,
+  onBatchUpdateLogisticsProvider,
   onExport,
   onInbound,
   onEdit,
@@ -493,6 +495,9 @@ export default function ParcelsTab({
   );
 
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
+  const [batchLogisticsModalOpen, setBatchLogisticsModalOpen] = useState(false);
+  const [batchLogisticsProviderId, setBatchLogisticsProviderId] = useState<number | undefined>(undefined);
+  const [batchAdjustLoading, setBatchAdjustLoading] = useState(false);
   const visibleRowIds = parcels.map((item) => item.id);
   const selectedVisibleCount = visibleRowIds.filter((id) => selectedRowKeys.includes(id)).length;
   const allSelected = visibleRowIds.length > 0 && selectedVisibleCount === visibleRowIds.length;
@@ -512,6 +517,21 @@ export default function ParcelsTab({
       return;
     }
     setSelectedRowKeys((prev) => prev.filter((key) => key !== id));
+  };
+
+  const handleBatchAdjustLogistics = async () => {
+    if (!onBatchUpdateLogisticsProvider || selectedRowKeys.length === 0 || !batchLogisticsProviderId) return;
+    setBatchAdjustLoading(true);
+    try {
+      const ok = await onBatchUpdateLogisticsProvider(selectedRowKeys, batchLogisticsProviderId);
+      if (ok) {
+        setSelectedRowKeys([]);
+        setBatchLogisticsProviderId(undefined);
+        setBatchLogisticsModalOpen(false);
+      }
+    } finally {
+      setBatchAdjustLoading(false);
+    }
   };
 
   const columns: ColumnsType<Parcel> = [
@@ -849,6 +869,18 @@ export default function ParcelsTab({
                 </Button>
               </Popconfirm>
             )}
+            {canUpdate && onBatchUpdateLogisticsProvider && (
+              <Button
+                type="primary"
+                onClick={() => {
+                  setBatchLogisticsProviderId(undefined);
+                  setBatchLogisticsModalOpen(true);
+                }}
+                disabled={selectedRowKeys.length === 0}
+              >
+                批量修改物流商{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
+              </Button>
+            )}
             {onExport && canExport && (
               <Button type="primary" ghost onClick={() => { void onExport(); }}>
                 下载
@@ -904,6 +936,34 @@ export default function ParcelsTab({
           )}
         </div>
       )}
+
+      <Modal
+        title="批量修改物流商"
+        open={batchLogisticsModalOpen}
+        onCancel={() => {
+          if (batchAdjustLoading) return;
+          setBatchLogisticsModalOpen(false);
+        }}
+        onOk={() => void handleBatchAdjustLogistics()}
+        confirmLoading={batchAdjustLoading}
+        okText="确认修改"
+        cancelText="取消"
+        okButtonProps={{ disabled: !batchLogisticsProviderId }}
+      >
+        <Form layout="vertical">
+          <Form.Item label="目标物流商" required>
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="请选择目标物流商"
+              value={batchLogisticsProviderId}
+              options={logisticsSelectOptions}
+              onChange={(value) => setBatchLogisticsProviderId(value)}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         title="包裹入库"

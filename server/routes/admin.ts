@@ -14,6 +14,7 @@ import {
   batchDeleteAdmins,
   batchDeleteOrders,
   batchDeleteParcels,
+  batchUpdateParcelsLogisticsProvider,
   batchDeleteSms,
   batchDeleteUsers,
   createAdmin,
@@ -66,10 +67,20 @@ import {
   getActiveLogisticsProviders,
   createLogisticsProvider,
   getLogisticsProviderByCode,
+  getLogisticsProviderNameById,
+  getLogisticsProviderCodeById,
   ensureLogisticsInitialAccess,
   updateLogisticsProvider,
   deleteLogisticsProvider,
   batchDeleteLogisticsProviders,
+  getStorageBinsPaged,
+  searchStorageBins,
+  findDuplicateStorageBin,
+  createStorageBin,
+  getStorageBinById,
+  updateStorageBin,
+  deleteStorageBin,
+  batchDeleteStorageBins,
   getParcelStatusesPaged,
   searchParcelStatuses,
   getParcelStatusById,
@@ -355,6 +366,28 @@ const requireSuperAdmin = async (req: AdminRequest, res: Response, next: () => v
   next();
 };
 
+// 管理员增改删权限：平台作用域仅超级管理员可操作；物流商作用域凭 admin.* 权限放行，
+// 具体“只能操作本物流商账号”的归属校验在各 handler 内用 getActorProviderFilter/denyCrossProvider 完成。
+// 依赖前置的 requirePermission 已填充 req.adminScope / req.adminRole。
+const requireAdminManage = async (req: AdminRequest, res: Response, next: () => void): Promise<void> => {
+  if (req.adminScope === undefined) {
+    const permissions = await loadActorContext(req, res);
+    if (!permissions) return;
+  }
+  if (req.adminScope === 'platform' && req.adminRole !== 'super_admin') {
+    await logAdminAudit({
+      adminId: req.adminId,
+      action: 'admin.role_check',
+      result: 'denied',
+      ip: getRequestIp(req),
+      detail: `role=${req.adminRole} require=super_admin`,
+    });
+    res.status(403).json({ error: '仅超级管理员可执行此操作' });
+    return;
+  }
+  next();
+};
+
 const loadActorContext = async (req: AdminRequest, res: Response): Promise<PermissionCode[] | null> => {
   if (!req.adminId) {
     res.status(401).json({ error: '未授权' });
@@ -408,6 +441,23 @@ const denyCrossProvider = (
   }
   if (Number(resourceProviderId) !== filter) {
     res.status(403).json({ error: '无权操作其他物流商的数据' });
+    return true;
+  }
+  return false;
+};
+
+// 角色写操作的归属校验：物流商账号只能操作本物流商作用域的角色。
+// 返回 true 表示已写出错误响应、应中止后续处理。
+const denyCrossProviderRole = (
+  req: AdminRequest,
+  res: Response,
+  scope: 'platform' | 'logistics',
+  logisticsProviderId: number | null,
+): boolean => {
+  const actor = getActorProviderFilter(req);
+  if (actor === null) return false; // 平台账号：不限制
+  if (scope !== 'logistics' || logisticsProviderId !== actor) {
+    res.status(403).json({ error: '无权操作其他物流商的角色' });
     return true;
   }
   return false;
@@ -609,6 +659,8 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         role_scope: normalizeRoleScope(admin.role_scope),
         role_logistics_provider_id: admin.role_logistics_provider_id ?? null,
         logistics_provider_id: admin.logistics_provider_id ?? null,
+        logistics_provider_name: await getLogisticsProviderNameById(admin.logistics_provider_id ?? admin.role_logistics_provider_id ?? null),
+        logistics_provider_code: await getLogisticsProviderCodeById(admin.logistics_provider_id ?? admin.role_logistics_provider_id ?? null),
         role_name: await getRoleNameByCode(admin.role, {
           scope: normalizeRoleScope(admin.role_scope),
           logistics_provider_id: admin.role_logistics_provider_id,
@@ -655,6 +707,8 @@ router.get('/session', adminAuth, async (req: AdminRequest, res: Response): Prom
       role_scope: normalizeRoleScope(admin.role_scope),
       role_logistics_provider_id: admin.role_logistics_provider_id ?? null,
       logistics_provider_id: admin.logistics_provider_id ?? null,
+      logistics_provider_name: await getLogisticsProviderNameById(admin.logistics_provider_id ?? admin.role_logistics_provider_id ?? null),
+      logistics_provider_code: await getLogisticsProviderCodeById(admin.logistics_provider_id ?? admin.role_logistics_provider_id ?? null),
       role_name: await getRoleNameByCode(admin.role, {
         scope: normalizeRoleScope(admin.role_scope),
         logistics_provider_id: admin.role_logistics_provider_id,
@@ -768,6 +822,11 @@ router.post('/roles', adminAuth, csrfGuard, requireRolePermission('create'), asy
     return;
   }
 
+  // 物流商账号：只能创建本物流商作用域的角色
+  if (denyCrossProviderRole(req, res, scope, logisticsProviderId)) {
+    return;
+  }
+
   if (scope === 'logistics') {
     const invalid = permissions.find((p: unknown) => !LOGISTICS_ALLOWED_PERMISSIONS.includes(p as PermissionCode));
     if (invalid !== undefined) {
@@ -820,6 +879,11 @@ router.put('/roles/:code', adminAuth, csrfGuard, requireRolePermission('update')
   }
   if (scope === 'platform' && logisticsProviderId) {
     res.status(400).json({ error: '平台角色不允许指定 logistics_provider_id' });
+    return;
+  }
+
+  // 物流商账号：只能修改本物流商作用域的角色
+  if (denyCrossProviderRole(req, res, scope, logisticsProviderId)) {
     return;
   }
 
@@ -897,6 +961,11 @@ router.delete('/roles/:code', adminAuth, csrfGuard, requireRolePermission('delet
   }
   if (scope === 'platform' && logisticsProviderId) {
     res.status(400).json({ error: '平台角色不允许指定 logistics_provider_id' });
+    return;
+  }
+
+  // 物流商账号：只能删除本物流商作用域的角色
+  if (denyCrossProviderRole(req, res, scope, logisticsProviderId)) {
     return;
   }
 
@@ -1425,6 +1494,39 @@ router.post('/parcels/batch-delete', adminAuth, csrfGuard, requirePermission(PER
   res.json({ message: `已删除 ${deleted} 条记录`, deleted });
 });
 
+router.post('/parcels/batch-update-logistics', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = req.body?.ids;
+  const logisticsProviderId = Number(req.body?.logistics_provider_id);
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: '请提供要更新的ID列表' });
+    return;
+  }
+  if (!Number.isInteger(logisticsProviderId) || logisticsProviderId <= 0) {
+    res.status(400).json({ error: '请选择有效的物流商' });
+    return;
+  }
+  const numIds = ids.map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  if (numIds.length === 0) {
+    res.status(400).json({ error: 'ID列表不合法' });
+    return;
+  }
+
+  const actorProvider = getActorProviderFilter(req);
+  if (actorProvider !== null && actorProvider !== logisticsProviderId) {
+    res.status(403).json({ error: '无权将包裹调整为其他物流商' });
+    return;
+  }
+
+  const activeProviders = await getActiveLogisticsProviders();
+  if (!activeProviders.some((p: any) => Number(p.id) === logisticsProviderId)) {
+    res.status(400).json({ error: '目标物流商不存在或已停用' });
+    return;
+  }
+
+  const updated = await batchUpdateParcelsLogisticsProvider(numIds, logisticsProviderId, actorProvider);
+  res.json({ message: `已更新 ${updated} 条包裹物流商`, updated });
+});
+
 router.get('/admins', adminAuth, requirePermission(PERMISSIONS.ADMIN_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
@@ -1432,7 +1534,9 @@ router.get('/admins', adminAuth, requirePermission(PERMISSIONS.ADMIN_VIEW), asyn
   const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
   const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
   const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
-  const result = await getAdminsPaged(page, limit, sortKey, sortOrder, columnFilters, dateFilters, getActorProviderFilter(req));
+  const scopeParam = String(req.query.scope || '').trim();
+  const roleScope = scopeParam === 'platform' || scopeParam === 'logistics' ? scopeParam : undefined;
+  const result = await getAdminsPaged(page, limit, sortKey, sortOrder, columnFilters, dateFilters, getActorProviderFilter(req), roleScope);
   res.json({
     data: result.data,
     pagination: {
@@ -1450,11 +1554,13 @@ router.get('/admins/search', adminAuth, requirePermission(PERMISSIONS.ADMIN_VIEW
     res.status(400).json({ error: '搜索关键词不能为空' });
     return;
   }
-  const data = await searchAdmins(keyword, getActorProviderFilter(req));
+  const scopeParam = String(req.query.scope || '').trim();
+  const roleScope = scopeParam === 'platform' || scopeParam === 'logistics' ? scopeParam : undefined;
+  const data = await searchAdmins(keyword, getActorProviderFilter(req), roleScope);
   res.json({ data, count: data.length });
 });
 
-router.post('/admins', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_CREATE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.post('/admins', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_CREATE), requireAdminManage, async (req: AdminRequest, res: Response): Promise<void> => {
   const { username, password, email, role, role_scope, role_logistics_provider_id, logistics_provider_id } = req.body as {
     username?: string;
     password?: string;
@@ -1465,7 +1571,7 @@ router.post('/admins', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN
     logistics_provider_id?: number | string | null;
   };
 
-  if (!username || !password || !email) {
+  if (!username || !password) {
     await logAdminAudit({
       adminId: req.adminId,
       action: 'admin.create',
@@ -1473,7 +1579,7 @@ router.post('/admins', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN
       ip: getRequestIp(req),
       detail: 'missing_required_fields',
     });
-    res.status(400).json({ error: '用户名、密码和邮箱不能为空' });
+    res.status(400).json({ error: '用户名和密码不能为空' });
     return;
   }
 
@@ -1509,6 +1615,19 @@ router.post('/admins', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN
     return;
   }
 
+  // 物流商账号：只能在本物流商范围内创建 logistics 作用域管理员，不能创建平台/其他物流商账号
+  const actorProviderForCreate = getActorProviderFilter(req);
+  if (actorProviderForCreate !== null) {
+    if (normalizedRoleScope !== 'logistics') {
+      res.status(403).json({ error: '物流商账号只能创建物流商作用域的管理员' });
+      return;
+    }
+    if (normalizedRoleProviderId !== actorProviderForCreate || normalizedAdminProviderId !== actorProviderForCreate) {
+      res.status(403).json({ error: '无权为其他物流商创建管理员' });
+      return;
+    }
+  }
+
   if (!(await roleExists(normalizedRole, { scope: normalizedRoleScope, logistics_provider_id: normalizedRoleProviderId }))) {
     await logAdminAudit({
       adminId: req.adminId,
@@ -1536,10 +1655,33 @@ router.post('/admins', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN
     }
   }
 
+  // 物流商管理员账号：填写内容仅字母+数字，创建成功后自动拼接 @<物流商代号>
+  let finalUsername = username.trim();
+  if (normalizedRoleScope === 'logistics') {
+    const baseUsername = finalUsername;
+    if (!/^[A-Za-z0-9]+$/.test(baseUsername)) {
+      await logAdminAudit({
+        adminId: req.adminId,
+        action: 'admin.create',
+        result: 'failed',
+        ip: getRequestIp(req),
+        detail: 'invalid_logistics_username',
+      });
+      res.status(400).json({ error: '物流商管理员账号只能包含字母和数字' });
+      return;
+    }
+    const providerCode = await getLogisticsProviderCodeById(normalizedAdminProviderId);
+    if (!providerCode) {
+      res.status(400).json({ error: '归属物流商不存在或缺少代号' });
+      return;
+    }
+    finalUsername = `${baseUsername}@${providerCode}`;
+  }
+
   const admin = await createAdmin({
-    username: username.trim(),
+    username: finalUsername,
     password,
-    email: email.trim(),
+    email: (email || '').trim(),
     role: normalizedRole,
     role_scope: normalizedRoleScope,
     role_logistics_provider_id: normalizedRoleProviderId,
@@ -1552,7 +1694,7 @@ router.post('/admins', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN
       action: 'admin.create',
       result: 'failed',
       ip: getRequestIp(req),
-      detail: `duplicate_username=${username.trim()}`,
+      detail: `duplicate_username=${finalUsername}`,
     });
     res.status(409).json({ error: '管理员已存在' });
     return;
@@ -1571,7 +1713,7 @@ router.post('/admins', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN
   res.status(201).json({ message: '管理员已创建', admin });
 });
 
-router.patch('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_UPDATE_STATUS), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.patch('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_UPDATE_STATUS), requireAdminManage, async (req: AdminRequest, res: Response): Promise<void> => {
   const status = String(req.body?.status || '').trim();
   if (!ADMIN_STATUS_SET.has(status)) {
     await logAdminAudit({
@@ -1611,6 +1753,12 @@ router.patch('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.
     return;
   }
 
+  // 物流商账号：只能修改本物流商归属的管理员状态
+  if (getActorProviderFilter(req) !== null) {
+    const target = await getAdminById(adminId);
+    if (denyCrossProvider(req, res, target?.logistics_provider_id)) return;
+  }
+
   const ok = await updateAdminStatus(adminId, status);
   if (!ok) {
     await logAdminAudit({
@@ -1638,7 +1786,7 @@ router.patch('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.
   res.json({ message: '管理员状态已更新', adminId, status });
 });
 
-router.put('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_UPDATE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.put('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_UPDATE), requireAdminManage, async (req: AdminRequest, res: Response): Promise<void> => {
   const adminId = toId(req.params.id);
   if (!adminId) {
     res.status(400).json({ error: '管理员ID不合法' });
@@ -1671,6 +1819,12 @@ router.put('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.AD
     return;
   }
 
+  // 物流商账号：只能修改本物流商归属的管理员
+  const actorProviderForUpdate = getActorProviderFilter(req);
+  if (actorProviderForUpdate !== null && denyCrossProvider(req, res, targetAdmin.logistics_provider_id)) {
+    return;
+  }
+
   if (typeof username === 'string') {
     const v = username.trim();
     if (!v) {
@@ -1680,12 +1834,7 @@ router.put('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.AD
     payload.username = v;
   }
   if (typeof email === 'string') {
-    const v = email.trim();
-    if (!v) {
-      res.status(400).json({ error: '邮箱不能为空' });
-      return;
-    }
-    payload.email = v;
+    payload.email = email.trim();
   }
   if (typeof role === 'string') {
     const v = role.trim();
@@ -1733,6 +1882,15 @@ router.put('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.AD
     res.status(400).json({ error: '物流商管理员归属必须与角色归属一致' });
     return;
   }
+
+  // 物流商账号：不能把管理员迁移到平台或其他物流商
+  if (actorProviderForUpdate !== null) {
+    if (nextRoleScope !== 'logistics' || nextRoleProviderId !== actorProviderForUpdate || nextAdminProviderId !== actorProviderForUpdate) {
+      res.status(403).json({ error: '无权将管理员变更到其他物流商或平台' });
+      return;
+    }
+  }
+
   if (!(await roleExists(nextRole, { scope: nextRoleScope, logistics_provider_id: nextRoleProviderId }))) {
     res.status(400).json({ error: '管理员角色不合法' });
     return;
@@ -1792,7 +1950,7 @@ router.put('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.AD
   res.json({ message: '管理员信息已更新' });
 });
 
-router.delete('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_DELETE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.delete('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_DELETE), requireAdminManage, async (req: AdminRequest, res: Response): Promise<void> => {
   const adminId = toId(req.params.id);
   if (!adminId) {
     await logAdminAudit({
@@ -1835,6 +1993,11 @@ router.delete('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS
     return;
   }
 
+  // 物流商账号：只能删除本物流商归属的管理员
+  if (getActorProviderFilter(req) !== null && denyCrossProvider(req, res, target?.logistics_provider_id)) {
+    return;
+  }
+
   const ok = await deleteAdmin(adminId);
   if (!ok) {
     await logAdminAudit({
@@ -1862,7 +2025,7 @@ router.delete('/admins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS
   res.json({ message: '管理员已删除', adminId });
 });
 
-router.post('/admins/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_DELETE), requireSuperAdmin, async (req: AdminRequest, res: Response): Promise<void> => {
+router.post('/admins/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADMIN_DELETE), requireAdminManage, async (req: AdminRequest, res: Response): Promise<void> => {
   const ids = req.body?.ids;
   if (!Array.isArray(ids) || ids.length === 0) {
     res.status(400).json({ error: '请提供要删除的ID列表' });
@@ -2034,6 +2197,245 @@ router.post('/logistics/batch-delete', adminAuth, csrfGuard, requirePermission(P
     return;
   }
   const deleted = await batchDeleteLogisticsProviders(numIds);
+  res.json({ message: `已删除 ${deleted} 条记录`, deleted });
+});
+
+// ==================== 库位管理 ====================
+// 校验并归一化数字（长/宽/高/容积/载重），空值返回 null，非法返回 undefined 表示错误
+const normalizeStorageBinNumber = (value: unknown): number | null | undefined => {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return n;
+};
+
+// 由 area 参数组合生成库位号，用 "-" 隔开（至少填一个）
+const buildStorageBinCode = (parts: Array<string | undefined>): string => {
+  return parts.map((p) => String(p ?? '').trim()).filter((p) => p !== '').join('-');
+};
+
+// 从请求体解析并校验库位公共字段，出错时写响应并返回 null
+const parseStorageBinBody = (
+  body: Record<string, any>,
+  res: Response
+): {
+  storage_bin: string;
+  area_zone: string | null;
+  area_aisle: string | null;
+  area_section: string | null;
+  area_tier: string | null;
+  area_slot: string | null;
+  size_length: number | null;
+  size_width: number | null;
+  size_height: number | null;
+  volume: number | null;
+  capacity: number | null;
+  warehouse: string;
+  description: string | null;
+  is_enabled: boolean;
+} | null => {
+  const warehouse = String(body.warehouse ?? '').trim();
+  if (!warehouse) {
+    res.status(400).json({ error: '仓库名称不能为空' });
+    return null;
+  }
+  const area_zone = String(body.area_zone ?? '').trim();
+  const area_aisle = String(body.area_aisle ?? '').trim();
+  const area_section = String(body.area_section ?? '').trim();
+  const area_tier = String(body.area_tier ?? '').trim();
+  const area_slot = String(body.area_slot ?? '').trim();
+  const storage_bin = buildStorageBinCode([area_zone, area_aisle, area_section, area_tier, area_slot]);
+  if (!storage_bin) {
+    res.status(400).json({ error: '区/排/架/层/位 至少填写其中一项' });
+    return null;
+  }
+
+  const size_length = normalizeStorageBinNumber(body.size_length);
+  const size_width = normalizeStorageBinNumber(body.size_width);
+  const size_height = normalizeStorageBinNumber(body.size_height);
+  const volume = normalizeStorageBinNumber(body.volume);
+  const capacity = normalizeStorageBinNumber(body.capacity);
+  if ([size_length, size_width, size_height, volume, capacity].some((v) => v === undefined)) {
+    res.status(400).json({ error: '长/宽/高/容积/载重 必须为非负数字' });
+    return null;
+  }
+
+  return {
+    storage_bin,
+    area_zone: area_zone || null,
+    area_aisle: area_aisle || null,
+    area_section: area_section || null,
+    area_tier: area_tier || null,
+    area_slot: area_slot || null,
+    size_length: size_length as number | null,
+    size_width: size_width as number | null,
+    size_height: size_height as number | null,
+    volume: volume as number | null,
+    capacity: capacity as number | null,
+    warehouse,
+    description: String(body.description ?? '').trim() || null,
+    is_enabled: body.is_enabled === undefined ? true : Boolean(body.is_enabled),
+  };
+};
+
+router.get('/storage-bins', adminAuth, requirePermission(PERMISSIONS.STORAGE_BIN_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 10));
+  const sortKey = String(req.query.sortKey || '').trim() || undefined;
+  const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
+  const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
+  const result = await getStorageBinsPaged(page, limit, sortKey, sortOrder, columnFilters, dateFilters, getActorProviderFilter(req));
+  res.json({
+    data: result.data,
+    pagination: { page, limit, total: result.total, pages: result.pages },
+  });
+});
+
+router.get('/storage-bins/search', adminAuth, requirePermission(PERMISSIONS.STORAGE_BIN_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const keyword = String(req.query.q || '').trim();
+  if (!keyword) {
+    res.status(400).json({ error: '搜索关键词不能为空' });
+    return;
+  }
+  const data = await searchStorageBins(keyword, getActorProviderFilter(req));
+  res.json({ data, count: data.length });
+});
+
+router.post('/storage-bins', adminAuth, csrfGuard, requirePermission(PERMISSIONS.STORAGE_BIN_CREATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const parsed = parseStorageBinBody(req.body || {}, res);
+  if (!parsed) return;
+
+  // 物流商账号：库位强制归属本物流商；平台账号：读取 body 指定的物流商（可空）
+  const actorProvider = getActorProviderFilter(req);
+  const resolvedProviderId = actorProvider !== null
+    ? (actorProvider > 0 ? actorProvider : null)
+    : (req.body?.logistics_provider_id !== undefined && req.body?.logistics_provider_id !== '' && req.body?.logistics_provider_id !== null
+      ? (Number(req.body.logistics_provider_id) > 0 ? Number(req.body.logistics_provider_id) : null)
+      : null);
+
+  const duplicate = await findDuplicateStorageBin(parsed.warehouse, parsed.storage_bin, resolvedProviderId);
+  if (duplicate) {
+    res.status(409).json({ error: '同一仓库+物流商下该库位号已存在' });
+    return;
+  }
+
+  const bin = await createStorageBin({ ...parsed, logistics_provider_id: resolvedProviderId });
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'storage_bin.create',
+    targetType: 'storage_bin',
+    targetId: bin.id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: `storage_bin=${parsed.storage_bin} warehouse=${parsed.warehouse}`,
+  });
+  res.status(201).json({ message: '库位已创建', bin });
+});
+
+router.put('/storage-bins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.STORAGE_BIN_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '库位ID不合法' });
+    return;
+  }
+  const existing = await getStorageBinById(id);
+  if (!existing) {
+    res.status(404).json({ error: '库位不存在' });
+    return;
+  }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+
+  const parsed = parseStorageBinBody(req.body || {}, res);
+  if (!parsed) return;
+
+  // 物流商账号：不允许改变归属；平台账号：可指定物流商
+  const actorProvider = getActorProviderFilter(req);
+  const resolvedProviderId = actorProvider !== null
+    ? existing.logistics_provider_id
+    : (req.body?.logistics_provider_id !== undefined && req.body?.logistics_provider_id !== '' && req.body?.logistics_provider_id !== null
+      ? (Number(req.body.logistics_provider_id) > 0 ? Number(req.body.logistics_provider_id) : null)
+      : null);
+
+  const duplicate = await findDuplicateStorageBin(parsed.warehouse, parsed.storage_bin, resolvedProviderId, id);
+  if (duplicate) {
+    res.status(409).json({ error: '同一仓库+物流商下该库位号已存在' });
+    return;
+  }
+
+  const ok = await updateStorageBin(id, { ...parsed, logistics_provider_id: resolvedProviderId });
+  if (!ok) {
+    res.status(404).json({ error: '库位不存在' });
+    return;
+  }
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'storage_bin.update',
+    targetType: 'storage_bin',
+    targetId: id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: 'storage_bin_updated',
+  });
+  res.json({ message: '库位已更新', id });
+});
+
+router.delete('/storage-bins/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.STORAGE_BIN_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '库位ID不合法' });
+    return;
+  }
+  const existing = await getStorageBinById(id);
+  if (!existing) {
+    res.status(404).json({ error: '库位不存在' });
+    return;
+  }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+
+  const ok = await deleteStorageBin(id);
+  if (!ok) {
+    res.status(404).json({ error: '库位不存在' });
+    return;
+  }
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'storage_bin.delete',
+    targetType: 'storage_bin',
+    targetId: id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: 'storage_bin_deleted',
+  });
+  res.json({ message: '库位已删除', id });
+});
+
+router.post('/storage-bins/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.STORAGE_BIN_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: '请提供要删除的ID列表' });
+    return;
+  }
+  const numIds = ids.map(Number).filter(n => Number.isInteger(n) && n > 0);
+  if (numIds.length === 0) {
+    res.status(400).json({ error: 'ID列表不合法' });
+    return;
+  }
+  // 物流商账号：仅允许删除本物流商的库位
+  const actorProvider = getActorProviderFilter(req);
+  let allowedIds = numIds;
+  if (actorProvider !== null) {
+    const checked = await Promise.all(numIds.map(async (id) => {
+      const bin = await getStorageBinById(id);
+      return bin && Number(bin.logistics_provider_id) === actorProvider ? id : null;
+    }));
+    allowedIds = checked.filter((v): v is number => v !== null);
+    if (allowedIds.length === 0) {
+      res.status(403).json({ error: '无权删除其他物流商的库位' });
+      return;
+    }
+  }
+  const deleted = await batchDeleteStorageBins(allowedIds);
   res.json({ message: `已删除 ${deleted} 条记录`, deleted });
 });
 

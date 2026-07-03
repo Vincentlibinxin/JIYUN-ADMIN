@@ -596,6 +596,33 @@ export const initDb = async (): Promise<void> => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // 库位管理（按物流商归属）
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS storage_bins (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        storage_bin VARCHAR(128) NOT NULL,
+        area_zone VARCHAR(32) DEFAULT NULL,
+        area_aisle VARCHAR(32) DEFAULT NULL,
+        area_section VARCHAR(32) DEFAULT NULL,
+        area_tier VARCHAR(32) DEFAULT NULL,
+        area_slot VARCHAR(32) DEFAULT NULL,
+        size_length DECIMAL(10, 2) DEFAULT NULL,
+        size_width DECIMAL(10, 2) DEFAULT NULL,
+        size_height DECIMAL(10, 2) DEFAULT NULL,
+        volume DECIMAL(12, 2) DEFAULT NULL,
+        capacity DECIMAL(12, 2) DEFAULT NULL,
+        warehouse VARCHAR(128) NOT NULL,
+        description VARCHAR(255) DEFAULT NULL,
+        is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        logistics_provider_id INT DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_storage_bin (warehouse, storage_bin, logistics_provider_id),
+        INDEX idx_storage_bin_provider (logistics_provider_id),
+        INDEX idx_storage_bin_warehouse (warehouse)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     // 系统设置 - 包裹状态字典（平台维护）
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS parcel_statuses (
@@ -772,6 +799,22 @@ export const initDb = async (): Promise<void> => {
       ];
       if (adminRoleId) {
         for (const permissionCode of PARCEL_STATUS_CODES) {
+          await connection.execute(
+            'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
+            [adminRoleId, 'admin', permissionCode]
+          );
+        }
+      }
+
+      // 幂等回填：确保内置 admin 角色拥有「库位管理」权限（新增模块，历史库需补齐）。
+      const STORAGE_BIN_CODES = [
+        PERMISSIONS.STORAGE_BIN_VIEW,
+        PERMISSIONS.STORAGE_BIN_CREATE,
+        PERMISSIONS.STORAGE_BIN_UPDATE,
+        PERMISSIONS.STORAGE_BIN_DELETE,
+      ];
+      if (adminRoleId) {
+        for (const permissionCode of STORAGE_BIN_CODES) {
           await connection.execute(
             'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
             [adminRoleId, 'admin', permissionCode]
@@ -1968,7 +2011,8 @@ export const getAdminsPaged = async (
   sortOrder?: string,
   columnFilters?: Record<string, string>,
   dateFilters?: Record<string, [string, string]>,
-  logisticsProviderId?: number | null
+  logisticsProviderId?: number | null,
+  roleScope?: 'platform' | 'logistics'
 ) => {
   const orderBy = toSafeOrderBy(sortKey, sortOrder, ADMINS_SORT_COLUMNS, 'created_at');
   const { clause: deletedClause, cleanedFilters } = buildDeletedFilter(columnFilters);
@@ -1977,6 +2021,10 @@ export const getAdminsPaged = async (
   if (logisticsProviderId !== undefined && logisticsProviderId !== null) {
     allClauses.push('logistics_provider_id = ?');
     params.push(logisticsProviderId);
+  }
+  if (roleScope === 'platform' || roleScope === 'logistics') {
+    allClauses.push('role_scope = ?');
+    params.push(roleScope);
   }
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
 
@@ -2006,10 +2054,12 @@ export const getAdminsPaged = async (
   };
 };
 
-export const searchAdmins = async (keyword: string, logisticsProviderId?: number | null): Promise<any[]> => {
+export const searchAdmins = async (keyword: string, logisticsProviderId?: number | null, roleScope?: 'platform' | 'logistics'): Promise<any[]> => {
   const like = `%${keyword}%`;
   const provClause = (logisticsProviderId !== undefined && logisticsProviderId !== null) ? ' AND logistics_provider_id = ?' : '';
   const provParams: any[] = provClause ? [logisticsProviderId] : [];
+  const scopeClause = (roleScope === 'platform' || roleScope === 'logistics') ? ' AND role_scope = ?' : '';
+  const scopeParams: any[] = scopeClause ? [roleScope] : [];
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT id, username, email, role, role_scope, role_logistics_provider_id, logistics_provider_id, status, is_system, last_login, created_at, updated_at
      FROM admin_users
@@ -2022,9 +2072,9 @@ export const searchAdmins = async (keyword: string, logisticsProviderId?: number
        OR CAST(role_logistics_provider_id AS CHAR) LIKE ?
        OR CAST(logistics_provider_id AS CHAR) LIKE ?
        OR status LIKE ?
-     )${provClause}
+     )${provClause}${scopeClause}
      ORDER BY created_at DESC`,
-    [like, like, like, like, like, like, like, like, ...provParams]
+    [like, like, like, like, like, like, like, like, ...provParams, ...scopeParams]
   );
   return rows as any[];
 };
@@ -2038,13 +2088,40 @@ export const createAdmin = async (payload: {
   role_logistics_provider_id?: number | null;
   logistics_provider_id?: number | null;
 }) => {
-  const existing = await getAdminByUsername(payload.username);
-  if (existing) return null;
-
   const hashed = await bcrypt.hash(payload.password, 10);
   const roleScope = payload.role_scope === 'logistics' ? 'logistics' : 'platform';
   const roleProviderId = roleScope === 'logistics' ? (payload.role_logistics_provider_id || null) : null;
   const adminProviderId = payload.logistics_provider_id || null;
+
+  // username 有唯一约束（不区分软删除），需连同已软删除的记录一起查重。
+  const existingAny = await querySingle<{ id: number; deleted_at: string | null }>(
+    'SELECT id, deleted_at FROM admin_users WHERE username = ? LIMIT 1',
+    [payload.username]
+  );
+  if (existingAny) {
+    // 仍在使用中的同名账号 → 视为重复
+    if (existingAny.deleted_at == null) return null;
+    // 命中已软删除的同名账号 → 复活并覆盖为新的账号信息，释放被占用的用户名
+    await pool.execute(
+      `UPDATE admin_users
+         SET password = ?, email = ?, role = ?, role_scope = ?, role_logistics_provider_id = ?,
+             logistics_provider_id = ?, status = 'active', is_system = 0, last_login = NULL,
+             deleted_at = NULL, updated_at = NOW()
+       WHERE id = ?`,
+      [hashed, payload.email, payload.role || 'admin', roleScope, roleProviderId, adminProviderId, existingAny.id]
+    );
+    return {
+      id: existingAny.id,
+      username: payload.username,
+      email: payload.email,
+      role: payload.role || 'admin',
+      role_scope: roleScope,
+      role_logistics_provider_id: roleProviderId,
+      logistics_provider_id: adminProviderId,
+      status: 'active',
+    };
+  }
+
   const [result] = await pool.execute<mysql.ResultSetHeader>(
     'INSERT INTO admin_users (username, password, email, role, role_scope, role_logistics_provider_id, logistics_provider_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     [payload.username, hashed, payload.email, payload.role || 'admin', roleScope, roleProviderId, adminProviderId, 'active']
@@ -2173,6 +2250,24 @@ export const batchDeleteParcels = async (ids: number[], logisticsProviderId?: nu
   const provClause = (logisticsProviderId !== undefined && logisticsProviderId !== null) ? ' AND logistics_provider_id = ?' : '';
   const provParams = provClause ? [logisticsProviderId] : [];
   const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE parcels SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL${provClause}`, [...ids, ...provParams]);
+  return result.affectedRows;
+};
+
+export const batchUpdateParcelsLogisticsProvider = async (
+  ids: number[],
+  targetLogisticsProviderId: number | null,
+  actorLogisticsProviderId?: number | null
+): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const provClause = (actorLogisticsProviderId !== undefined && actorLogisticsProviderId !== null) ? ' AND logistics_provider_id = ?' : '';
+  const provParams = provClause ? [actorLogisticsProviderId] : [];
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `UPDATE parcels
+     SET logistics_provider_id = ?, updated_at = NOW()
+     WHERE id IN (${placeholders}) AND deleted_at IS NULL${provClause}`,
+    [targetLogisticsProviderId, ...ids, ...provParams]
+  );
   return result.affectedRows;
 };
 
@@ -2318,6 +2413,27 @@ export const getLogisticsProviderByCode = async (code: string): Promise<{ id: nu
   );
 };
 
+export const getLogisticsProviderNameById = async (id: number | null | undefined): Promise<string | null> => {
+  const providerId = Number(id);
+  if (!Number.isInteger(providerId) || providerId <= 0) return null;
+  const row = await querySingle<{ name: string }>(
+    `SELECT name FROM logistics_providers WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
+    [providerId]
+  );
+  return row?.name ?? null;
+};
+
+export const getLogisticsProviderCodeById = async (id: number | null | undefined): Promise<string | null> => {
+  const providerId = Number(id);
+  if (!Number.isInteger(providerId) || providerId <= 0) return null;
+  const row = await querySingle<{ code: string | null }>(
+    `SELECT code FROM logistics_providers WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
+    [providerId]
+  );
+  const code = row?.code ? String(row.code).trim().toLowerCase() : '';
+  return code || null;
+};
+
 /**
  * 为指定物流商补齐【初始角色】与【初始管理员账号】（幂等，可重复调用）。
  * - 初始角色：name="Admin"，code="admin"，scope="logistics"，is_system=1（不可删除）
@@ -2351,11 +2467,13 @@ export const ensureLogisticsInitialAccess = async (provider: { id: number; code?
   } else {
     // 确保 is_system 标记存在（旧数据补标记，防止被删除）
     await pool.execute(`UPDATE admin_roles SET is_system = 1 WHERE id = ?`, [roleId]);
-    // 旧物流商角色补发「概览首页」权限（该权限为新增项，历史角色尚未拥有）
-    await pool.execute(
-      `INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)`,
-      [roleId, 'admin', PERMISSIONS.OVERVIEW_VIEW]
-    );
+    // 旧物流商角色补齐白名单内所有权限（幂等），避免新增权限后历史角色缺失。
+    for (const permissionCode of LOGISTICS_ALLOWED_PERMISSIONS) {
+      await pool.execute(
+        `INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)`,
+        [roleId, 'admin', permissionCode]
+      );
+    }
   }
 
   // 2) 初始管理员账号 admin@<代号>
@@ -2416,6 +2534,211 @@ export const batchDeleteLogisticsProviders = async (ids: number[]): Promise<numb
   if (!ids.length) return 0;
   const placeholders = ids.map(() => '?').join(',');
   const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE logistics_providers SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`, ids);
+  return result.affectedRows;
+};
+
+// ============ 库位管理 ============
+const STORAGE_BIN_SORT_COLUMNS = new Set([
+  'id', 'storage_bin', 'area_zone', 'area_aisle', 'area_section', 'area_tier', 'area_slot',
+  'size_length', 'size_width', 'size_height', 'volume', 'capacity', 'warehouse',
+  'is_enabled', 'logistics_provider_id', 'created_at', 'updated_at',
+]);
+
+export interface StorageBinPayload {
+  storage_bin: string;
+  area_zone?: string | null;
+  area_aisle?: string | null;
+  area_section?: string | null;
+  area_tier?: string | null;
+  area_slot?: string | null;
+  size_length?: number | null;
+  size_width?: number | null;
+  size_height?: number | null;
+  volume?: number | null;
+  capacity?: number | null;
+  warehouse: string;
+  description?: string | null;
+  is_enabled?: boolean;
+  logistics_provider_id?: number | null;
+}
+
+export const getStorageBinsPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>,
+  providerFilter?: number | null
+) => {
+  const orderBy = `sb.${toSafeOrderBy(sortKey, sortOrder, STORAGE_BIN_SORT_COLUMNS, 'created_at')}`;
+  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, STORAGE_BIN_SORT_COLUMNS, 'sb.');
+  const allClauses = ['1=1', ...clauses];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    allClauses.push('sb.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
+
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT sb.id, sb.storage_bin, sb.area_zone, sb.area_aisle, sb.area_section, sb.area_tier, sb.area_slot,
+            sb.size_length, sb.size_width, sb.size_height, sb.volume, sb.capacity, sb.warehouse, sb.description,
+            sb.is_enabled, sb.logistics_provider_id, sb.created_at, sb.updated_at, lp.name AS logistics_provider_name
+     FROM storage_bins sb
+     LEFT JOIN logistics_providers lp ON sb.logistics_provider_id = lp.id
+     ${whereSql}
+     ORDER BY ${orderBy}
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
+  );
+
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count FROM storage_bins sb ${whereSql}`,
+    params
+  );
+
+  const total = Number(countRows?.[0]?.count || 0);
+  return {
+    data: rows as any[],
+    total,
+    pages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+};
+
+export const searchStorageBins = async (keyword: string, providerFilter?: number | null): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const clauses = [`(
+       CAST(sb.id AS CHAR) LIKE ?
+       OR sb.storage_bin LIKE ?
+       OR sb.warehouse LIKE ?
+       OR sb.area_zone LIKE ?
+       OR sb.area_aisle LIKE ?
+       OR sb.area_section LIKE ?
+       OR sb.description LIKE ?
+     )`];
+  const params: any[] = [like, like, like, like, like, like, like];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    clauses.push('sb.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT sb.id, sb.storage_bin, sb.area_zone, sb.area_aisle, sb.area_section, sb.area_tier, sb.area_slot,
+            sb.size_length, sb.size_width, sb.size_height, sb.volume, sb.capacity, sb.warehouse, sb.description,
+            sb.is_enabled, sb.logistics_provider_id, sb.created_at, sb.updated_at, lp.name AS logistics_provider_name
+     FROM storage_bins sb
+     LEFT JOIN logistics_providers lp ON sb.logistics_provider_id = lp.id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY sb.created_at DESC`,
+    params
+  );
+  return rows as any[];
+};
+
+export const findDuplicateStorageBin = async (
+  warehouse: string,
+  storageBin: string,
+  logisticsProviderId: number | null,
+  excludeId?: number
+): Promise<boolean> => {
+  const params: any[] = [warehouse, storageBin];
+  let providerClause: string;
+  if (logisticsProviderId === null) {
+    providerClause = 'logistics_provider_id IS NULL';
+  } else {
+    providerClause = 'logistics_provider_id = ?';
+    params.push(logisticsProviderId);
+  }
+  let excludeClause = '';
+  if (excludeId !== undefined) {
+    excludeClause = ' AND id <> ?';
+    params.push(excludeId);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id FROM storage_bins WHERE warehouse = ? AND storage_bin = ? AND ${providerClause}${excludeClause} LIMIT 1`,
+    params
+  );
+  return rows.length > 0;
+};
+
+export const createStorageBin = async (payload: StorageBinPayload) => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `INSERT INTO storage_bins
+      (storage_bin, area_zone, area_aisle, area_section, area_tier, area_slot,
+       size_length, size_width, size_height, volume, capacity, warehouse, description, is_enabled, logistics_provider_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      payload.storage_bin,
+      payload.area_zone || null,
+      payload.area_aisle || null,
+      payload.area_section || null,
+      payload.area_tier || null,
+      payload.area_slot || null,
+      payload.size_length ?? null,
+      payload.size_width ?? null,
+      payload.size_height ?? null,
+      payload.volume ?? null,
+      payload.capacity ?? null,
+      payload.warehouse,
+      payload.description || null,
+      payload.is_enabled === false ? 0 : 1,
+      payload.logistics_provider_id ?? null,
+    ]
+  );
+  return { id: result.insertId, ...payload };
+};
+
+export const getStorageBinById = async (id: number): Promise<any | null> => {
+  return querySingle<any>(
+    `SELECT id, storage_bin, warehouse, logistics_provider_id FROM storage_bins WHERE id = ? LIMIT 1`,
+    [id]
+  );
+};
+
+export const updateStorageBin = async (id: number, payload: Partial<StorageBinPayload>): Promise<boolean> => {
+  const sets: string[] = ['updated_at = NOW()'];
+  const params: any[] = [];
+  if (payload.storage_bin !== undefined) { sets.push('storage_bin = ?'); params.push(payload.storage_bin); }
+  if (payload.area_zone !== undefined) { sets.push('area_zone = ?'); params.push(payload.area_zone || null); }
+  if (payload.area_aisle !== undefined) { sets.push('area_aisle = ?'); params.push(payload.area_aisle || null); }
+  if (payload.area_section !== undefined) { sets.push('area_section = ?'); params.push(payload.area_section || null); }
+  if (payload.area_tier !== undefined) { sets.push('area_tier = ?'); params.push(payload.area_tier || null); }
+  if (payload.area_slot !== undefined) { sets.push('area_slot = ?'); params.push(payload.area_slot || null); }
+  if (payload.size_length !== undefined) { sets.push('size_length = ?'); params.push(payload.size_length ?? null); }
+  if (payload.size_width !== undefined) { sets.push('size_width = ?'); params.push(payload.size_width ?? null); }
+  if (payload.size_height !== undefined) { sets.push('size_height = ?'); params.push(payload.size_height ?? null); }
+  if (payload.volume !== undefined) { sets.push('volume = ?'); params.push(payload.volume ?? null); }
+  if (payload.capacity !== undefined) { sets.push('capacity = ?'); params.push(payload.capacity ?? null); }
+  if (payload.warehouse !== undefined) { sets.push('warehouse = ?'); params.push(payload.warehouse); }
+  if (payload.description !== undefined) { sets.push('description = ?'); params.push(payload.description || null); }
+  if (payload.is_enabled !== undefined) { sets.push('is_enabled = ?'); params.push(payload.is_enabled ? 1 : 0); }
+  if (payload.logistics_provider_id !== undefined) { sets.push('logistics_provider_id = ?'); params.push(payload.logistics_provider_id ?? null); }
+  params.push(id);
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `UPDATE storage_bins SET ${sets.join(', ')} WHERE id = ?`,
+    params
+  );
+  return result.affectedRows > 0;
+};
+
+export const deleteStorageBin = async (id: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    'DELETE FROM storage_bins WHERE id = ?',
+    [id]
+  );
+  return result.affectedRows > 0;
+};
+
+export const batchDeleteStorageBins = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `DELETE FROM storage_bins WHERE id IN (${placeholders})`,
+    ids
+  );
   return result.affectedRows;
 };
 

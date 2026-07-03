@@ -48,6 +48,12 @@ export const PERMISSIONS = {
   LOGISTICS_UPDATE: 'logistics.update',
   LOGISTICS_DELETE: 'logistics.delete',
 
+  // 库位管理
+  STORAGE_BIN_VIEW: 'storage_bin.view',
+  STORAGE_BIN_CREATE: 'storage_bin.create',
+  STORAGE_BIN_UPDATE: 'storage_bin.update',
+  STORAGE_BIN_DELETE: 'storage_bin.delete',
+
   // 短信
   SMS_VIEW: 'sms.view',
   SMS_DELETE: 'sms.delete',
@@ -94,6 +100,11 @@ const ADMIN_PERMISSIONS: PermissionCode[] = [
 
   PERMISSIONS.LOGISTICS_VIEW,
 
+  PERMISSIONS.STORAGE_BIN_VIEW,
+  PERMISSIONS.STORAGE_BIN_CREATE,
+  PERMISSIONS.STORAGE_BIN_UPDATE,
+  PERMISSIONS.STORAGE_BIN_DELETE,
+
   PERMISSIONS.SMS_VIEW,
 
   // 系统设置 - 包裹状态字典（平台）
@@ -138,6 +149,11 @@ export const LOGISTICS_ALLOWED_PERMISSIONS: PermissionCode[] = [
   PERMISSIONS.ORDER_VIEW,
   PERMISSIONS.ORDER_UPDATE_STATUS,
   PERMISSIONS.ORDER_DELETE,
+  // 库位管理
+  PERMISSIONS.STORAGE_BIN_VIEW,
+  PERMISSIONS.STORAGE_BIN_CREATE,
+  PERMISSIONS.STORAGE_BIN_UPDATE,
+  PERMISSIONS.STORAGE_BIN_DELETE,
 ];
 
 export const getPermissionsForRole = (role: string | undefined | null): PermissionCode[] => {

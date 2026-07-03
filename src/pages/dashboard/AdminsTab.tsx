@@ -77,6 +77,12 @@ interface AdminsTabProps {
   currentAdminId?: number;
   refreshKey?: number;
   onColumnFilterChange?: (columnFilters: Record<string, string>, dateFilters: Record<string, [string, string]>) => void;
+  // 当前标签的作用域（平台管理员 / 物流商管理员），用于锁定新增/修改的角色作用域
+  scope?: 'platform' | 'logistics';
+  // 当前登录账号的作用域与归属物流商（物流商账号用于锁定新增/修改管理员的作用域与归属）
+  actorScope?: 'platform' | 'logistics';
+  actorProviderId?: number | null;
+  actorProviderName?: string | null;
 }
 
 export default function AdminsTab({
@@ -106,7 +112,12 @@ export default function AdminsTab({
   currentAdminId,
   refreshKey,
   onColumnFilterChange,
+  scope,
+  actorScope = 'platform',
+  actorProviderId = null,
+  actorProviderName = null,
 }: AdminsTabProps) {
+  const isLogisticsActor = actorScope === 'logistics';
   const tableHostRef = useRef<HTMLDivElement>(null);
   const [tableScrollY, setTableScrollY] = useState(240);
 
@@ -189,21 +200,35 @@ export default function AdminsTab({
         if (logisticsOptionsResp.ok) {
           const data = await logisticsOptionsResp.json();
           setLogisticsOptions(Array.isArray(data?.data) ? data.data : []);
+        } else if (isLogisticsActor && actorProviderId) {
+          // 物流商账号无 logistics.view 权限，用自身归属信息兜底
+          setLogisticsOptions([{ id: actorProviderId, name: actorProviderName || `ID: ${actorProviderId}` }]);
         }
 
         if (cancelled || roleList.length === 0) return;
 
-        const nextRoleOptions = roleList.map((r: any) => {
+        // 物流商账号两次请求会返回同一份物流商角色，按作用域+归属+code 去重，避免重复选项
+        const dedupedRoles = Array.from(
+          roleList.reduce((acc: Map<string, any>, r: any) => {
+            const scope: 'platform' | 'logistics' = r.scope === 'logistics' ? 'logistics' : 'platform';
+            const providerId = r.logistics_provider_id === null || r.logistics_provider_id === undefined
+              ? null
+              : Number(r.logistics_provider_id);
+            acc.set(makeRoleOptionValue(scope, providerId, String(r.code)), r);
+            return acc;
+          }, new Map<string, any>()).values()
+        );
+
+        const nextRoleOptions = dedupedRoles.map((r: any) => {
           const scope: 'platform' | 'logistics' = r.scope === 'logistics' ? 'logistics' : 'platform';
           const providerId = r.logistics_provider_id === null || r.logistics_provider_id === undefined
             ? null
             : Number(r.logistics_provider_id);
           const value = makeRoleOptionValue(scope, providerId, String(r.code));
-          const suffix = scope === 'logistics' ? ` / 物流商ID:${providerId ?? '-'}` : ' / 平台';
-          return { label: `${r.name} (${r.code})${suffix}`, value };
+          return { label: `${r.name} (${r.code})`, value };
         });
 
-        const nextRoleOptionMap = roleList.reduce((acc: Record<string, RoleOptionMeta>, r: any) => {
+        const nextRoleOptionMap = dedupedRoles.reduce((acc: Record<string, RoleOptionMeta>, r: any) => {
           const scope: 'platform' | 'logistics' = r.scope === 'logistics' ? 'logistics' : 'platform';
           const providerId = r.logistics_provider_id === null || r.logistics_provider_id === undefined
             ? null
@@ -221,7 +246,7 @@ export default function AdminsTab({
         setRoleOptions(nextRoleOptions);
         setRoleOptionMap(nextRoleOptionMap);
         setRoleNameMap(
-          roleList.reduce((acc: Record<string, string>, r: any) => {
+          dedupedRoles.reduce((acc: Record<string, string>, r: any) => {
             const scope: 'platform' | 'logistics' = r.scope === 'logistics' ? 'logistics' : 'platform';
             const providerId = r.logistics_provider_id === null || r.logistics_provider_id === undefined
               ? null
@@ -237,17 +262,33 @@ export default function AdminsTab({
     return () => {
       cancelled = true;
     };
-  }, [refreshKey]);
+  }, [refreshKey, isLogisticsActor, actorProviderId, actorProviderName]);
 
   const openCreate = () => {
     setActiveAdmin(null);
     setModalMode('create');
     form.resetFields();
-    form.setFieldsValue({
-      role_scope: 'platform',
-      logistics_provider_id: null,
-      role_key: 'platform:0:admin',
-    });
+    if (isLogisticsActor) {
+      // 物流商账号：作用域锁定为物流商，归属锁定为自身
+      form.setFieldsValue({
+        role_scope: 'logistics',
+        logistics_provider_id: actorProviderId,
+        role_key: undefined,
+      });
+    } else if (scope === 'logistics') {
+      // 物流商管理员标签（平台账号）：作用域锁定为物流商，需手动选择归属物流商
+      form.setFieldsValue({
+        role_scope: 'logistics',
+        logistics_provider_id: null,
+        role_key: undefined,
+      });
+    } else {
+      form.setFieldsValue({
+        role_scope: 'platform',
+        logistics_provider_id: null,
+        role_key: 'platform:0:admin',
+      });
+    }
     setModalOpen(true);
   };
 
@@ -664,7 +705,7 @@ export default function AdminsTab({
           <Space>
             {canManage && (
               <Button type="primary" onClick={openCreate}>
-                新增管理员
+                {scope === 'platform' ? '新增平台管理员' : scope === 'logistics' ? '新增物流商管理员' : '新增管理员'}
               </Button>
             )}
             {canDelete && (
@@ -755,7 +796,9 @@ export default function AdminsTab({
       </div>
 
       <Modal
-        title={modalMode === 'create' ? '新增管理员' : modalMode === 'edit' ? '修改管理员' : '管理员详情'}
+        title={modalMode === 'create'
+          ? (scope === 'platform' ? '新增平台管理员' : scope === 'logistics' ? '新增物流商管理员' : '新增管理员')
+          : modalMode === 'edit' ? '修改管理员' : '管理员详情'}
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         onOk={modalMode === 'view' ? () => setModalOpen(false) : handleSubmit}
@@ -799,19 +842,21 @@ export default function AdminsTab({
             </Form.Item>
 
             <Form.Item
-              label="电子邮件"
+              label="电子邮件（选填）"
               name="email"
-              rules={[{ required: true, message: '请输入电子邮件' }, { type: 'email', message: '邮箱格式不正确' }]}
+              rules={[{ type: 'email', message: '邮箱格式不正确' }]}
             >
-              <Input maxLength={255} placeholder="请输入电子邮件" />
+              <Input maxLength={255} placeholder="请输入电子邮件（选填）" />
             </Form.Item>
 
             <Form.Item
               label="角色作用域"
               name="role_scope"
               rules={[{ required: true, message: '请选择角色作用域' }]}
+              extra={isLogisticsActor ? '物流商账号仅可管理本物流商的管理员' : undefined}
             >
               <Select
+                disabled={isLogisticsActor || Boolean(scope)}
                 options={[
                   { label: '平台', value: 'platform' },
                   { label: '物流商', value: 'logistics' },
@@ -836,6 +881,7 @@ export default function AdminsTab({
                     rules={[{ required: true, message: '请选择归属物流商' }]}
                   >
                     <Select
+                      disabled={isLogisticsActor}
                       options={logisticsOptions.map((item) => ({ label: item.name, value: item.id }))}
                       onChange={(providerId) => {
                         const scope = form.getFieldValue('role_scope') || 'platform';

@@ -6,6 +6,11 @@ export interface AdminUser {
   email: string;
   role: string;
   role_name?: string | null;
+  role_scope?: 'platform' | 'logistics';
+  role_logistics_provider_id?: number | null;
+  logistics_provider_id?: number | null;
+  logistics_provider_name?: string | null;
+  logistics_provider_code?: string | null;
   permissions?: string[];
 }
 

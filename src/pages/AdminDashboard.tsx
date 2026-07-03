@@ -13,6 +13,7 @@ import SmsTab from './dashboard/SmsTab';
 import ParcelsTab from './dashboard/ParcelsTab';
 import AdminsTab from './dashboard/AdminsTab';
 import LogisticsTab, { LogisticsProvider, LogisticsPayload } from './dashboard/LogisticsTab';
+import StorageBinsTab, { StorageBin, StorageBinPayload } from './dashboard/StorageBinsTab';
 import RolesTab from './dashboard/RolesTab';
 import ParcelStatusTab from './dashboard/ParcelStatusTab';
 import { exportParcelsToTemplate } from '../lib/parcelExport';
@@ -99,8 +100,8 @@ export default function AdminDashboard() {
   const [parcels, setParcels] = useState<Parcel[]>([]);
   const [admins, setAdmins] = useState<AdminUser[]>([]);
   const [logisticsProviders, setLogisticsProviders] = useState<LogisticsProvider[]>([]);
-  const [stats, setStats] = useState<Stats>({ totalUsers: 0, totalOrders: 0, totalParcels: 0 });
-  const [searchQuery, setSearchQuery] = useState('');
+  const [storageBins, setStorageBins] = useState<StorageBin[]>([]);
+  const [stats, setStats] = useState<Stats>({ totalUsers: 0, totalOrders: 0, totalParcels: 0 });  const [searchQuery, setSearchQuery] = useState('');
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [orderStartDate, setOrderStartDate] = useState('');
   const [orderEndDate, setOrderEndDate] = useState('');
@@ -112,12 +113,14 @@ export default function AdminDashboard() {
   const [parcelEndDate, setParcelEndDate] = useState('');
   const [adminSearchQuery, setAdminSearchQuery] = useState('');
   const [logisticsSearchQuery, setLogisticsSearchQuery] = useState('');
+  const [storageBinSearchQuery, setStorageBinSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [smsLoading, setSmsLoading] = useState(false);
   const [parcelsLoading, setParcelsLoading] = useState(false);
   const [adminsLoading, setAdminsLoading] = useState(false);
   const [logisticsLoading, setLogisticsLoading] = useState(false);
+  const [storageBinsLoading, setStorageBinsLoading] = useState(false);
   const [error, setError] = useState('');
   const [messageApi, messageContextHolder] = message.useMessage();
   useEffect(() => {
@@ -149,12 +152,16 @@ export default function AdminDashboard() {
   const [logisticsPage, setLogisticsPage] = useState(1);
   const [logisticsPageSize, setLogisticsPageSize] = useState(50);
   const [logisticsTotalItems, setLogisticsTotalItems] = useState(0);
+  const [storageBinPage, setStorageBinPage] = useState(1);
+  const [storageBinPageSize, setStorageBinPageSize] = useState(50);
+  const [storageBinTotalItems, setStorageBinTotalItems] = useState(0);
   const [userSort, setUserSort] = useState<SortConfig<'id' | 'username' | 'phone' | 'email' | 'real_name' | 'address' | 'created_at' | 'updated_at'>>({ key: 'created_at', direction: 'desc' });
   const [orderSort, setOrderSort] = useState<SortConfig<'id' | 'user_id' | 'total_amount' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [smsSort, setSmsSort] = useState<SortConfig<'id' | 'phone' | 'code' | 'verified' | 'expires_at' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [parcelSort, setParcelSort] = useState<SortConfig<'id' | 'user_id' | 'tracking_number' | 'origin' | 'destination' | 'weight' | 'length_cm' | 'width_cm' | 'height_cm' | 'volume' | 'status' | 'estimated_delivery' | 'created_at' | 'username'>>({ key: 'created_at', direction: 'desc' });
   const [adminSort, setAdminSort] = useState<SortConfig<'id' | 'username' | 'email' | 'role' | 'status' | 'last_login' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [logisticsSort, setLogisticsSort] = useState<SortConfig<'id' | 'name' | 'code' | 'contact_name' | 'contact_phone' | 'email' | 'website' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
+  const [storageBinSort, setStorageBinSort] = useState<SortConfig<'id' | 'storage_bin' | 'warehouse' | 'is_enabled' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [userColumnFilters, setUserColumnFilters] = useState<Record<string, string>>({});
@@ -169,12 +176,20 @@ export default function AdminDashboard() {
   const [adminDateFilters, setAdminDateFilters] = useState<Record<string, [string, string]>>({});
   const [logisticsColumnFilters, setLogisticsColumnFilters] = useState<Record<string, string>>({});
   const [logisticsDateFilters, setLogisticsDateFilters] = useState<Record<string, [string, string]>>({});
+  const [storageBinColumnFilters, setStorageBinColumnFilters] = useState<Record<string, string>>({});
+  const [storageBinDateFilters, setStorageBinDateFilters] = useState<Record<string, [string, string]>>({});
 
   const hasAdminView = hasPermission(PERMISSIONS.ADMIN_VIEW);
   const hasPlatformRoleView = hasPermission(PERMISSIONS.ROLE_PLATFORM_VIEW);
   const hasLogisticsRoleView = hasPermission(PERMISSIONS.ROLE_LOGISTICS_VIEW);
+  // 当前登录账号的作用域与归属物流商（物流商账号用于锁定角色/管理员的归属范围）
+  const actorScope: 'platform' | 'logistics' = adminUser?.role_scope === 'logistics' ? 'logistics' : 'platform';
+  const actorProviderId = adminUser?.logistics_provider_id ?? null;
+  const actorProviderName = adminUser?.logistics_provider_name ?? null;
+  const actorProviderCode = adminUser?.logistics_provider_code ?? null;
   const systemAdminTabs = [
-    hasAdminView ? { key: 'admins', label: '管理员' } : null,
+    hasAdminView && actorScope === 'platform' ? { key: 'platform-admins', label: '平台管理员' } : null,
+    hasAdminView ? { key: 'logistics-admins', label: '物流商管理员' } : null,
     hasPlatformRoleView ? { key: 'platform-permissions', label: '平台权限' } : null,
     hasLogisticsRoleView ? { key: 'logistics-permissions', label: '物流商权限' } : null,
   ].filter(Boolean) as Array<{ key: string; label: string }>;
@@ -186,7 +201,7 @@ export default function AdminDashboard() {
 
   const handleMenuClick = (key: string) => {
     if (key === 'admins') {
-      const nextTab = systemAdminTabs[0]?.key ?? 'admins';
+      const nextTab = systemAdminTabs[0]?.key ?? 'logistics-admins';
       setActiveMenu('admins');
       setActiveTab(nextTab);
       return;
@@ -208,6 +223,7 @@ export default function AdminDashboard() {
     if (hasPermission(PERMISSIONS.ORDER_VIEW)) return { menu: 'orders', tab: 'orders' };
     if (hasPermission(PERMISSIONS.SMS_VIEW)) return { menu: 'sms', tab: 'sms' };
     if (hasPermission(PERMISSIONS.LOGISTICS_VIEW)) return { menu: 'logistics', tab: 'logistics' };
+    if (hasPermission(PERMISSIONS.STORAGE_BIN_VIEW)) return { menu: 'storage-bins', tab: 'storage-bins' };
     if (hasPermission(PERMISSIONS.USER_VIEW)) return { menu: 'users', tab: 'users' };
     if (systemAdminTabs.length > 0) return { menu: 'admins', tab: systemAdminTabs[0].key };
     return { menu: 'overview', tab: 'overview' };
@@ -245,11 +261,14 @@ export default function AdminDashboard() {
     if (activeTab === 'sms') {
       fetchSms();
     }
-    if (activeTab === 'admins') {
+    if (activeTab === 'platform-admins' || activeTab === 'logistics-admins') {
       fetchAdmins();
     }
     if (activeTab === 'logistics') {
       fetchLogistics();
+    }
+    if (activeTab === 'storage-bins') {
+      fetchStorageBins();
     }
   }, [activeTab]);
 
@@ -482,6 +501,8 @@ export default function AdminDashboard() {
       });
       if (Object.keys(cf).length > 0) params.set('columnFilters', JSON.stringify(cf));
       if (Object.keys(df).length > 0) params.set('dateFilters', JSON.stringify(df));
+      const adminScope = activeTab === 'platform-admins' ? 'platform' : activeTab === 'logistics-admins' ? 'logistics' : '';
+      if (adminScope) params.set('scope', adminScope);
       const response = await adminFetch(`/admin/admins?${params.toString()}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('fetch admins failed');
@@ -638,6 +659,140 @@ export default function AdminDashboard() {
     } catch { setError('批量删除失败'); }
   };
 
+  const fetchStorageBins = async (
+    page: number = 1,
+    size: number = storageBinPageSize,
+    sortKey?: string,
+    sortDir?: string,
+    colFilters?: Record<string, string>,
+    dtFilters?: Record<string, [string, string]>
+  ) => {
+    const sk = sortKey || storageBinSort.key;
+    const sd = sortDir || storageBinSort.direction;
+    const cf = colFilters !== undefined ? colFilters : storageBinColumnFilters;
+    const df = dtFilters !== undefined ? dtFilters : storageBinDateFilters;
+    try {
+      setStorageBinsLoading(true);
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(size),
+        sortKey: sk,
+        sortOrder: sd,
+      });
+      if (Object.keys(cf).length > 0) params.set('columnFilters', JSON.stringify(cf));
+      if (Object.keys(df).length > 0) params.set('dateFilters', JSON.stringify(df));
+      const response = await adminFetch(`/admin/storage-bins?${params.toString()}`);
+      if (!ensureAuthorized(response)) return;
+      if (!response.ok) throw new Error('fetch storage bins failed');
+      const data = await response.json();
+      setStorageBins(data.data || []);
+      setStorageBinPage(page);
+      setStorageBinPageSize(size);
+      setStorageBinTotalItems(data.pagination?.total || 0);
+    } catch (err) {
+      setError('读取库位失败');
+    } finally {
+      setStorageBinsLoading(false);
+    }
+  };
+
+  const handleStorageBinPageSizeChange = (newSize: number) => {
+    setStorageBinPageSize(newSize);
+    setStorageBinPage(1);
+    fetchStorageBins(1, newSize);
+  };
+
+  const searchStorageBins = async () => {
+    if (!storageBinSearchQuery.trim()) {
+      setStorageBinPage(1);
+      fetchStorageBins(1, storageBinPageSize);
+      return;
+    }
+    try {
+      setStorageBinsLoading(true);
+      setStorageBinPage(1);
+      const response = await adminFetch(`/admin/storage-bins/search?q=${encodeURIComponent(storageBinSearchQuery)}`);
+      if (!ensureAuthorized(response)) return;
+      if (!response.ok) throw new Error('search storage bins failed');
+      const data = await response.json();
+      setStorageBins(data.data || []);
+      setStorageBinTotalItems(data.count || (data.data || []).length || 0);
+    } catch (err) {
+      setError('搜索库位失败');
+    } finally {
+      setStorageBinsLoading(false);
+    }
+  };
+
+  const resetStorageBinSearch = () => {
+    setStorageBinSearchQuery('');
+    setStorageBinPage(1);
+    fetchStorageBins(1, storageBinPageSize);
+  };
+
+  const createStorageBin = async (payload: StorageBinPayload): Promise<boolean> => {
+    try {
+      const response = await adminFetch('/admin/storage-bins', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchStorageBins(1, storageBinPageSize);
+        return true;
+      }
+      const data = await response.json();
+      setError(data.error || '创建库位失败');
+      return false;
+    } catch {
+      setError('创建库位失败');
+      return false;
+    }
+  };
+
+  const updateStorageBin = async (id: number, payload: StorageBinPayload): Promise<boolean> => {
+    try {
+      const response = await adminFetch(`/admin/storage-bins/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchStorageBins(storageBinPage, storageBinPageSize);
+        return true;
+      }
+      const data = await response.json();
+      setError(data.error || '更新库位失败');
+      return false;
+    } catch {
+      setError('更新库位失败');
+      return false;
+    }
+  };
+
+  const deleteStorageBin = async (id: number) => {
+    try {
+      const response = await adminFetch(`/admin/storage-bins/${id}`, { method: 'DELETE' });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) {
+        fetchStorageBins(storageBinPage, storageBinPageSize);
+      } else {
+        setError('删除库位失败');
+      }
+    } catch { setError('删除失败'); }
+  };
+
+  const batchDeleteStorageBins = async (ids: number[]) => {
+    try {
+      const response = await adminFetch('/admin/storage-bins/batch-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) { fetchStorageBins(storageBinPage, storageBinPageSize); } else { setError('批量删除库位失败'); }
+    } catch { setError('批量删除失败'); }
+  };
+
   const searchUsers = async (
     page: number = 1,
     size: number = pageSize,
@@ -791,7 +946,9 @@ export default function AdminDashboard() {
     try {
       setAdminsLoading(true);
       setAdminPage(1);
-      const response = await adminFetch(`/admin/admins/search?q=${encodeURIComponent(adminSearchQuery)}`);
+      const adminScope = activeTab === 'platform-admins' ? 'platform' : activeTab === 'logistics-admins' ? 'logistics' : '';
+      const scopeParam = adminScope ? `&scope=${adminScope}` : '';
+      const response = await adminFetch(`/admin/admins/search?q=${encodeURIComponent(adminSearchQuery)}${scopeParam}`);
       if (!ensureAuthorized(response)) return;
       if (!response.ok) throw new Error('search admins failed');
       const data = await response.json();
@@ -928,6 +1085,26 @@ export default function AdminDashboard() {
       if (!ensureAuthorized(response)) return;
       if (response.ok) { fetchParcels(parcelPage); } else { setError('批量删除包裹失败'); }
     } catch { setError('批量删除失败'); }
+  };
+
+  const batchUpdateParcelsLogisticsProvider = async (ids: number[], logisticsProviderId: number): Promise<boolean> => {
+    try {
+      const response = await adminFetch('/admin/parcels/batch-update-logistics', {
+        method: 'POST',
+        body: JSON.stringify({ ids, logistics_provider_id: logisticsProviderId }),
+      });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchParcels(parcelPage, parcelPageSize);
+        return true;
+      }
+      const data = await response.json().catch(() => ({}));
+      setError(data.error || '批量调整物流商失败');
+      return false;
+    } catch {
+      setError('批量调整物流商失败');
+      return false;
+    }
   };
 
   const handleExportParcels = async () => {
@@ -1211,7 +1388,8 @@ export default function AdminDashboard() {
         setParcelDateFilters({});
         fetchParcels(1, 50, '', '', 'created_at', 'desc', {}, {});
         break;
-      case 'admins':
+      case 'platform-admins':
+      case 'logistics-admins':
         setAdminSearchQuery('');
         setAdminSort({ key: 'created_at', direction: 'desc' });
         setAdminPage(1);
@@ -1231,6 +1409,15 @@ export default function AdminDashboard() {
         setLogisticsColumnFilters({});
         setLogisticsDateFilters({});
         fetchLogistics(1, 50, 'created_at', 'desc', {}, {});
+        break;
+      case 'storage-bins':
+        setStorageBinSearchQuery('');
+        setStorageBinSort({ key: 'created_at', direction: 'desc' });
+        setStorageBinPage(1);
+        setStorageBinPageSize(50);
+        setStorageBinColumnFilters({});
+        setStorageBinDateFilters({});
+        fetchStorageBins(1, 50, 'created_at', 'desc', {}, {});
         break;
     }
   };
@@ -1275,7 +1462,7 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {(activeTab === 'admins' || activeTab === 'platform-permissions' || activeTab === 'logistics-permissions') && (
+          {(activeTab === 'platform-admins' || activeTab === 'logistics-admins' || activeTab === 'platform-permissions' || activeTab === 'logistics-permissions') && (
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
               <div
                 style={{
@@ -1291,6 +1478,13 @@ export default function AdminDashboard() {
                   items={systemAdminTabs}
                   onChange={(key) => {
                     setActiveMenu('admins');
+                    // 切换到不同的管理员子标签时，清空搜索与筛选，避免跨作用域残留
+                    if (key === 'platform-admins' || key === 'logistics-admins') {
+                      setAdminSearchQuery('');
+                      setAdminColumnFilters({});
+                      setAdminDateFilters({});
+                      setAdminPage(1);
+                    }
                     setActiveTab(key);
                   }}
                   tabBarStyle={{ margin: 0, padding: '0 4px' }}
@@ -1315,11 +1509,16 @@ export default function AdminDashboard() {
                     canUpdate={hasPermission(PERMISSIONS.ROLE_LOGISTICS_UPDATE)}
                     canDelete={hasPermission(PERMISSIONS.ROLE_LOGISTICS_DELETE)}
                     refreshKey={refreshKey}
+                    actorScope={actorScope}
+                    actorProviderId={actorProviderId}
+                    actorProviderName={actorProviderName}
                   />
                 )}
 
-                {activeTab === 'admins' && (
+                {(activeTab === 'platform-admins' || activeTab === 'logistics-admins') && (
                   <AdminsTab
+                    key={activeTab}
+                    scope={activeTab === 'platform-admins' ? 'platform' : 'logistics'}
                     admins={admins}
                     loading={adminsLoading}
                     searchQuery={adminSearchQuery}
@@ -1353,6 +1552,10 @@ export default function AdminDashboard() {
                       setAdminDateFilters(df);
                       fetchAdmins(1, adminPageSize, adminSort.key, adminSort.direction, cf, df);
                     }}
+                    actorScope={actorScope}
+                    actorProviderId={actorProviderId}
+                    actorProviderName={actorProviderName}
+                    actorProviderCode={actorProviderCode}
                   />
                 )}
               </div>
@@ -1496,6 +1699,7 @@ export default function AdminDashboard() {
               onUpdateStatus={updateParcelStatus}
               onDelete={deleteParcel}
               onBatchDelete={batchDeleteParcels}
+              onBatchUpdateLogisticsProvider={batchUpdateParcelsLogisticsProvider}
               onExport={handleExportParcels}
               onInbound={inboundParcel}
               onEdit={editParcel}
@@ -1546,6 +1750,42 @@ export default function AdminDashboard() {
                 setLogisticsColumnFilters(cf);
                 setLogisticsDateFilters(df);
                 fetchLogistics(1, logisticsPageSize, logisticsSort.key, logisticsSort.direction, cf, df);
+              }}
+            />
+          )}
+
+          {/* 库位管理页面 */}
+          {activeTab === 'storage-bins' && (
+            <StorageBinsTab
+              bins={storageBins}
+              loading={storageBinsLoading}
+              searchQuery={storageBinSearchQuery}
+              onSearchQueryChange={setStorageBinSearchQuery}
+              onSearch={searchStorageBins}
+              onReset={resetStorageBinSearch}
+              currentPage={storageBinPage}
+              pageSize={storageBinPageSize}
+              totalItems={storageBinTotalItems}
+              onPageChange={fetchStorageBins}
+              onPageSizeChange={handleStorageBinPageSizeChange}
+              sortKey={storageBinSort.key}
+              sortDirection={storageBinSort.direction}
+              onSortChange={(key, direction) => {
+                setStorageBinSort({ key, direction });
+                fetchStorageBins(storageBinPage, storageBinPageSize, key, direction);
+              }}
+              onCreate={createStorageBin}
+              onUpdate={updateStorageBin}
+              onDelete={deleteStorageBin}
+              onBatchDelete={batchDeleteStorageBins}
+              canManage={hasPermission(PERMISSIONS.STORAGE_BIN_CREATE)}
+              canUpdate={hasPermission(PERMISSIONS.STORAGE_BIN_UPDATE)}
+              canDelete={hasPermission(PERMISSIONS.STORAGE_BIN_DELETE)}
+              refreshKey={refreshKey}
+              onColumnFilterChange={(cf, df) => {
+                setStorageBinColumnFilters(cf);
+                setStorageBinDateFilters(df);
+                fetchStorageBins(1, storageBinPageSize, storageBinSort.key, storageBinSort.direction, cf, df);
               }}
             />
           )}
