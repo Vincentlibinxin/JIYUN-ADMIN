@@ -22,6 +22,7 @@ interface AdminUser {
 interface LogisticsOption {
   id: number;
   name: string;
+  code?: string | null;
 }
 
 interface RoleOptionMeta {
@@ -83,6 +84,7 @@ interface AdminsTabProps {
   actorScope?: 'platform' | 'logistics';
   actorProviderId?: number | null;
   actorProviderName?: string | null;
+  actorProviderCode?: string | null;
 }
 
 export default function AdminsTab({
@@ -116,6 +118,7 @@ export default function AdminsTab({
   actorScope = 'platform',
   actorProviderId = null,
   actorProviderName = null,
+  actorProviderCode = null,
 }: AdminsTabProps) {
   const isLogisticsActor = actorScope === 'logistics';
   const tableHostRef = useRef<HTMLDivElement>(null);
@@ -202,7 +205,7 @@ export default function AdminsTab({
           setLogisticsOptions(Array.isArray(data?.data) ? data.data : []);
         } else if (isLogisticsActor && actorProviderId) {
           // 物流商账号无 logistics.view 权限，用自身归属信息兜底
-          setLogisticsOptions([{ id: actorProviderId, name: actorProviderName || `ID: ${actorProviderId}` }]);
+          setLogisticsOptions([{ id: actorProviderId, name: actorProviderName || `ID: ${actorProviderId}`, code: actorProviderCode }]);
         }
 
         if (cancelled || roleList.length === 0) return;
@@ -262,7 +265,7 @@ export default function AdminsTab({
     return () => {
       cancelled = true;
     };
-  }, [refreshKey, isLogisticsActor, actorProviderId, actorProviderName]);
+  }, [refreshKey, isLogisticsActor, actorProviderId, actorProviderName, actorProviderCode]);
 
   const openCreate = () => {
     setActiveAdmin(null);
@@ -834,11 +837,43 @@ export default function AdminsTab({
         {(modalMode === 'create' || modalMode === 'edit') && (
           <Form form={form} layout="vertical" preserve={false}>
             <Form.Item
-              label="账号"
-              name="username"
-              rules={[{ required: true, message: '请输入管理员账号' }]}
+              noStyle
+              shouldUpdate={(prev, cur) =>
+                prev.role_scope !== cur.role_scope || prev.logistics_provider_id !== cur.logistics_provider_id}
             >
-              <Input maxLength={64} placeholder="请输入账号" />
+              {({ getFieldValue }) => {
+                const curScope = getFieldValue('role_scope') || 'platform';
+                // 仅【新增物流商管理员】时：账号只填字母+数字，创建成功后自动拼接 @<代号>
+                if (modalMode === 'create' && curScope === 'logistics') {
+                  const providerId = getFieldValue('logistics_provider_id') || null;
+                  const providerCode =
+                    logisticsOptions.find((item) => item.id === providerId)?.code
+                    || (isLogisticsActor ? actorProviderCode : null);
+                  const suffix = providerCode ? `@${providerCode}` : '@代号';
+                  return (
+                    <Form.Item
+                      label="账号"
+                      name="username"
+                      rules={[
+                        { required: true, message: '请输入管理员账号' },
+                        { pattern: /^[A-Za-z0-9]+$/, message: '账号只能包含字母和数字' },
+                      ]}
+                      extra={`创建成功后账号为「你输入的内容${suffix}」`}
+                    >
+                      <Input maxLength={64} placeholder="仅字母和数字" addonAfter={suffix} />
+                    </Form.Item>
+                  );
+                }
+                return (
+                  <Form.Item
+                    label="账号"
+                    name="username"
+                    rules={[{ required: true, message: '请输入管理员账号' }]}
+                  >
+                    <Input maxLength={64} placeholder="请输入账号" />
+                  </Form.Item>
+                );
+              }}
             </Form.Item>
 
             <Form.Item
