@@ -105,12 +105,17 @@ function Test-ServiceReady([int]$port, [int]$timeoutSeconds = 30) {
   $deadline = (Get-Date).AddSeconds($timeoutSeconds)
   while ((Get-Date) -lt $deadline) {
     try {
-      $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$port" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
-      return $resp.StatusCode
+      $client = New-Object System.Net.Sockets.TcpClient
+      try {
+        $asyncResult = $client.BeginConnect('127.0.0.1', $port, $null, $null)
+        if ($asyncResult.AsyncWaitHandle.WaitOne(3000, $false) -and $client.Connected) {
+          $client.EndConnect($asyncResult)
+          return 1
+        }
+      } finally {
+        $client.Close()
+      }
     } catch {
-      # 401 / 其它 HTTP 错误也代表端口已在监听、服务已就绪
-      $status = $_.Exception.Response.StatusCode.value__
-      if ($status) { return $status }
       Start-Sleep -Milliseconds 800
     }
   }
@@ -119,14 +124,14 @@ function Test-ServiceReady([int]$port, [int]$timeoutSeconds = 30) {
 
 $apiStatus = Test-ServiceReady -port 3001
 if ($apiStatus) {
-  Write-Ok "后端 API (3001) 已就绪，HTTP 状态码：$apiStatus"
+  Write-Ok '后端 API (3001) 已就绪，端口监听正常。'
 } else {
   Write-Warn2 '后端 API (3001) 未在预期时间内响应，请查看 logs\api.err.log。'
 }
 
 $webStatus = Test-ServiceReady -port 3002
 if ($webStatus) {
-  Write-Ok "前端预览 (3002) 已就绪，HTTP 状态码：$webStatus"
+  Write-Ok '前端预览 (3002) 已就绪，端口监听正常。'
 } else {
   Write-Warn2 '前端预览 (3002) 未在预期时间内响应，请查看 logs\web.err.log。'
 }
