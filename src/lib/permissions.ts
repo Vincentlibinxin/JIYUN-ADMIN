@@ -43,6 +43,11 @@ export const PERMISSIONS = {
   STORAGE_BIN_UPDATE: 'storage_bin.update',
   STORAGE_BIN_DELETE: 'storage_bin.delete',
 
+  NUMBER_LIB_VIEW: 'number_lib.view',
+  NUMBER_LIB_CREATE: 'number_lib.create',
+  NUMBER_LIB_UPDATE: 'number_lib.update',
+  NUMBER_LIB_DELETE: 'number_lib.delete',
+
   SMS_VIEW: 'sms.view',
   SMS_DELETE: 'sms.delete',
 
@@ -52,6 +57,16 @@ export const PERMISSIONS = {
   PARCEL_STATUS_CREATE: 'parcel_status.create',
   PARCEL_STATUS_UPDATE: 'parcel_status.update',
   PARCEL_STATUS_DELETE: 'parcel_status.delete',
+
+  LABEL_VIEW: 'label.view',
+  LABEL_CREATE: 'label.create',
+  LABEL_UPDATE: 'label.update',
+  LABEL_DELETE: 'label.delete',
+
+  ADDRESS_BOOK_VIEW: 'address_book.view',
+  ADDRESS_BOOK_CREATE: 'address_book.create',
+  ADDRESS_BOOK_UPDATE: 'address_book.update',
+  ADDRESS_BOOK_DELETE: 'address_book.delete',
 } as const;
 
 export type PermissionCode = typeof PERMISSIONS[keyof typeof PERMISSIONS];

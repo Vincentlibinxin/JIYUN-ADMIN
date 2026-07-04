@@ -18,6 +18,7 @@ interface Parcel {
   height_cm: number | null;
   volume: number | null;
   images: string | null;
+  storage_bin: string | null;
   status: string;
   sub_status: string | null;
   status_remark: string | null;
@@ -310,6 +311,7 @@ export default function ParcelsTab({
       fd.append('length_cm', String(values.length_cm));
       fd.append('width_cm', String(values.width_cm));
       fd.append('height_cm', String(values.height_cm));
+      fd.append('storage_bin', values.storage_bin != null ? String(values.storage_bin) : '');
       fd.append('logistics_provider_id', values.logistics_provider_id != null ? String(values.logistics_provider_id) : '');
       fd.append('items', JSON.stringify(values.items));
       fileList.forEach(f => {
@@ -343,6 +345,7 @@ export default function ParcelsTab({
       status: record.status,
       sub_status: record.sub_status || undefined,
       status_remark: record.status_remark || '',
+      storage_bin: record.storage_bin || '',
       logistics_provider_id: record.logistics_provider_id ?? undefined,
       items: [{ name: '', value: 0, quantity: 1 }],
     });
@@ -368,6 +371,7 @@ export default function ParcelsTab({
       fd.append('status', values.status || editingParcel.status);
       fd.append('sub_status', values.sub_status || '');
       fd.append('status_remark', values.status_remark || '');
+      fd.append('storage_bin', values.storage_bin != null ? String(values.storage_bin) : '');
       fd.append('logistics_provider_id', values.logistics_provider_id != null ? String(values.logistics_provider_id) : '');
       fd.append('items', JSON.stringify(values.items));
       const existingUrls = editFileList.filter(f => f.url && !f.originFileObj).map(f => f.url!);
@@ -654,6 +658,21 @@ export default function ParcelsTab({
             const count = Number(record.item_count) || 0;
             return count > 1 ? `${record.first_item_name} 等${count}件` : record.first_item_name;
           },
+        },
+      ],
+    },
+    {
+      title: '库位号',
+      key: 'storage_bin',
+      width: 130,
+      children: [
+        {
+          title: renderSearchInput('storage_bin', '库位号'),
+          dataIndex: 'storage_bin',
+          key: 'storage_bin_child',
+          width: 130,
+          ellipsis: true,
+          render: (value: string | null) => value || '',
         },
       ],
     },
@@ -992,6 +1011,9 @@ export default function ParcelsTab({
               <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="高" />
             </Form.Item>
           </div>
+          <Form.Item name="storage_bin" label="库位号">
+            <Input maxLength={64} placeholder="请输入库位号（可选）" />
+          </Form.Item>
           <Form.Item name="logistics_provider_id" label="物流商">
             <Select
               allowClear
@@ -1131,15 +1153,24 @@ export default function ParcelsTab({
           <Form.Item name="status_remark" label="状态备注">
             <Input.TextArea rows={2} maxLength={255} placeholder="可选，填写异常原因或备注信息" />
           </Form.Item>
-          <Form.Item name="logistics_provider_id" label="物流商">
-            <Select
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              placeholder="请选择物流商（可选）"
-              options={logisticsSelectOptions}
-            />
-          </Form.Item>
+          <Row gutter={8}>
+            <Col span={12}>
+              <Form.Item name="storage_bin" label="库位号">
+                <Input maxLength={64} placeholder="请输入库位号（可选）" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="logistics_provider_id" label="物流商">
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="请选择物流商（可选）"
+                  options={logisticsSelectOptions}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
           <Form.Item label="图片" className="compact-upload">
             <Upload
               listType="picture-card"

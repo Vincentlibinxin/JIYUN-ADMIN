@@ -14,8 +14,11 @@ import ParcelsTab from './dashboard/ParcelsTab';
 import AdminsTab from './dashboard/AdminsTab';
 import LogisticsTab, { LogisticsProvider, LogisticsPayload } from './dashboard/LogisticsTab';
 import StorageBinsTab, { StorageBin, StorageBinPayload } from './dashboard/StorageBinsTab';
+import NumberLibraryTab, { NumberCategory, NumberCategoryPayload } from './dashboard/NumberLibraryTab';
+import AddressBookTab, { AddressBookEntry, AddressBookPayload } from './dashboard/AddressBookTab';
 import RolesTab from './dashboard/RolesTab';
 import ParcelStatusTab from './dashboard/ParcelStatusTab';
+import LabelsTab from './dashboard/LabelsTab';
 import { exportParcelsToTemplate } from '../lib/parcelExport';
 
 interface User {
@@ -101,6 +104,8 @@ export default function AdminDashboard() {
   const [admins, setAdmins] = useState<AdminUser[]>([]);
   const [logisticsProviders, setLogisticsProviders] = useState<LogisticsProvider[]>([]);
   const [storageBins, setStorageBins] = useState<StorageBin[]>([]);
+  const [numberCategories, setNumberCategories] = useState<NumberCategory[]>([]);
+  const [addressEntries, setAddressEntries] = useState<AddressBookEntry[]>([]);
   const [stats, setStats] = useState<Stats>({ totalUsers: 0, totalOrders: 0, totalParcels: 0 });  const [searchQuery, setSearchQuery] = useState('');
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [orderStartDate, setOrderStartDate] = useState('');
@@ -114,6 +119,8 @@ export default function AdminDashboard() {
   const [adminSearchQuery, setAdminSearchQuery] = useState('');
   const [logisticsSearchQuery, setLogisticsSearchQuery] = useState('');
   const [storageBinSearchQuery, setStorageBinSearchQuery] = useState('');
+  const [numberCategorySearchQuery, setNumberCategorySearchQuery] = useState('');
+  const [addressSearchQuery, setAddressSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [smsLoading, setSmsLoading] = useState(false);
@@ -121,6 +128,8 @@ export default function AdminDashboard() {
   const [adminsLoading, setAdminsLoading] = useState(false);
   const [logisticsLoading, setLogisticsLoading] = useState(false);
   const [storageBinsLoading, setStorageBinsLoading] = useState(false);
+  const [numberCategoriesLoading, setNumberCategoriesLoading] = useState(false);
+  const [addressLoading, setAddressLoading] = useState(false);
   const [error, setError] = useState('');
   const [messageApi, messageContextHolder] = message.useMessage();
   useEffect(() => {
@@ -155,6 +164,12 @@ export default function AdminDashboard() {
   const [storageBinPage, setStorageBinPage] = useState(1);
   const [storageBinPageSize, setStorageBinPageSize] = useState(50);
   const [storageBinTotalItems, setStorageBinTotalItems] = useState(0);
+  const [numberCategoryPage, setNumberCategoryPage] = useState(1);
+  const [numberCategoryPageSize, setNumberCategoryPageSize] = useState(50);
+  const [numberCategoryTotalItems, setNumberCategoryTotalItems] = useState(0);
+  const [addressPage, setAddressPage] = useState(1);
+  const [addressPageSize, setAddressPageSize] = useState(50);
+  const [addressTotalItems, setAddressTotalItems] = useState(0);
   const [userSort, setUserSort] = useState<SortConfig<'id' | 'username' | 'phone' | 'email' | 'real_name' | 'address' | 'created_at' | 'updated_at'>>({ key: 'created_at', direction: 'desc' });
   const [orderSort, setOrderSort] = useState<SortConfig<'id' | 'user_id' | 'total_amount' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [smsSort, setSmsSort] = useState<SortConfig<'id' | 'phone' | 'code' | 'verified' | 'expires_at' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
@@ -162,6 +177,8 @@ export default function AdminDashboard() {
   const [adminSort, setAdminSort] = useState<SortConfig<'id' | 'username' | 'email' | 'role' | 'status' | 'last_login' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [logisticsSort, setLogisticsSort] = useState<SortConfig<'id' | 'name' | 'code' | 'contact_name' | 'contact_phone' | 'email' | 'website' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [storageBinSort, setStorageBinSort] = useState<SortConfig<'id' | 'storage_bin' | 'warehouse' | 'is_enabled' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
+  const [numberCategorySort, setNumberCategorySort] = useState<SortConfig<'id' | 'number_category' | 'is_enabled' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
+  const [addressSort, setAddressSort] = useState<SortConfig<'id' | 'name' | 'region' | 'phone' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [userColumnFilters, setUserColumnFilters] = useState<Record<string, string>>({});
@@ -178,6 +195,10 @@ export default function AdminDashboard() {
   const [logisticsDateFilters, setLogisticsDateFilters] = useState<Record<string, [string, string]>>({});
   const [storageBinColumnFilters, setStorageBinColumnFilters] = useState<Record<string, string>>({});
   const [storageBinDateFilters, setStorageBinDateFilters] = useState<Record<string, [string, string]>>({});
+  const [numberCategoryColumnFilters, setNumberCategoryColumnFilters] = useState<Record<string, string>>({});
+  const [numberCategoryDateFilters, setNumberCategoryDateFilters] = useState<Record<string, [string, string]>>({});
+  const [addressColumnFilters, setAddressColumnFilters] = useState<Record<string, string>>({});
+  const [addressDateFilters, setAddressDateFilters] = useState<Record<string, [string, string]>>({});
 
   const hasAdminView = hasPermission(PERMISSIONS.ADMIN_VIEW);
   const hasPlatformRoleView = hasPermission(PERMISSIONS.ROLE_PLATFORM_VIEW);
@@ -195,8 +216,10 @@ export default function AdminDashboard() {
   ].filter(Boolean) as Array<{ key: string; label: string }>;
 
   const hasParcelStatusView = hasPermission(PERMISSIONS.PARCEL_STATUS_VIEW);
+  const hasLabelView = hasPermission(PERMISSIONS.LABEL_VIEW);
   const systemSettingsTabs = [
     hasParcelStatusView ? { key: 'parcel-status', label: '包裹状态字典' } : null,
+    hasLabelView ? { key: 'labels', label: '标签管理' } : null,
   ].filter(Boolean) as Array<{ key: string; label: string }>;
 
   const handleMenuClick = (key: string) => {
@@ -225,6 +248,8 @@ export default function AdminDashboard() {
     if (hasPermission(PERMISSIONS.LOGISTICS_VIEW)) return { menu: 'logistics', tab: 'logistics' };
     if (hasPermission(PERMISSIONS.STORAGE_BIN_VIEW)) return { menu: 'storage-bins', tab: 'storage-bins' };
     if (hasPermission(PERMISSIONS.USER_VIEW)) return { menu: 'users', tab: 'users' };
+    if (hasPermission(PERMISSIONS.ADDRESS_BOOK_VIEW)) return { menu: 'address-book', tab: 'address-book' };
+    if (hasPermission(PERMISSIONS.NUMBER_LIB_VIEW)) return { menu: 'number-library', tab: 'number-library' };
     if (systemAdminTabs.length > 0) return { menu: 'admins', tab: systemAdminTabs[0].key };
     return { menu: 'overview', tab: 'overview' };
   };
@@ -269,6 +294,12 @@ export default function AdminDashboard() {
     }
     if (activeTab === 'storage-bins') {
       fetchStorageBins();
+    }
+    if (activeTab === 'number-library') {
+      fetchNumberCategories();
+    }
+    if (activeTab === 'address-book') {
+      fetchAddressEntries();
     }
   }, [activeTab]);
 
@@ -790,6 +821,274 @@ export default function AdminDashboard() {
       });
       if (!ensureAuthorized(response)) return;
       if (response.ok) { fetchStorageBins(storageBinPage, storageBinPageSize); } else { setError('批量删除库位失败'); }
+    } catch { setError('批量删除失败'); }
+  };
+
+  const fetchNumberCategories = async (
+    page: number = 1,
+    size: number = numberCategoryPageSize,
+    sortKey?: string,
+    sortDir?: string,
+    colFilters?: Record<string, string>,
+    dtFilters?: Record<string, [string, string]>
+  ) => {
+    const sk = sortKey || numberCategorySort.key;
+    const sd = sortDir || numberCategorySort.direction;
+    const cf = colFilters !== undefined ? colFilters : numberCategoryColumnFilters;
+    const df = dtFilters !== undefined ? dtFilters : numberCategoryDateFilters;
+    try {
+      setNumberCategoriesLoading(true);
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(size),
+        sortKey: sk,
+        sortOrder: sd,
+      });
+      if (Object.keys(cf).length > 0) params.set('columnFilters', JSON.stringify(cf));
+      if (Object.keys(df).length > 0) params.set('dateFilters', JSON.stringify(df));
+      const response = await adminFetch(`/admin/number-categories?${params.toString()}`);
+      if (!ensureAuthorized(response)) return;
+      if (!response.ok) throw new Error('fetch number categories failed');
+      const data = await response.json();
+      setNumberCategories(data.data || []);
+      setNumberCategoryPage(page);
+      setNumberCategoryPageSize(size);
+      setNumberCategoryTotalItems(data.pagination?.total || 0);
+    } catch (err) {
+      setError('读取号段失败');
+    } finally {
+      setNumberCategoriesLoading(false);
+    }
+  };
+
+  const handleNumberCategoryPageSizeChange = (newSize: number) => {
+    setNumberCategoryPageSize(newSize);
+    setNumberCategoryPage(1);
+    fetchNumberCategories(1, newSize);
+  };
+
+  const searchNumberCategories = async () => {
+    if (!numberCategorySearchQuery.trim()) {
+      setNumberCategoryPage(1);
+      fetchNumberCategories(1, numberCategoryPageSize);
+      return;
+    }
+    try {
+      setNumberCategoriesLoading(true);
+      setNumberCategoryPage(1);
+      const response = await adminFetch(`/admin/number-categories/search?q=${encodeURIComponent(numberCategorySearchQuery)}`);
+      if (!ensureAuthorized(response)) return;
+      if (!response.ok) throw new Error('search number categories failed');
+      const data = await response.json();
+      setNumberCategories(data.data || []);
+      setNumberCategoryTotalItems(data.count || (data.data || []).length || 0);
+    } catch (err) {
+      setError('搜索号段失败');
+    } finally {
+      setNumberCategoriesLoading(false);
+    }
+  };
+
+  const resetNumberCategorySearch = () => {
+    setNumberCategorySearchQuery('');
+    setNumberCategoryPage(1);
+    fetchNumberCategories(1, numberCategoryPageSize);
+  };
+
+  const createNumberCategory = async (payload: NumberCategoryPayload): Promise<boolean> => {
+    try {
+      const response = await adminFetch('/admin/number-categories', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchNumberCategories(1, numberCategoryPageSize);
+        return true;
+      }
+      const data = await response.json();
+      setError(data.error || '创建号段失败');
+      return false;
+    } catch {
+      setError('创建号段失败');
+      return false;
+    }
+  };
+
+  const updateNumberCategory = async (id: number, payload: NumberCategoryPayload): Promise<boolean> => {
+    try {
+      const response = await adminFetch(`/admin/number-categories/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchNumberCategories(numberCategoryPage, numberCategoryPageSize);
+        return true;
+      }
+      const data = await response.json();
+      setError(data.error || '更新号段失败');
+      return false;
+    } catch {
+      setError('更新号段失败');
+      return false;
+    }
+  };
+
+  const deleteNumberCategory = async (id: number) => {
+    try {
+      const response = await adminFetch(`/admin/number-categories/${id}`, { method: 'DELETE' });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) {
+        fetchNumberCategories(numberCategoryPage, numberCategoryPageSize);
+      } else {
+        setError('删除号段失败');
+      }
+    } catch { setError('删除失败'); }
+  };
+
+  const batchDeleteNumberCategories = async (ids: number[]) => {
+    try {
+      const response = await adminFetch('/admin/number-categories/batch-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) { fetchNumberCategories(numberCategoryPage, numberCategoryPageSize); } else { setError('批量删除号段失败'); }
+    } catch { setError('批量删除失败'); }
+  };
+
+  const fetchAddressEntries = async (
+    page: number = 1,
+    size: number = addressPageSize,
+    sortKey?: string,
+    sortDir?: string,
+    colFilters?: Record<string, string>,
+    dtFilters?: Record<string, [string, string]>
+  ) => {
+    const sk = sortKey || addressSort.key;
+    const sd = sortDir || addressSort.direction;
+    const cf = colFilters !== undefined ? colFilters : addressColumnFilters;
+    const df = dtFilters !== undefined ? dtFilters : addressDateFilters;
+    try {
+      setAddressLoading(true);
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(size),
+        sortKey: sk,
+        sortOrder: sd,
+      });
+      if (Object.keys(cf).length > 0) params.set('columnFilters', JSON.stringify(cf));
+      if (Object.keys(df).length > 0) params.set('dateFilters', JSON.stringify(df));
+      const response = await adminFetch(`/admin/address-book?${params.toString()}`);
+      if (!ensureAuthorized(response)) return;
+      if (!response.ok) throw new Error('fetch address book failed');
+      const data = await response.json();
+      setAddressEntries(data.data || []);
+      setAddressPage(page);
+      setAddressPageSize(size);
+      setAddressTotalItems(data.pagination?.total || 0);
+    } catch (err) {
+      setError('读取地址簿失败');
+    } finally {
+      setAddressLoading(false);
+    }
+  };
+
+  const handleAddressPageSizeChange = (newSize: number) => {
+    setAddressPageSize(newSize);
+    setAddressPage(1);
+    fetchAddressEntries(1, newSize);
+  };
+
+  const searchAddressEntries = async () => {
+    if (!addressSearchQuery.trim()) {
+      setAddressPage(1);
+      fetchAddressEntries(1, addressPageSize);
+      return;
+    }
+    try {
+      setAddressLoading(true);
+      setAddressPage(1);
+      const response = await adminFetch(`/admin/address-book/search?q=${encodeURIComponent(addressSearchQuery)}`);
+      if (!ensureAuthorized(response)) return;
+      if (!response.ok) throw new Error('search address book failed');
+      const data = await response.json();
+      setAddressEntries(data.data || []);
+      setAddressTotalItems(data.count || (data.data || []).length || 0);
+    } catch (err) {
+      setError('搜索地址簿失败');
+    } finally {
+      setAddressLoading(false);
+    }
+  };
+
+  const resetAddressSearch = () => {
+    setAddressSearchQuery('');
+    setAddressPage(1);
+    fetchAddressEntries(1, addressPageSize);
+  };
+
+  const createAddressEntry = async (payload: AddressBookPayload): Promise<boolean> => {
+    try {
+      const response = await adminFetch('/admin/address-book', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchAddressEntries(1, addressPageSize);
+        return true;
+      }
+      const data = await response.json();
+      setError(data.error || '创建地址失败');
+      return false;
+    } catch {
+      setError('创建地址失败');
+      return false;
+    }
+  };
+
+  const updateAddressEntry = async (id: number, payload: AddressBookPayload): Promise<boolean> => {
+    try {
+      const response = await adminFetch(`/admin/address-book/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchAddressEntries(addressPage, addressPageSize);
+        return true;
+      }
+      const data = await response.json();
+      setError(data.error || '更新地址失败');
+      return false;
+    } catch {
+      setError('更新地址失败');
+      return false;
+    }
+  };
+
+  const deleteAddressEntry = async (id: number) => {
+    try {
+      const response = await adminFetch(`/admin/address-book/${id}`, { method: 'DELETE' });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) {
+        fetchAddressEntries(addressPage, addressPageSize);
+      } else {
+        setError('删除地址失败');
+      }
+    } catch { setError('删除失败'); }
+  };
+
+  const batchDeleteAddressEntries = async (ids: number[]) => {
+    try {
+      const response = await adminFetch('/admin/address-book/batch-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      });
+      if (!ensureAuthorized(response)) return;
+      if (response.ok) { fetchAddressEntries(addressPage, addressPageSize); } else { setError('批量删除地址失败'); }
     } catch { setError('批量删除失败'); }
   };
 
@@ -1419,6 +1718,24 @@ export default function AdminDashboard() {
         setStorageBinDateFilters({});
         fetchStorageBins(1, 50, 'created_at', 'desc', {}, {});
         break;
+      case 'number-library':
+        setNumberCategorySearchQuery('');
+        setNumberCategorySort({ key: 'created_at', direction: 'desc' });
+        setNumberCategoryPage(1);
+        setNumberCategoryPageSize(50);
+        setNumberCategoryColumnFilters({});
+        setNumberCategoryDateFilters({});
+        fetchNumberCategories(1, 50, 'created_at', 'desc', {}, {});
+        break;
+      case 'address-book':
+        setAddressSearchQuery('');
+        setAddressSort({ key: 'created_at', direction: 'desc' });
+        setAddressPage(1);
+        setAddressPageSize(50);
+        setAddressColumnFilters({});
+        setAddressDateFilters({});
+        fetchAddressEntries(1, 50, 'created_at', 'desc', {}, {});
+        break;
     }
   };
 
@@ -1427,7 +1744,7 @@ export default function AdminDashboard() {
           {messageContextHolder}
           <div key={refreshKey} style={{ display: 'contents' }}>
 
-          {activeTab === 'parcel-status' && (
+          {(activeTab === 'parcel-status' || activeTab === 'labels') && (
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
               <div
                 style={{
@@ -1455,6 +1772,14 @@ export default function AdminDashboard() {
                     canCreate={hasPermission(PERMISSIONS.PARCEL_STATUS_CREATE)}
                     canUpdate={hasPermission(PERMISSIONS.PARCEL_STATUS_UPDATE)}
                     canDelete={hasPermission(PERMISSIONS.PARCEL_STATUS_DELETE)}
+                    refreshKey={refreshKey}
+                  />
+                )}
+                {activeTab === 'labels' && (
+                  <LabelsTab
+                    canCreate={hasPermission(PERMISSIONS.LABEL_CREATE)}
+                    canUpdate={hasPermission(PERMISSIONS.LABEL_UPDATE)}
+                    canDelete={hasPermission(PERMISSIONS.LABEL_DELETE)}
                     refreshKey={refreshKey}
                   />
                 )}
@@ -1786,6 +2111,79 @@ export default function AdminDashboard() {
                 setStorageBinColumnFilters(cf);
                 setStorageBinDateFilters(df);
                 fetchStorageBins(1, storageBinPageSize, storageBinSort.key, storageBinSort.direction, cf, df);
+              }}
+            />
+          )}
+
+          {/* 单号库页面 */}
+          {activeTab === 'number-library' && (
+            <NumberLibraryTab
+              categories={numberCategories}
+              loading={numberCategoriesLoading}
+              searchQuery={numberCategorySearchQuery}
+              onSearchQueryChange={setNumberCategorySearchQuery}
+              onSearch={searchNumberCategories}
+              onReset={resetNumberCategorySearch}
+              currentPage={numberCategoryPage}
+              pageSize={numberCategoryPageSize}
+              totalItems={numberCategoryTotalItems}
+              onPageChange={fetchNumberCategories}
+              onPageSizeChange={handleNumberCategoryPageSizeChange}
+              sortKey={numberCategorySort.key}
+              sortDirection={numberCategorySort.direction}
+              onSortChange={(key, direction) => {
+                setNumberCategorySort({ key, direction });
+                fetchNumberCategories(numberCategoryPage, numberCategoryPageSize, key, direction);
+              }}
+              onCreate={createNumberCategory}
+              onUpdate={updateNumberCategory}
+              onDelete={deleteNumberCategory}
+              onBatchDelete={batchDeleteNumberCategories}
+              onNumbersChanged={() => fetchNumberCategories(numberCategoryPage, numberCategoryPageSize)}
+              canManage={hasPermission(PERMISSIONS.NUMBER_LIB_CREATE)}
+              canUpdate={hasPermission(PERMISSIONS.NUMBER_LIB_UPDATE)}
+              canDelete={hasPermission(PERMISSIONS.NUMBER_LIB_DELETE)}
+              refreshKey={refreshKey}
+              onColumnFilterChange={(cf, df) => {
+                setNumberCategoryColumnFilters(cf);
+                setNumberCategoryDateFilters(df);
+                fetchNumberCategories(1, numberCategoryPageSize, numberCategorySort.key, numberCategorySort.direction, cf, df);
+              }}
+            />
+          )}
+
+          {/* 地址簿页面 */}
+          {activeTab === 'address-book' && (
+            <AddressBookTab
+              entries={addressEntries}
+              loading={addressLoading}
+              searchQuery={addressSearchQuery}
+              onSearchQueryChange={setAddressSearchQuery}
+              onSearch={searchAddressEntries}
+              onReset={resetAddressSearch}
+              currentPage={addressPage}
+              pageSize={addressPageSize}
+              totalItems={addressTotalItems}
+              onPageChange={fetchAddressEntries}
+              onPageSizeChange={handleAddressPageSizeChange}
+              sortKey={addressSort.key}
+              sortDirection={addressSort.direction}
+              onSortChange={(key, direction) => {
+                setAddressSort({ key, direction });
+                fetchAddressEntries(addressPage, addressPageSize, key, direction);
+              }}
+              onCreate={createAddressEntry}
+              onUpdate={updateAddressEntry}
+              onDelete={deleteAddressEntry}
+              onBatchDelete={batchDeleteAddressEntries}
+              canManage={hasPermission(PERMISSIONS.ADDRESS_BOOK_CREATE)}
+              canUpdate={hasPermission(PERMISSIONS.ADDRESS_BOOK_UPDATE)}
+              canDelete={hasPermission(PERMISSIONS.ADDRESS_BOOK_DELETE)}
+              refreshKey={refreshKey}
+              onColumnFilterChange={(cf, df) => {
+                setAddressColumnFilters(cf);
+                setAddressDateFilters(df);
+                fetchAddressEntries(1, addressPageSize, addressSort.key, addressSort.direction, cf, df);
               }}
             />
           )}

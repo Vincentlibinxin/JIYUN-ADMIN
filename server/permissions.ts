@@ -54,6 +54,12 @@ export const PERMISSIONS = {
   STORAGE_BIN_UPDATE: 'storage_bin.update',
   STORAGE_BIN_DELETE: 'storage_bin.delete',
 
+  // 单号库
+  NUMBER_LIB_VIEW: 'number_lib.view',
+  NUMBER_LIB_CREATE: 'number_lib.create',
+  NUMBER_LIB_UPDATE: 'number_lib.update',
+  NUMBER_LIB_DELETE: 'number_lib.delete',
+
   // 短信
   SMS_VIEW: 'sms.view',
   SMS_DELETE: 'sms.delete',
@@ -66,6 +72,18 @@ export const PERMISSIONS = {
   PARCEL_STATUS_CREATE: 'parcel_status.create',
   PARCEL_STATUS_UPDATE: 'parcel_status.update',
   PARCEL_STATUS_DELETE: 'parcel_status.delete',
+
+  // 系统设置 - 标签管理（按物流商归属）
+  LABEL_VIEW: 'label.view',
+  LABEL_CREATE: 'label.create',
+  LABEL_UPDATE: 'label.update',
+  LABEL_DELETE: 'label.delete',
+
+  // 地址簿（按物流商归属）
+  ADDRESS_BOOK_VIEW: 'address_book.view',
+  ADDRESS_BOOK_CREATE: 'address_book.create',
+  ADDRESS_BOOK_UPDATE: 'address_book.update',
+  ADDRESS_BOOK_DELETE: 'address_book.delete',
 } as const;
 
 export type PermissionCode = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -105,6 +123,11 @@ const ADMIN_PERMISSIONS: PermissionCode[] = [
   PERMISSIONS.STORAGE_BIN_UPDATE,
   PERMISSIONS.STORAGE_BIN_DELETE,
 
+  PERMISSIONS.NUMBER_LIB_VIEW,
+  PERMISSIONS.NUMBER_LIB_CREATE,
+  PERMISSIONS.NUMBER_LIB_UPDATE,
+  PERMISSIONS.NUMBER_LIB_DELETE,
+
   PERMISSIONS.SMS_VIEW,
 
   // 系统设置 - 包裹状态字典（平台）
@@ -112,6 +135,18 @@ const ADMIN_PERMISSIONS: PermissionCode[] = [
   PERMISSIONS.PARCEL_STATUS_CREATE,
   PERMISSIONS.PARCEL_STATUS_UPDATE,
   PERMISSIONS.PARCEL_STATUS_DELETE,
+
+  // 系统设置 - 标签管理
+  PERMISSIONS.LABEL_VIEW,
+  PERMISSIONS.LABEL_CREATE,
+  PERMISSIONS.LABEL_UPDATE,
+  PERMISSIONS.LABEL_DELETE,
+
+  // 地址簿
+  PERMISSIONS.ADDRESS_BOOK_VIEW,
+  PERMISSIONS.ADDRESS_BOOK_CREATE,
+  PERMISSIONS.ADDRESS_BOOK_UPDATE,
+  PERMISSIONS.ADDRESS_BOOK_DELETE,
 ];
 
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
@@ -154,6 +189,21 @@ export const LOGISTICS_ALLOWED_PERMISSIONS: PermissionCode[] = [
   PERMISSIONS.STORAGE_BIN_CREATE,
   PERMISSIONS.STORAGE_BIN_UPDATE,
   PERMISSIONS.STORAGE_BIN_DELETE,
+  // 单号库
+  PERMISSIONS.NUMBER_LIB_VIEW,
+  PERMISSIONS.NUMBER_LIB_CREATE,
+  PERMISSIONS.NUMBER_LIB_UPDATE,
+  PERMISSIONS.NUMBER_LIB_DELETE,
+  // 标签管理
+  PERMISSIONS.LABEL_VIEW,
+  PERMISSIONS.LABEL_CREATE,
+  PERMISSIONS.LABEL_UPDATE,
+  PERMISSIONS.LABEL_DELETE,
+  // 地址簿
+  PERMISSIONS.ADDRESS_BOOK_VIEW,
+  PERMISSIONS.ADDRESS_BOOK_CREATE,
+  PERMISSIONS.ADDRESS_BOOK_UPDATE,
+  PERMISSIONS.ADDRESS_BOOK_DELETE,
 ];
 
 export const getPermissionsForRole = (role: string | undefined | null): PermissionCode[] => {

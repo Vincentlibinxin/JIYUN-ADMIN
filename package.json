@@ -19,6 +19,7 @@
     "ali-oss": "^6.23.0",
     "antd": "^6.3.5",
     "bcryptjs": "^3.0.3",
+    "china-division": "^2.7.0",
     "cors": "^2.8.5",
     "dayjs": "^1.11.20",
     "dotenv": "^17.2.3",

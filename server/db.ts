@@ -517,6 +517,9 @@ export const initDb = async (): Promise<void> => {
     if (!existingCols.has('shelf_location')) {
       await connection.execute(`ALTER TABLE parcels ADD COLUMN shelf_location VARCHAR(64) AFTER images`);
     }
+    if (!existingCols.has('storage_bin')) {
+      await connection.execute(`ALTER TABLE parcels ADD COLUMN storage_bin VARCHAR(64) DEFAULT NULL AFTER shelf_location`);
+    }
     if (!existingCols.has('sub_status')) {
       await connection.execute(`ALTER TABLE parcels ADD COLUMN sub_status VARCHAR(64) DEFAULT NULL AFTER status`);
     }
@@ -622,6 +625,88 @@ export const initDb = async (): Promise<void> => {
         INDEX idx_storage_bin_warehouse (warehouse)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    // 单号库 - 号段库（按物流商归属）
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS number_categories (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        number_category VARCHAR(128) NOT NULL,
+        description VARCHAR(255) DEFAULT NULL,
+        is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        logistics_provider_id INT DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_number_category (number_category, logistics_provider_id),
+        INDEX idx_number_category_provider (logistics_provider_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // 单号库 - 单号（关联号段库）
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS tracking_numbers (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        number VARCHAR(128) NOT NULL,
+        category_id INT NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'unused',
+        used_at DATETIME DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_tracking_number (number),
+        INDEX idx_tracking_category (category_id),
+        INDEX idx_tracking_status (status),
+        CONSTRAINT fk_tracking_category FOREIGN KEY (category_id) REFERENCES number_categories(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // 系统设置 - 标签管理（HTML 模板，按物流商归属）
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS label_templates (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        label_name VARCHAR(128) NOT NULL,
+        template_html MEDIUMTEXT NOT NULL,
+        description VARCHAR(255) DEFAULT NULL,
+        is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        logistics_provider_id INT DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_label_name (label_name, logistics_provider_id),
+        INDEX idx_label_provider (logistics_provider_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // 地址簿（按物流商归属，可选关联会员）
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS address_book (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(128) NOT NULL,
+        region VARCHAR(16) NOT NULL,
+        province VARCHAR(64) DEFAULT NULL,
+        city VARCHAR(64) DEFAULT NULL,
+        district VARCHAR(64) DEFAULT NULL,
+        phone VARCHAR(32) NOT NULL,
+        address VARCHAR(255) NOT NULL,
+        user_id INT DEFAULT NULL,
+        logistics_provider_id INT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_address_book_provider (logistics_provider_id),
+        INDEX idx_address_book_user (user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Migration: ensure address_book 省/市/区县 列存在（老库补齐）
+    const [addressBookCols] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'address_book'`
+    );
+    const existingAddressBookCols = new Set((addressBookCols as any[]).map((r: any) => r.COLUMN_NAME));
+    if (!existingAddressBookCols.has('province')) {
+      await connection.execute(`ALTER TABLE address_book ADD COLUMN province VARCHAR(64) DEFAULT NULL AFTER region`);
+    }
+    if (!existingAddressBookCols.has('city')) {
+      await connection.execute(`ALTER TABLE address_book ADD COLUMN city VARCHAR(64) DEFAULT NULL AFTER province`);
+    }
+    if (!existingAddressBookCols.has('district')) {
+      await connection.execute(`ALTER TABLE address_book ADD COLUMN district VARCHAR(64) DEFAULT NULL AFTER city`);
+    }
 
     // 系统设置 - 包裹状态字典（平台维护）
     await connection.execute(`
@@ -815,6 +900,54 @@ export const initDb = async (): Promise<void> => {
       ];
       if (adminRoleId) {
         for (const permissionCode of STORAGE_BIN_CODES) {
+          await connection.execute(
+            'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
+            [adminRoleId, 'admin', permissionCode]
+          );
+        }
+      }
+
+      // 幂等回填：确保内置 admin 角色拥有「单号库」权限（新增模块，历史库需补齐）。
+      const NUMBER_LIB_CODES = [
+        PERMISSIONS.NUMBER_LIB_VIEW,
+        PERMISSIONS.NUMBER_LIB_CREATE,
+        PERMISSIONS.NUMBER_LIB_UPDATE,
+        PERMISSIONS.NUMBER_LIB_DELETE,
+      ];
+      if (adminRoleId) {
+        for (const permissionCode of NUMBER_LIB_CODES) {
+          await connection.execute(
+            'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
+            [adminRoleId, 'admin', permissionCode]
+          );
+        }
+      }
+
+      // 幂等回填：确保内置 admin 角色拥有「系统设置 - 标签管理」权限（新增模块，历史库需补齐）。
+      const LABEL_CODES = [
+        PERMISSIONS.LABEL_VIEW,
+        PERMISSIONS.LABEL_CREATE,
+        PERMISSIONS.LABEL_UPDATE,
+        PERMISSIONS.LABEL_DELETE,
+      ];
+      if (adminRoleId) {
+        for (const permissionCode of LABEL_CODES) {
+          await connection.execute(
+            'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
+            [adminRoleId, 'admin', permissionCode]
+          );
+        }
+      }
+
+      // 幂等回填：确保内置 admin 角色拥有「地址簿」权限（新增模块，历史库需补齐）。
+      const ADDRESS_BOOK_CODES = [
+        PERMISSIONS.ADDRESS_BOOK_VIEW,
+        PERMISSIONS.ADDRESS_BOOK_CREATE,
+        PERMISSIONS.ADDRESS_BOOK_UPDATE,
+        PERMISSIONS.ADDRESS_BOOK_DELETE,
+      ];
+      if (adminRoleId) {
+        for (const permissionCode of ADDRESS_BOOK_CODES) {
           await connection.execute(
             'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
             [adminRoleId, 'admin', permissionCode]
@@ -1449,7 +1582,7 @@ export const searchSms = async (keyword: string, startDate?: string, endDate?: s
   return rows as any[];
 };
 
-const PARCELS_SORT_COLUMNS = new Set(['id', 'user_id', 'tracking_number', 'origin', 'destination', 'weight', 'length_cm', 'width_cm', 'height_cm', 'volume', 'status', 'estimated_delivery', 'created_at']);
+const PARCELS_SORT_COLUMNS = new Set(['id', 'user_id', 'tracking_number', 'origin', 'destination', 'weight', 'length_cm', 'width_cm', 'height_cm', 'volume', 'storage_bin', 'status', 'estimated_delivery', 'created_at']);
 const PARCELS_USERNAME_COL = 'username';
 
 export const getParcelsPaged = async (
@@ -1540,7 +1673,7 @@ export const getParcelsPaged = async (
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
-            p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images,
+            p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images, p.storage_bin,
             p.status, p.sub_status, p.status_remark, p.status_updated_at,
             p.estimated_delivery, p.created_at, p.deleted_at,
             p.logistics_provider_id, lp.name AS logistics_provider_name,
@@ -1801,10 +1934,11 @@ export const createParcelInbound = async (payload: {
   volume: number;
   images?: string;
   shelf_location?: string;
+  storage_bin?: string;
   logistics_provider_id?: number | null;
   items: { name: string; value: number; quantity: number }[];
 }): Promise<number> => {
-  const { tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, logistics_provider_id, items } = payload;
+  const { tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, storage_bin, logistics_provider_id, items } = payload;
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -1821,19 +1955,19 @@ export const createParcelInbound = async (payload: {
       parcelId = existing[0].id;
       await conn.execute(
         `UPDATE parcels SET weight = ?, length_cm = ?, width_cm = ?, height_cm = ?, volume = ?,
-         images = ?, shelf_location = ?, logistics_provider_id = ?, status = 'warehoused', status_updated_at = NOW(),
+         images = ?, shelf_location = ?, storage_bin = ?, logistics_provider_id = ?, status = 'warehoused', status_updated_at = NOW(),
          deleted_at = NULL, updated_at = NOW()
          WHERE id = ?`,
-        [weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, logistics_provider_id || null, parcelId]
+        [weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, storage_bin || null, logistics_provider_id || null, parcelId]
       );
       // Remove old items, will re-insert below
       await conn.execute('DELETE FROM parcel_items WHERE parcel_id = ?', [parcelId]);
     } else {
       // Insert new parcel
       const [result] = await conn.execute<mysql.ResultSetHeader>(
-        `INSERT INTO parcels (tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, logistics_provider_id, origin, destination, status, status_updated_at, user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 'warehoused', NOW(), NULL)`,
-        [tracking_number, weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, logistics_provider_id || null]
+        `INSERT INTO parcels (tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, storage_bin, logistics_provider_id, origin, destination, status, status_updated_at, user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 'warehoused', NOW(), NULL)`,
+        [tracking_number, weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, storage_bin || null, logistics_provider_id || null]
       );
       parcelId = result.insertId;
     }
@@ -1879,10 +2013,11 @@ export const updateParcel = async (parcelId: number, payload: {
   sub_status?: string;
   status_remark?: string;
   images?: string;
+  storage_bin?: string;
   logistics_provider_id?: number | null;
   items: { name: string; value: number; quantity: number }[];
 }): Promise<boolean> => {
-  const { weight, length_cm, width_cm, height_cm, volume, origin, destination, status, sub_status, status_remark, images, logistics_provider_id, items } = payload;
+  const { weight, length_cm, width_cm, height_cm, volume, origin, destination, status, sub_status, status_remark, images, storage_bin, logistics_provider_id, items } = payload;
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -1894,6 +2029,7 @@ export const updateParcel = async (parcelId: number, payload: {
     if (sub_status !== undefined) { sets.push('sub_status = ?'); params.push(sub_status || null); }
     if (status_remark !== undefined) { sets.push('status_remark = ?'); params.push(status_remark || null); }
     if (images !== undefined) { sets.push('images = ?'); params.push(images || null); }
+    if (storage_bin !== undefined) { sets.push('storage_bin = ?'); params.push(storage_bin || null); }
     if (logistics_provider_id !== undefined) { sets.push('logistics_provider_id = ?'); params.push(logistics_provider_id || null); }
     params.push(parcelId);
     const [result] = await conn.execute<mysql.ResultSetHeader>(
@@ -2737,6 +2873,610 @@ export const batchDeleteStorageBins = async (ids: number[]): Promise<number> => 
   const placeholders = ids.map(() => '?').join(',');
   const [result] = await pool.execute<mysql.ResultSetHeader>(
     `DELETE FROM storage_bins WHERE id IN (${placeholders})`,
+    ids
+  );
+  return result.affectedRows;
+};
+
+// ============ 单号库 - 号段库 + 单号（按物流商归属） ============
+
+const NUMBER_CATEGORY_SORT_COLUMNS = new Set([
+  'id', 'number_category', 'is_enabled', 'logistics_provider_id', 'created_at', 'updated_at',
+]);
+
+// 近期使用窗口（天），用于预计用尽天数的日均消耗估算
+const NUMBER_USAGE_WINDOW_DAYS = 7;
+
+export interface NumberCategoryPayload {
+  number_category: string;
+  description?: string | null;
+  is_enabled?: boolean;
+  logistics_provider_id?: number | null;
+}
+
+// 附加「库存数量（未使用单号数）」与「预计用尽天数」两个计算字段
+const NUMBER_CATEGORY_COMPUTED = `
+  (SELECT COUNT(*) FROM tracking_numbers tn WHERE tn.category_id = c.id AND tn.status = 'unused') AS unused_count,
+  (SELECT COUNT(*) FROM tracking_numbers tn WHERE tn.category_id = c.id AND tn.status = 'used'
+     AND tn.used_at >= (NOW() - INTERVAL ${NUMBER_USAGE_WINDOW_DAYS} DAY)) AS used_recent`;
+
+// 由未使用数量与近期使用速率推算预计用尽天数（无近期消耗则返回 null）
+const withDepletionDays = (rows: any[]): any[] =>
+  rows.map((r) => {
+    const unused = Number(r.unused_count || 0);
+    const recent = Number(r.used_recent || 0);
+    let estimated_depletion_days: number | null = null;
+    if (recent > 0) {
+      const dailyRate = recent / NUMBER_USAGE_WINDOW_DAYS;
+      estimated_depletion_days = dailyRate > 0 ? Math.round(unused / dailyRate) : null;
+    }
+    const { used_recent, ...rest } = r;
+    return { ...rest, unused_count: unused, estimated_depletion_days };
+  });
+
+export const getNumberCategoriesPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>,
+  providerFilter?: number | null
+) => {
+  const orderBy = `c.${toSafeOrderBy(sortKey, sortOrder, NUMBER_CATEGORY_SORT_COLUMNS, 'created_at')}`;
+  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, NUMBER_CATEGORY_SORT_COLUMNS, 'c.');
+  const allClauses = ['1=1', ...clauses];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    allClauses.push('c.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
+
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT c.id, c.number_category, c.description, c.is_enabled, c.logistics_provider_id,
+            c.created_at, c.updated_at, lp.name AS logistics_provider_name,
+            ${NUMBER_CATEGORY_COMPUTED}
+     FROM number_categories c
+     LEFT JOIN logistics_providers lp ON c.logistics_provider_id = lp.id
+     ${whereSql}
+     ORDER BY ${orderBy}
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
+  );
+
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count FROM number_categories c ${whereSql}`,
+    params
+  );
+
+  const total = Number(countRows?.[0]?.count || 0);
+  return {
+    data: withDepletionDays(rows as any[]),
+    total,
+    pages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+};
+
+export const searchNumberCategories = async (keyword: string, providerFilter?: number | null): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const clauses = [`(
+       CAST(c.id AS CHAR) LIKE ?
+       OR c.number_category LIKE ?
+       OR c.description LIKE ?
+     )`];
+  const params: any[] = [like, like, like];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    clauses.push('c.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT c.id, c.number_category, c.description, c.is_enabled, c.logistics_provider_id,
+            c.created_at, c.updated_at, lp.name AS logistics_provider_name,
+            ${NUMBER_CATEGORY_COMPUTED}
+     FROM number_categories c
+     LEFT JOIN logistics_providers lp ON c.logistics_provider_id = lp.id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY c.created_at DESC`,
+    params
+  );
+  return withDepletionDays(rows as any[]);
+};
+
+export const findDuplicateNumberCategory = async (
+  numberCategory: string,
+  logisticsProviderId: number | null,
+  excludeId?: number
+): Promise<boolean> => {
+  const params: any[] = [numberCategory];
+  let providerClause: string;
+  if (logisticsProviderId === null) {
+    providerClause = 'logistics_provider_id IS NULL';
+  } else {
+    providerClause = 'logistics_provider_id = ?';
+    params.push(logisticsProviderId);
+  }
+  let excludeClause = '';
+  if (excludeId !== undefined) {
+    excludeClause = ' AND id <> ?';
+    params.push(excludeId);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id FROM number_categories WHERE number_category = ? AND ${providerClause}${excludeClause} LIMIT 1`,
+    params
+  );
+  return rows.length > 0;
+};
+
+export const createNumberCategory = async (payload: NumberCategoryPayload) => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `INSERT INTO number_categories (number_category, description, is_enabled, logistics_provider_id)
+     VALUES (?, ?, ?, ?)`,
+    [
+      payload.number_category,
+      payload.description || null,
+      payload.is_enabled === false ? 0 : 1,
+      payload.logistics_provider_id ?? null,
+    ]
+  );
+  return { id: result.insertId, ...payload };
+};
+
+export const getNumberCategoryById = async (id: number): Promise<any | null> => {
+  return querySingle<any>(
+    `SELECT id, number_category, logistics_provider_id FROM number_categories WHERE id = ? LIMIT 1`,
+    [id]
+  );
+};
+
+export const updateNumberCategory = async (id: number, payload: Partial<NumberCategoryPayload>): Promise<boolean> => {
+  const sets: string[] = ['updated_at = NOW()'];
+  const params: any[] = [];
+  if (payload.number_category !== undefined) { sets.push('number_category = ?'); params.push(payload.number_category); }
+  if (payload.description !== undefined) { sets.push('description = ?'); params.push(payload.description || null); }
+  if (payload.is_enabled !== undefined) { sets.push('is_enabled = ?'); params.push(payload.is_enabled ? 1 : 0); }
+  if (payload.logistics_provider_id !== undefined) { sets.push('logistics_provider_id = ?'); params.push(payload.logistics_provider_id ?? null); }
+  params.push(id);
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `UPDATE number_categories SET ${sets.join(', ')} WHERE id = ?`,
+    params
+  );
+  return result.affectedRows > 0;
+};
+
+export const deleteNumberCategory = async (id: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    'DELETE FROM number_categories WHERE id = ?',
+    [id]
+  );
+  return result.affectedRows > 0;
+};
+
+export const batchDeleteNumberCategories = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `DELETE FROM number_categories WHERE id IN (${placeholders})`,
+    ids
+  );
+  return result.affectedRows;
+};
+
+// ---------- 单号（tracking_numbers） ----------
+
+const TRACKING_NUMBER_SORT_COLUMNS = new Set(['id', 'number', 'status', 'used_at', 'created_at']);
+
+export const getTrackingNumbersPaged = async (
+  categoryId: number,
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>
+) => {
+  const orderBy = `tn.${toSafeOrderBy(sortKey, sortOrder, TRACKING_NUMBER_SORT_COLUMNS, 'created_at')}`;
+  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, TRACKING_NUMBER_SORT_COLUMNS, 'tn.');
+  const allClauses = ['tn.category_id = ?', ...clauses];
+  const baseParams = [categoryId, ...params];
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
+
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT tn.id, tn.number, tn.status, tn.used_at, tn.created_at
+     FROM tracking_numbers tn
+     ${whereSql}
+     ORDER BY ${orderBy}
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    baseParams
+  );
+
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count FROM tracking_numbers tn ${whereSql}`,
+    baseParams
+  );
+
+  const total = Number(countRows?.[0]?.count || 0);
+  return {
+    data: rows as any[],
+    total,
+    pages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+};
+
+// 批量导入单号：去重（同批 + 库内已存在）后插入，返回新增数与跳过数
+export const addTrackingNumbers = async (categoryId: number, numbers: string[]): Promise<{ inserted: number; skipped: number }> => {
+  const unique = Array.from(new Set(numbers.map((n) => String(n || '').trim()).filter((n) => n !== '')));
+  if (unique.length === 0) return { inserted: 0, skipped: 0 };
+  const values = unique.map(() => '(?, ?, \'unused\')').join(', ');
+  const params: any[] = [];
+  for (const n of unique) {
+    params.push(n, categoryId);
+  }
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `INSERT IGNORE INTO tracking_numbers (number, category_id, status) VALUES ${values}`,
+    params
+  );
+  const inserted = result.affectedRows;
+  return { inserted, skipped: unique.length - inserted };
+};
+
+export const getTrackingNumberById = async (id: number): Promise<any | null> => {
+  return querySingle<any>(
+    `SELECT tn.id, tn.number, tn.status, tn.category_id, c.logistics_provider_id
+     FROM tracking_numbers tn
+     JOIN number_categories c ON tn.category_id = c.id
+     WHERE tn.id = ? LIMIT 1`,
+    [id]
+  );
+};
+
+export const deleteTrackingNumber = async (id: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    'DELETE FROM tracking_numbers WHERE id = ?',
+    [id]
+  );
+  return result.affectedRows > 0;
+};
+
+export const batchDeleteTrackingNumbers = async (categoryId: number, ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `DELETE FROM tracking_numbers WHERE category_id = ? AND id IN (${placeholders})`,
+    [categoryId, ...ids]
+  );
+  return result.affectedRows;
+};
+
+// ============ 地址簿（按物流商归属，可选关联会员） ============
+
+const ADDRESS_BOOK_SORT_COLUMNS = new Set([
+  'id', 'name', 'region', 'province', 'city', 'district', 'phone', 'address', 'user_id', 'logistics_provider_id', 'created_at', 'updated_at',
+]);
+
+export interface AddressBookPayload {
+  name: string;
+  region: string;
+  province?: string | null;
+  city?: string | null;
+  district?: string | null;
+  phone: string;
+  address: string;
+  user_id?: number | null;
+  logistics_provider_id?: number | null;
+}
+
+export const getAddressBookPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>,
+  providerFilter?: number | null
+) => {
+  const orderBy = `ab.${toSafeOrderBy(sortKey, sortOrder, ADDRESS_BOOK_SORT_COLUMNS, 'created_at')}`;
+  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, ADDRESS_BOOK_SORT_COLUMNS, 'ab.');
+  const allClauses = ['1=1', ...clauses];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    allClauses.push('ab.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
+
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT ab.id, ab.name, ab.region, ab.province, ab.city, ab.district, ab.phone, ab.address, ab.user_id, ab.logistics_provider_id,
+            ab.created_at, ab.updated_at, lp.name AS logistics_provider_name,
+            u.username AS member_username, u.real_name AS member_real_name
+     FROM address_book ab
+     LEFT JOIN logistics_providers lp ON ab.logistics_provider_id = lp.id
+     LEFT JOIN users u ON ab.user_id = u.id
+     ${whereSql}
+     ORDER BY ${orderBy}
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
+  );
+
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count FROM address_book ab ${whereSql}`,
+    params
+  );
+
+  const total = Number(countRows?.[0]?.count || 0);
+  return {
+    data: rows as any[],
+    total,
+    pages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+};
+
+export const searchAddressBook = async (keyword: string, providerFilter?: number | null): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const clauses = [`(
+       CAST(ab.id AS CHAR) LIKE ?
+       OR ab.name LIKE ?
+       OR ab.phone LIKE ?
+       OR ab.address LIKE ?
+       OR ab.province LIKE ?
+       OR ab.city LIKE ?
+       OR ab.district LIKE ?
+       OR u.username LIKE ?
+       OR u.real_name LIKE ?
+     )`];
+  const params: any[] = [like, like, like, like, like, like, like, like, like];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    clauses.push('ab.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT ab.id, ab.name, ab.region, ab.province, ab.city, ab.district, ab.phone, ab.address, ab.user_id, ab.logistics_provider_id,
+            ab.created_at, ab.updated_at, lp.name AS logistics_provider_name,
+            u.username AS member_username, u.real_name AS member_real_name
+     FROM address_book ab
+     LEFT JOIN logistics_providers lp ON ab.logistics_provider_id = lp.id
+     LEFT JOIN users u ON ab.user_id = u.id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY ab.created_at DESC`,
+    params
+  );
+  return rows as any[];
+};
+
+export const createAddressBook = async (payload: AddressBookPayload) => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `INSERT INTO address_book (name, region, province, city, district, phone, address, user_id, logistics_provider_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      payload.name,
+      payload.region,
+      payload.province ?? null,
+      payload.city ?? null,
+      payload.district ?? null,
+      payload.phone,
+      payload.address,
+      payload.user_id ?? null,
+      payload.logistics_provider_id ?? null,
+    ]
+  );
+  return { id: result.insertId, ...payload };
+};
+
+export const getAddressBookById = async (id: number): Promise<any | null> => {
+  return querySingle<any>(
+    `SELECT id, name, region, province, city, district, phone, address, user_id, logistics_provider_id FROM address_book WHERE id = ? LIMIT 1`,
+    [id]
+  );
+};
+
+export const updateAddressBook = async (id: number, payload: Partial<AddressBookPayload>): Promise<boolean> => {
+  const sets: string[] = ['updated_at = NOW()'];
+  const params: any[] = [];
+  if (payload.name !== undefined) { sets.push('name = ?'); params.push(payload.name); }
+  if (payload.region !== undefined) { sets.push('region = ?'); params.push(payload.region); }
+  if (payload.province !== undefined) { sets.push('province = ?'); params.push(payload.province ?? null); }
+  if (payload.city !== undefined) { sets.push('city = ?'); params.push(payload.city ?? null); }
+  if (payload.district !== undefined) { sets.push('district = ?'); params.push(payload.district ?? null); }
+  if (payload.phone !== undefined) { sets.push('phone = ?'); params.push(payload.phone); }
+  if (payload.address !== undefined) { sets.push('address = ?'); params.push(payload.address); }
+  if (payload.user_id !== undefined) { sets.push('user_id = ?'); params.push(payload.user_id ?? null); }
+  if (payload.logistics_provider_id !== undefined) { sets.push('logistics_provider_id = ?'); params.push(payload.logistics_provider_id ?? null); }
+  params.push(id);
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `UPDATE address_book SET ${sets.join(', ')} WHERE id = ?`,
+    params
+  );
+  return result.affectedRows > 0;
+};
+
+export const deleteAddressBook = async (id: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    'DELETE FROM address_book WHERE id = ?',
+    [id]
+  );
+  return result.affectedRows > 0;
+};
+
+export const batchDeleteAddressBook = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `DELETE FROM address_book WHERE id IN (${placeholders})`,
+    ids
+  );
+  return result.affectedRows;
+};
+
+// ============ 系统设置 - 标签管理（HTML 模板，按物流商归属） ============
+
+const LABEL_SORT_COLUMNS = new Set([
+  'id', 'label_name', 'is_enabled', 'logistics_provider_id', 'created_at', 'updated_at',
+]);
+
+export interface LabelTemplatePayload {
+  label_name: string;
+  template_html: string;
+  description?: string | null;
+  is_enabled?: boolean;
+  logistics_provider_id?: number | null;
+}
+
+export const getLabelTemplatesPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>,
+  providerFilter?: number | null
+) => {
+  const orderBy = `lt.${toSafeOrderBy(sortKey, sortOrder, LABEL_SORT_COLUMNS, 'created_at')}`;
+  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, LABEL_SORT_COLUMNS, 'lt.');
+  const allClauses = ['1=1', ...clauses];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    allClauses.push('lt.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
+
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT lt.id, lt.label_name, lt.template_html, lt.description, lt.is_enabled,
+            lt.logistics_provider_id, lt.created_at, lt.updated_at, lp.name AS logistics_provider_name
+     FROM label_templates lt
+     LEFT JOIN logistics_providers lp ON lt.logistics_provider_id = lp.id
+     ${whereSql}
+     ORDER BY ${orderBy}
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
+  );
+
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count FROM label_templates lt ${whereSql}`,
+    params
+  );
+
+  const total = Number(countRows?.[0]?.count || 0);
+  return {
+    data: rows as any[],
+    total,
+    pages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+};
+
+export const searchLabelTemplates = async (keyword: string, providerFilter?: number | null): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const clauses = [`(
+       CAST(lt.id AS CHAR) LIKE ?
+       OR lt.label_name LIKE ?
+       OR lt.description LIKE ?
+     )`];
+  const params: any[] = [like, like, like];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    clauses.push('lt.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT lt.id, lt.label_name, lt.template_html, lt.description, lt.is_enabled,
+            lt.logistics_provider_id, lt.created_at, lt.updated_at, lp.name AS logistics_provider_name
+     FROM label_templates lt
+     LEFT JOIN logistics_providers lp ON lt.logistics_provider_id = lp.id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY lt.created_at DESC`,
+    params
+  );
+  return rows as any[];
+};
+
+export const findDuplicateLabelName = async (
+  labelName: string,
+  logisticsProviderId: number | null,
+  excludeId?: number
+): Promise<boolean> => {
+  const params: any[] = [labelName];
+  let providerClause: string;
+  if (logisticsProviderId === null) {
+    providerClause = 'logistics_provider_id IS NULL';
+  } else {
+    providerClause = 'logistics_provider_id = ?';
+    params.push(logisticsProviderId);
+  }
+  let excludeClause = '';
+  if (excludeId !== undefined) {
+    excludeClause = ' AND id <> ?';
+    params.push(excludeId);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id FROM label_templates WHERE label_name = ? AND ${providerClause}${excludeClause} LIMIT 1`,
+    params
+  );
+  return rows.length > 0;
+};
+
+export const createLabelTemplate = async (payload: LabelTemplatePayload) => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `INSERT INTO label_templates (label_name, template_html, description, is_enabled, logistics_provider_id)
+     VALUES (?, ?, ?, ?, ?)`,
+    [
+      payload.label_name,
+      payload.template_html,
+      payload.description || null,
+      payload.is_enabled === false ? 0 : 1,
+      payload.logistics_provider_id ?? null,
+    ]
+  );
+  return { id: result.insertId, ...payload };
+};
+
+export const getLabelTemplateById = async (id: number): Promise<any | null> => {
+  return querySingle<any>(
+    `SELECT id, label_name, logistics_provider_id FROM label_templates WHERE id = ? LIMIT 1`,
+    [id]
+  );
+};
+
+export const updateLabelTemplate = async (id: number, payload: Partial<LabelTemplatePayload>): Promise<boolean> => {
+  const sets: string[] = ['updated_at = NOW()'];
+  const params: any[] = [];
+  if (payload.label_name !== undefined) { sets.push('label_name = ?'); params.push(payload.label_name); }
+  if (payload.template_html !== undefined) { sets.push('template_html = ?'); params.push(payload.template_html); }
+  if (payload.description !== undefined) { sets.push('description = ?'); params.push(payload.description || null); }
+  if (payload.is_enabled !== undefined) { sets.push('is_enabled = ?'); params.push(payload.is_enabled ? 1 : 0); }
+  if (payload.logistics_provider_id !== undefined) { sets.push('logistics_provider_id = ?'); params.push(payload.logistics_provider_id ?? null); }
+  params.push(id);
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `UPDATE label_templates SET ${sets.join(', ')} WHERE id = ?`,
+    params
+  );
+  return result.affectedRows > 0;
+};
+
+export const deleteLabelTemplate = async (id: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    'DELETE FROM label_templates WHERE id = ?',
+    [id]
+  );
+  return result.affectedRows > 0;
+};
+
+export const batchDeleteLabelTemplates = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `DELETE FROM label_templates WHERE id IN (${placeholders})`,
     ids
   );
   return result.affectedRows;

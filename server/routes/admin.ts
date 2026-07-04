@@ -81,6 +81,34 @@ import {
   updateStorageBin,
   deleteStorageBin,
   batchDeleteStorageBins,
+  getNumberCategoriesPaged,
+  searchNumberCategories,
+  findDuplicateNumberCategory,
+  createNumberCategory,
+  getNumberCategoryById,
+  updateNumberCategory,
+  deleteNumberCategory,
+  batchDeleteNumberCategories,
+  getTrackingNumbersPaged,
+  addTrackingNumbers,
+  getTrackingNumberById,
+  deleteTrackingNumber,
+  batchDeleteTrackingNumbers,
+  getAddressBookPaged,
+  searchAddressBook,
+  createAddressBook,
+  getAddressBookById,
+  updateAddressBook,
+  deleteAddressBook,
+  batchDeleteAddressBook,
+  getLabelTemplatesPaged,
+  searchLabelTemplates,
+  findDuplicateLabelName,
+  createLabelTemplate,
+  getLabelTemplateById,
+  updateLabelTemplate,
+  deleteLabelTemplate,
+  batchDeleteLabelTemplates,
   getParcelStatusesPaged,
   searchParcelStatuses,
   getParcelStatusById,
@@ -1323,7 +1351,7 @@ const parcelUpload = multer({
 });
 
 router.post('/parcels/inbound', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_CREATE), parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
-  const { tracking_number, weight, length_cm, width_cm, height_cm, shelf_location, logistics_provider_id, items: itemsJson } = req.body;
+  const { tracking_number, weight, length_cm, width_cm, height_cm, shelf_location, storage_bin, logistics_provider_id, items: itemsJson } = req.body;
   if (!tracking_number || typeof tracking_number !== 'string' || !tracking_number.trim()) {
     res.status(400).json({ error: '包裹单号不能为空' });
     return;
@@ -1375,6 +1403,7 @@ router.post('/parcels/inbound', adminAuth, csrfGuard, requirePermission(PERMISSI
       volume,
       images: imageUrls || undefined,
       shelf_location: typeof shelf_location === 'string' ? shelf_location.trim() || undefined : undefined,
+      storage_bin: typeof storage_bin === 'string' ? storage_bin.trim() || undefined : undefined,
       logistics_provider_id: resolvedProviderId,
       items: items.map(it => ({ name: it.name.trim(), value: it.value, quantity: it.quantity })),
     });
@@ -1395,7 +1424,7 @@ router.get('/parcels/:id/items', adminAuth, requirePermission(PERMISSIONS.PARCEL
 router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE), parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
   const parcelId = Number(req.params.id);
   if (denyCrossProvider(req, res, await getParcelOwnerProviderId(parcelId))) return;
-  const { weight, length_cm, width_cm, height_cm, origin, destination, status, sub_status, status_remark, items: itemsJson, existing_images, logistics_provider_id } = req.body;
+  const { weight, length_cm, width_cm, height_cm, origin, destination, status, sub_status, status_remark, storage_bin, items: itemsJson, existing_images, logistics_provider_id } = req.body;
   const w = Number(weight);
   const l = Number(length_cm);
   const wi = Number(width_cm);
@@ -1458,6 +1487,7 @@ router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.P
       sub_status: typeof sub_status === 'string' ? sub_status.trim() : undefined,
       status_remark: typeof status_remark === 'string' ? status_remark.trim() : undefined,
       images: allImages || undefined,
+      storage_bin: typeof storage_bin === 'string' ? storage_bin.trim() : undefined,
       logistics_provider_id: editProviderId,
       items: items.map(it => ({ name: it.name.trim(), value: it.value, quantity: it.quantity })),
     });
@@ -2440,6 +2470,762 @@ router.post('/storage-bins/batch-delete', adminAuth, csrfGuard, requirePermissio
     }
   }
   const deleted = await batchDeleteStorageBins(allowedIds);
+  res.json({ message: `已删除 ${deleted} 条记录`, deleted });
+});
+
+// ==================== 单号库（号段库 + 单号） ====================
+
+// 解析并校验号段库公共字段，出错时写响应并返回 null
+const parseNumberCategoryBody = (
+  body: Record<string, any>,
+  res: Response
+): { number_category: string; description: string | null; is_enabled: boolean } | null => {
+  const number_category = String(body.number_category ?? '').trim();
+  if (!number_category) {
+    res.status(400).json({ error: '号段名称不能为空' });
+    return null;
+  }
+  if (number_category.length > 128) {
+    res.status(400).json({ error: '号段名称不能超过128个字符' });
+    return null;
+  }
+  return {
+    number_category,
+    description: String(body.description ?? '').trim() || null,
+    is_enabled: body.is_enabled === undefined ? true : Boolean(body.is_enabled),
+  };
+};
+
+router.get('/number-categories', adminAuth, requirePermission(PERMISSIONS.NUMBER_LIB_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 10));
+  const sortKey = String(req.query.sortKey || '').trim() || undefined;
+  const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
+  const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
+  const result = await getNumberCategoriesPaged(page, limit, sortKey, sortOrder, columnFilters, dateFilters, getActorProviderFilter(req));
+  res.json({
+    data: result.data,
+    pagination: { page, limit, total: result.total, pages: result.pages },
+  });
+});
+
+router.get('/number-categories/search', adminAuth, requirePermission(PERMISSIONS.NUMBER_LIB_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const keyword = String(req.query.q || '').trim();
+  if (!keyword) {
+    res.status(400).json({ error: '搜索关键词不能为空' });
+    return;
+  }
+  const data = await searchNumberCategories(keyword, getActorProviderFilter(req));
+  res.json({ data, count: data.length });
+});
+
+router.post('/number-categories', adminAuth, csrfGuard, requirePermission(PERMISSIONS.NUMBER_LIB_CREATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const parsed = parseNumberCategoryBody(req.body || {}, res);
+  if (!parsed) return;
+
+  // 物流商账号：强制归属本物流商；平台账号：读取 body 指定的物流商（可空）
+  const actorProvider = getActorProviderFilter(req);
+  const resolvedProviderId = actorProvider !== null
+    ? (actorProvider > 0 ? actorProvider : null)
+    : (req.body?.logistics_provider_id !== undefined && req.body?.logistics_provider_id !== '' && req.body?.logistics_provider_id !== null
+      ? (Number(req.body.logistics_provider_id) > 0 ? Number(req.body.logistics_provider_id) : null)
+      : null);
+
+  const duplicate = await findDuplicateNumberCategory(parsed.number_category, resolvedProviderId);
+  if (duplicate) {
+    res.status(409).json({ error: '同一物流商下该号段名称已存在' });
+    return;
+  }
+
+  const category = await createNumberCategory({ ...parsed, logistics_provider_id: resolvedProviderId });
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'number_lib.create',
+    targetType: 'number_category',
+    targetId: category.id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: `number_category=${parsed.number_category}`,
+  });
+  res.status(201).json({ message: '号段已创建', category });
+});
+
+router.put('/number-categories/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.NUMBER_LIB_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '号段ID不合法' });
+    return;
+  }
+  const existing = await getNumberCategoryById(id);
+  if (!existing) {
+    res.status(404).json({ error: '号段不存在' });
+    return;
+  }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+
+  const parsed = parseNumberCategoryBody(req.body || {}, res);
+  if (!parsed) return;
+
+  // 物流商账号：不允许改变归属；平台账号：可指定物流商
+  const actorProvider = getActorProviderFilter(req);
+  const resolvedProviderId = actorProvider !== null
+    ? existing.logistics_provider_id
+    : (req.body?.logistics_provider_id !== undefined && req.body?.logistics_provider_id !== '' && req.body?.logistics_provider_id !== null
+      ? (Number(req.body.logistics_provider_id) > 0 ? Number(req.body.logistics_provider_id) : null)
+      : null);
+
+  const duplicate = await findDuplicateNumberCategory(parsed.number_category, resolvedProviderId, id);
+  if (duplicate) {
+    res.status(409).json({ error: '同一物流商下该号段名称已存在' });
+    return;
+  }
+
+  const ok = await updateNumberCategory(id, { ...parsed, logistics_provider_id: resolvedProviderId });
+  if (!ok) {
+    res.status(404).json({ error: '号段不存在' });
+    return;
+  }
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'number_lib.update',
+    targetType: 'number_category',
+    targetId: id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: 'number_category_updated',
+  });
+  res.json({ message: '号段已更新', id });
+});
+
+router.delete('/number-categories/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.NUMBER_LIB_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '号段ID不合法' });
+    return;
+  }
+  const existing = await getNumberCategoryById(id);
+  if (!existing) {
+    res.status(404).json({ error: '号段不存在' });
+    return;
+  }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+
+  const ok = await deleteNumberCategory(id);
+  if (!ok) {
+    res.status(404).json({ error: '号段不存在' });
+    return;
+  }
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'number_lib.delete',
+    targetType: 'number_category',
+    targetId: id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: 'number_category_deleted',
+  });
+  res.json({ message: '号段已删除', id });
+});
+
+router.post('/number-categories/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.NUMBER_LIB_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: '请提供要删除的ID列表' });
+    return;
+  }
+  const numIds = ids.map(Number).filter(n => Number.isInteger(n) && n > 0);
+  if (numIds.length === 0) {
+    res.status(400).json({ error: 'ID列表不合法' });
+    return;
+  }
+  // 物流商账号：仅允许删除本物流商的号段
+  const actorProvider = getActorProviderFilter(req);
+  let allowedIds = numIds;
+  if (actorProvider !== null) {
+    const checked = await Promise.all(numIds.map(async (id) => {
+      const category = await getNumberCategoryById(id);
+      return category && Number(category.logistics_provider_id) === actorProvider ? id : null;
+    }));
+    allowedIds = checked.filter((v): v is number => v !== null);
+    if (allowedIds.length === 0) {
+      res.status(403).json({ error: '无权删除其他物流商的号段' });
+      return;
+    }
+  }
+  const deleted = await batchDeleteNumberCategories(allowedIds);
+  res.json({ message: `已删除 ${deleted} 条记录`, deleted });
+});
+
+// ---------- 单号（tracking_numbers，归属于号段） ----------
+
+// 校验号段归属并返回号段记录，出错时写响应并返回 null
+const resolveOwnedCategory = async (req: AdminRequest, res: Response, categoryId: number | null): Promise<any | null> => {
+  if (!categoryId) {
+    res.status(400).json({ error: '号段ID不合法' });
+    return null;
+  }
+  const category = await getNumberCategoryById(categoryId);
+  if (!category) {
+    res.status(404).json({ error: '号段不存在' });
+    return null;
+  }
+  if (denyCrossProvider(req, res, category.logistics_provider_id)) return null;
+  return category;
+};
+
+router.get('/number-categories/:id/numbers', adminAuth, requirePermission(PERMISSIONS.NUMBER_LIB_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const categoryId = toId(req.params.id);
+  const category = await resolveOwnedCategory(req, res, categoryId);
+  if (!category) return;
+
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 10));
+  const sortKey = String(req.query.sortKey || '').trim() || undefined;
+  const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
+  const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
+  const result = await getTrackingNumbersPaged(categoryId as number, page, limit, sortKey, sortOrder, columnFilters, dateFilters);
+  res.json({
+    data: result.data,
+    pagination: { page, limit, total: result.total, pages: result.pages },
+  });
+});
+
+router.post('/number-categories/:id/numbers', adminAuth, csrfGuard, requirePermission(PERMISSIONS.NUMBER_LIB_CREATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const categoryId = toId(req.params.id);
+  const category = await resolveOwnedCategory(req, res, categoryId);
+  if (!category) return;
+
+  // 支持数组或以换行/逗号分隔的文本
+  const raw = req.body?.numbers;
+  let numbers: string[] = [];
+  if (Array.isArray(raw)) {
+    numbers = raw.map((n) => String(n ?? ''));
+  } else if (typeof raw === 'string') {
+    numbers = raw.split(/[\r\n,]+/);
+  }
+  numbers = numbers.map((n) => n.trim()).filter((n) => n !== '');
+  if (numbers.length === 0) {
+    res.status(400).json({ error: '请提供要导入的单号' });
+    return;
+  }
+  if (numbers.length > 10000) {
+    res.status(400).json({ error: '单次导入不能超过10000个单号' });
+    return;
+  }
+  if (numbers.some((n) => n.length > 128)) {
+    res.status(400).json({ error: '单个单号长度不能超过128个字符' });
+    return;
+  }
+
+  const { inserted, skipped } = await addTrackingNumbers(categoryId as number, numbers);
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'number_lib.create',
+    targetType: 'tracking_number',
+    targetId: categoryId as number,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: `imported=${inserted} skipped=${skipped}`,
+  });
+  res.status(201).json({ message: `成功导入 ${inserted} 个单号，跳过 ${skipped} 个重复单号`, inserted, skipped });
+});
+
+router.delete('/number-categories/:id/numbers/:numberId', adminAuth, csrfGuard, requirePermission(PERMISSIONS.NUMBER_LIB_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const categoryId = toId(req.params.id);
+  const category = await resolveOwnedCategory(req, res, categoryId);
+  if (!category) return;
+  const numberId = toId(req.params.numberId);
+  if (!numberId) {
+    res.status(400).json({ error: '单号ID不合法' });
+    return;
+  }
+  const record = await getTrackingNumberById(numberId);
+  if (!record || Number(record.category_id) !== categoryId) {
+    res.status(404).json({ error: '单号不存在' });
+    return;
+  }
+  const ok = await deleteTrackingNumber(numberId);
+  if (!ok) {
+    res.status(404).json({ error: '单号不存在' });
+    return;
+  }
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'number_lib.delete',
+    targetType: 'tracking_number',
+    targetId: numberId,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: 'tracking_number_deleted',
+  });
+  res.json({ message: '单号已删除', id: numberId });
+});
+
+router.post('/number-categories/:id/numbers/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.NUMBER_LIB_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const categoryId = toId(req.params.id);
+  const category = await resolveOwnedCategory(req, res, categoryId);
+  if (!category) return;
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: '请提供要删除的ID列表' });
+    return;
+  }
+  const numIds = ids.map(Number).filter(n => Number.isInteger(n) && n > 0);
+  if (numIds.length === 0) {
+    res.status(400).json({ error: 'ID列表不合法' });
+    return;
+  }
+  const deleted = await batchDeleteTrackingNumbers(categoryId as number, numIds);
+  res.json({ message: `已删除 ${deleted} 条记录`, deleted });
+});
+
+// ============ 地址簿（按物流商归属，可选关联会员） ============
+
+// 允许的区域及其国际电话代码（中国大陆/台湾/香港/澳门）
+const ADDRESS_BOOK_REGION_DIAL_CODES: Record<string, string> = {
+  CN: '+86',
+  TW: '+886',
+  HK: '+852',
+  MO: '+853',
+};
+
+const parseAddressBookBody = (
+  body: Record<string, any>,
+  res: Response
+): { name: string; region: string; province: string; city: string | null; district: string | null; phone: string; address: string } | null => {
+  const name = String(body.name ?? '').trim();
+  if (!name) {
+    res.status(400).json({ error: '姓名不能为空' });
+    return null;
+  }
+  if (name.length > 128) {
+    res.status(400).json({ error: '姓名不能超过128个字符' });
+    return null;
+  }
+  const region = String(body.region ?? '').trim().toUpperCase();
+  if (!ADDRESS_BOOK_REGION_DIAL_CODES[region]) {
+    res.status(400).json({ error: '区域必须为中国大陆、台湾、香港或澳门' });
+    return null;
+  }
+  const province = String(body.province ?? '').trim();
+  if (!province) {
+    res.status(400).json({ error: '请选择所在省/地区' });
+    return null;
+  }
+  if (province.length > 64) {
+    res.status(400).json({ error: '省/地区名称过长' });
+    return null;
+  }
+  const cityRaw = String(body.city ?? '').trim();
+  if (cityRaw.length > 64) {
+    res.status(400).json({ error: '市名称过长' });
+    return null;
+  }
+  const districtRaw = String(body.district ?? '').trim();
+  if (districtRaw.length > 64) {
+    res.status(400).json({ error: '区县名称过长' });
+    return null;
+  }
+  const phone = String(body.phone ?? '').trim();
+  if (!phone) {
+    res.status(400).json({ error: '电话不能为空' });
+    return null;
+  }
+  if (phone.length > 32) {
+    res.status(400).json({ error: '电话不能超过32个字符' });
+    return null;
+  }
+  const address = String(body.address ?? '').trim();
+  if (!address) {
+    res.status(400).json({ error: '地址不能为空' });
+    return null;
+  }
+  if (address.length > 255) {
+    res.status(400).json({ error: '地址不能超过255个字符' });
+    return null;
+  }
+  return { name, region, province, city: cityRaw || null, district: districtRaw || null, phone, address };
+};
+
+// 解析并校验会员ID（选填）。返回 undefined 表示校验失败已写响应；null 表示未选择会员。
+const resolveAddressBookMember = async (
+  req: AdminRequest,
+  res: Response,
+  rawUserId: any,
+  resolvedProviderId: number,
+): Promise<number | null | undefined> => {
+  if (rawUserId === undefined || rawUserId === null || rawUserId === '') return null;
+  const userId = Number(rawUserId);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    res.status(400).json({ error: '会员ID不合法' });
+    return undefined;
+  }
+  const ownerProviderId = await getUserOwnerProviderId(userId);
+  if (ownerProviderId === undefined) {
+    res.status(404).json({ error: '会员不存在' });
+    return undefined;
+  }
+  // 会员须归属同一物流商，避免跨物流商引用
+  if (Number(ownerProviderId) !== resolvedProviderId) {
+    res.status(400).json({ error: '所选会员不属于该物流商' });
+    return undefined;
+  }
+  return userId;
+};
+
+router.get('/address-book', adminAuth, requirePermission(PERMISSIONS.ADDRESS_BOOK_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 10));
+  const sortKey = String(req.query.sortKey || '').trim() || undefined;
+  const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
+  const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
+  const result = await getAddressBookPaged(page, limit, sortKey, sortOrder, columnFilters, dateFilters, getActorProviderFilter(req));
+  res.json({
+    data: result.data,
+    pagination: { page, limit, total: result.total, pages: result.pages },
+  });
+});
+
+router.get('/address-book/search', adminAuth, requirePermission(PERMISSIONS.ADDRESS_BOOK_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const keyword = String(req.query.q || '').trim();
+  if (!keyword) {
+    res.status(400).json({ error: '搜索关键词不能为空' });
+    return;
+  }
+  const data = await searchAddressBook(keyword, getActorProviderFilter(req));
+  res.json({ data, count: data.length });
+});
+
+router.post('/address-book', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADDRESS_BOOK_CREATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const parsed = parseAddressBookBody(req.body || {}, res);
+  if (!parsed) return;
+
+  // 物流商账号：强制归属本物流商；平台账号：读取 body 指定的物流商（必填）
+  const actorProvider = getActorProviderFilter(req);
+  const resolvedProviderId = actorProvider !== null
+    ? actorProvider
+    : (Number(req.body?.logistics_provider_id) > 0 ? Number(req.body.logistics_provider_id) : 0);
+  if (!resolvedProviderId || resolvedProviderId <= 0) {
+    res.status(400).json({ error: '请选择物流商' });
+    return;
+  }
+
+  const memberId = await resolveAddressBookMember(req, res, req.body?.user_id, resolvedProviderId);
+  if (memberId === undefined) return;
+
+  const entry = await createAddressBook({ ...parsed, user_id: memberId, logistics_provider_id: resolvedProviderId });
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'address_book.create',
+    targetType: 'address_book',
+    targetId: entry.id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: `name=${parsed.name} region=${parsed.region}`,
+  });
+  res.status(201).json({ message: '地址已创建', entry });
+});
+
+router.put('/address-book/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADDRESS_BOOK_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '地址ID不合法' });
+    return;
+  }
+  const existing = await getAddressBookById(id);
+  if (!existing) {
+    res.status(404).json({ error: '地址不存在' });
+    return;
+  }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+
+  const parsed = parseAddressBookBody(req.body || {}, res);
+  if (!parsed) return;
+
+  // 物流商账号：不允许改变归属；平台账号：可指定物流商（必填）
+  const actorProvider = getActorProviderFilter(req);
+  const resolvedProviderId = actorProvider !== null
+    ? Number(existing.logistics_provider_id)
+    : (Number(req.body?.logistics_provider_id) > 0 ? Number(req.body.logistics_provider_id) : 0);
+  if (!resolvedProviderId || resolvedProviderId <= 0) {
+    res.status(400).json({ error: '请选择物流商' });
+    return;
+  }
+
+  const memberId = await resolveAddressBookMember(req, res, req.body?.user_id, resolvedProviderId);
+  if (memberId === undefined) return;
+
+  const ok = await updateAddressBook(id, { ...parsed, user_id: memberId, logistics_provider_id: resolvedProviderId });
+  if (!ok) {
+    res.status(404).json({ error: '地址不存在' });
+    return;
+  }
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'address_book.update',
+    targetType: 'address_book',
+    targetId: id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: 'address_book_updated',
+  });
+  res.json({ message: '地址已更新', id });
+});
+
+router.delete('/address-book/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADDRESS_BOOK_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '地址ID不合法' });
+    return;
+  }
+  const existing = await getAddressBookById(id);
+  if (!existing) {
+    res.status(404).json({ error: '地址不存在' });
+    return;
+  }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+
+  const ok = await deleteAddressBook(id);
+  if (!ok) {
+    res.status(404).json({ error: '地址不存在' });
+    return;
+  }
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'address_book.delete',
+    targetType: 'address_book',
+    targetId: id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: 'address_book_deleted',
+  });
+  res.json({ message: '地址已删除', id });
+});
+
+router.post('/address-book/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ADDRESS_BOOK_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: '请提供要删除的ID列表' });
+    return;
+  }
+  const numIds = ids.map(Number).filter(n => Number.isInteger(n) && n > 0);
+  if (numIds.length === 0) {
+    res.status(400).json({ error: 'ID列表不合法' });
+    return;
+  }
+  // 物流商账号：仅允许删除本物流商的地址
+  const actorProvider = getActorProviderFilter(req);
+  let allowedIds = numIds;
+  if (actorProvider !== null) {
+    const checked = await Promise.all(numIds.map(async (id) => {
+      const entry = await getAddressBookById(id);
+      return entry && Number(entry.logistics_provider_id) === actorProvider ? id : null;
+    }));
+    allowedIds = checked.filter((v): v is number => v !== null);
+    if (allowedIds.length === 0) {
+      res.status(403).json({ error: '无权删除其他物流商的地址' });
+      return;
+    }
+  }
+  const deleted = await batchDeleteAddressBook(allowedIds);
+  res.json({ message: `已删除 ${deleted} 条记录`, deleted });
+});
+
+// ============ 系统设置 - 标签管理（HTML 模板，按物流商归属） ============
+
+const LABEL_HTML_MAX_LENGTH = 500_000;
+
+const parseLabelBody = (
+  body: Record<string, any>,
+  res: Response
+): { label_name: string; template_html: string; description: string | null; is_enabled: boolean } | null => {
+  const label_name = String(body.label_name ?? '').trim();
+  if (!label_name) {
+    res.status(400).json({ error: '标签名称不能为空' });
+    return null;
+  }
+  if (label_name.length > 128) {
+    res.status(400).json({ error: '标签名称不能超过128个字符' });
+    return null;
+  }
+  const template_html = String(body.template_html ?? '');
+  if (!template_html.trim()) {
+    res.status(400).json({ error: 'HTML模板不能为空' });
+    return null;
+  }
+  if (template_html.length > LABEL_HTML_MAX_LENGTH) {
+    res.status(400).json({ error: 'HTML模板内容过大' });
+    return null;
+  }
+  return {
+    label_name,
+    template_html,
+    description: String(body.description ?? '').trim() || null,
+    is_enabled: body.is_enabled === undefined ? true : Boolean(body.is_enabled),
+  };
+};
+
+router.get('/labels', adminAuth, requirePermission(PERMISSIONS.LABEL_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 10));
+  const sortKey = String(req.query.sortKey || '').trim() || undefined;
+  const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
+  const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
+  const result = await getLabelTemplatesPaged(page, limit, sortKey, sortOrder, columnFilters, dateFilters, getActorProviderFilter(req));
+  res.json({
+    data: result.data,
+    pagination: { page, limit, total: result.total, pages: result.pages },
+  });
+});
+
+router.get('/labels/search', adminAuth, requirePermission(PERMISSIONS.LABEL_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const keyword = String(req.query.q || '').trim();
+  if (!keyword) {
+    res.status(400).json({ error: '搜索关键词不能为空' });
+    return;
+  }
+  const data = await searchLabelTemplates(keyword, getActorProviderFilter(req));
+  res.json({ data, count: data.length });
+});
+
+router.post('/labels', adminAuth, csrfGuard, requirePermission(PERMISSIONS.LABEL_CREATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const parsed = parseLabelBody(req.body || {}, res);
+  if (!parsed) return;
+
+  // 物流商账号：标签强制归属本物流商；平台账号：读取 body 指定的物流商（可空）
+  const actorProvider = getActorProviderFilter(req);
+  const resolvedProviderId = actorProvider !== null
+    ? (actorProvider > 0 ? actorProvider : null)
+    : (req.body?.logistics_provider_id !== undefined && req.body?.logistics_provider_id !== '' && req.body?.logistics_provider_id !== null
+      ? (Number(req.body.logistics_provider_id) > 0 ? Number(req.body.logistics_provider_id) : null)
+      : null);
+
+  const duplicate = await findDuplicateLabelName(parsed.label_name, resolvedProviderId);
+  if (duplicate) {
+    res.status(409).json({ error: '同一物流商下该标签名称已存在' });
+    return;
+  }
+
+  const label = await createLabelTemplate({ ...parsed, logistics_provider_id: resolvedProviderId });
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'label.create',
+    targetType: 'label_template',
+    targetId: label.id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: `label_name=${parsed.label_name}`,
+  });
+  res.status(201).json({ message: '标签已创建', label: { id: label.id } });
+});
+
+router.put('/labels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.LABEL_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '标签ID不合法' });
+    return;
+  }
+  const existing = await getLabelTemplateById(id);
+  if (!existing) {
+    res.status(404).json({ error: '标签不存在' });
+    return;
+  }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+
+  const parsed = parseLabelBody(req.body || {}, res);
+  if (!parsed) return;
+
+  // 物流商账号：不允许改变归属；平台账号：可指定物流商
+  const actorProvider = getActorProviderFilter(req);
+  const resolvedProviderId = actorProvider !== null
+    ? existing.logistics_provider_id
+    : (req.body?.logistics_provider_id !== undefined && req.body?.logistics_provider_id !== '' && req.body?.logistics_provider_id !== null
+      ? (Number(req.body.logistics_provider_id) > 0 ? Number(req.body.logistics_provider_id) : null)
+      : null);
+
+  const duplicate = await findDuplicateLabelName(parsed.label_name, resolvedProviderId, id);
+  if (duplicate) {
+    res.status(409).json({ error: '同一物流商下该标签名称已存在' });
+    return;
+  }
+
+  const ok = await updateLabelTemplate(id, { ...parsed, logistics_provider_id: resolvedProviderId });
+  if (!ok) {
+    res.status(404).json({ error: '标签不存在' });
+    return;
+  }
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'label.update',
+    targetType: 'label_template',
+    targetId: id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: 'label_updated',
+  });
+  res.json({ message: '标签已更新', id });
+});
+
+router.delete('/labels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.LABEL_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '标签ID不合法' });
+    return;
+  }
+  const existing = await getLabelTemplateById(id);
+  if (!existing) {
+    res.status(404).json({ error: '标签不存在' });
+    return;
+  }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+
+  const ok = await deleteLabelTemplate(id);
+  if (!ok) {
+    res.status(404).json({ error: '标签不存在' });
+    return;
+  }
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'label.delete',
+    targetType: 'label_template',
+    targetId: id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: 'label_deleted',
+  });
+  res.json({ message: '标签已删除', id });
+});
+
+router.post('/labels/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.LABEL_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: '请提供要删除的ID列表' });
+    return;
+  }
+  const numIds = ids.map(Number).filter(n => Number.isInteger(n) && n > 0);
+  if (numIds.length === 0) {
+    res.status(400).json({ error: 'ID列表不合法' });
+    return;
+  }
+  // 物流商账号：仅允许删除本物流商的标签
+  const actorProvider = getActorProviderFilter(req);
+  let allowedIds = numIds;
+  if (actorProvider !== null) {
+    const checked = await Promise.all(numIds.map(async (id) => {
+      const label = await getLabelTemplateById(id);
+      return label && Number(label.logistics_provider_id) === actorProvider ? id : null;
+    }));
+    allowedIds = checked.filter((v): v is number => v !== null);
+    if (allowedIds.length === 0) {
+      res.status(403).json({ error: '无权删除其他物流商的标签' });
+      return;
+    }
+  }
+  const deleted = await batchDeleteLabelTemplates(allowedIds);
   res.json({ message: `已删除 ${deleted} 条记录`, deleted });
 });
 

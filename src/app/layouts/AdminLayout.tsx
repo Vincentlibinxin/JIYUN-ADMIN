@@ -12,6 +12,8 @@ import {
   CodeSandboxOutlined,
   CarOutlined,
   InboxOutlined,
+  BarcodeOutlined,
+  ContactsOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
   GlobalOutlined,
@@ -56,7 +58,7 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
 
   const currentLangLabel = langOptions.find((item) => item.key === lang)?.label || 'Language';
   const hasSystemAdminAccess = hasPermission(PERMISSIONS.ADMIN_VIEW) || hasPermission(PERMISSIONS.ROLE_PLATFORM_VIEW) || hasPermission(PERMISSIONS.ROLE_LOGISTICS_VIEW);
-  const hasSystemSettingsAccess = hasPermission(PERMISSIONS.PARCEL_STATUS_VIEW);
+  const hasSystemSettingsAccess = hasPermission(PERMISSIONS.PARCEL_STATUS_VIEW) || hasPermission(PERMISSIONS.LABEL_VIEW);
 
   const menuItems = ([
     { key: 'overview', icon: <DashboardOutlined />, label: t('menu.overview'), perm: PERMISSIONS.OVERVIEW_VIEW },
@@ -66,6 +68,8 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
     { key: 'logistics', icon: <CarOutlined />, label: t('menu.logistics'), perm: PERMISSIONS.LOGISTICS_VIEW },
     { key: 'storage-bins', icon: <InboxOutlined />, label: t('menu.storageBins'), perm: PERMISSIONS.STORAGE_BIN_VIEW },
     { key: 'users', icon: <TeamOutlined />, label: t('menu.users'), perm: PERMISSIONS.USER_VIEW },
+    { key: 'address-book', icon: <ContactsOutlined />, label: t('menu.addressBook'), perm: PERMISSIONS.ADDRESS_BOOK_VIEW },
+    { key: 'number-library', icon: <BarcodeOutlined />, label: t('menu.numberLibrary'), perm: PERMISSIONS.NUMBER_LIB_VIEW },
     { key: 'system', icon: <SettingOutlined />, label: t('menu.system'), perm: null },
     { key: 'admins', icon: <SafetyCertificateOutlined />, label: t('menu.admins'), perm: null },
   ] as Array<{ key: string; icon: React.ReactNode; label: string; perm: PermissionCode | null }>)

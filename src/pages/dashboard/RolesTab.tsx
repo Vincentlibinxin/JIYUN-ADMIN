@@ -33,7 +33,7 @@ interface RolesTabProps {
 }
 
 // 物流商权限可配置的权限分组（其余分组仅平台角色可配置）
-const LOGISTICS_GROUP_NAMES = ['概览', '系统管理员', '会员', '包裹', '订单', '物流商角色', '库位管理'];
+const LOGISTICS_GROUP_NAMES = ['概览', '系统管理员', '会员', '地址簿', '包裹', '订单', '物流商角色', '库位管理', '单号库', '标签管理'];
 
 const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; label: string }> }> = [
   {
@@ -79,6 +79,15 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
     ],
   },
   {
+    group: '地址簿',
+    items: [
+      { code: PERMISSIONS.ADDRESS_BOOK_VIEW, label: '查看地址簿' },
+      { code: PERMISSIONS.ADDRESS_BOOK_CREATE, label: '新增地址' },
+      { code: PERMISSIONS.ADDRESS_BOOK_UPDATE, label: '修改地址' },
+      { code: PERMISSIONS.ADDRESS_BOOK_DELETE, label: '删除地址' },
+    ],
+  },
+  {
     group: '包裹',
     items: [
       { code: PERMISSIONS.PARCEL_VIEW, label: '查看包裹' },
@@ -116,6 +125,15 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
     ],
   },
   {
+    group: '单号库',
+    items: [
+      { code: PERMISSIONS.NUMBER_LIB_VIEW, label: '查看单号库' },
+      { code: PERMISSIONS.NUMBER_LIB_CREATE, label: '新增号段/导入单号' },
+      { code: PERMISSIONS.NUMBER_LIB_UPDATE, label: '修改号段' },
+      { code: PERMISSIONS.NUMBER_LIB_DELETE, label: '删除号段/单号' },
+    ],
+  },
+  {
     group: '短信与审计',
     items: [
       { code: PERMISSIONS.SMS_VIEW, label: '查看短信记录' },
@@ -130,6 +148,15 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
       { code: PERMISSIONS.PARCEL_STATUS_CREATE, label: '新增包裹状态' },
       { code: PERMISSIONS.PARCEL_STATUS_UPDATE, label: '修改包裹状态' },
       { code: PERMISSIONS.PARCEL_STATUS_DELETE, label: '删除包裹状态' },
+    ],
+  },
+  {
+    group: '标签管理',
+    items: [
+      { code: PERMISSIONS.LABEL_VIEW, label: '查看标签' },
+      { code: PERMISSIONS.LABEL_CREATE, label: '新增标签' },
+      { code: PERMISSIONS.LABEL_UPDATE, label: '修改标签' },
+      { code: PERMISSIONS.LABEL_DELETE, label: '删除标签' },
     ],
   },
 ];
