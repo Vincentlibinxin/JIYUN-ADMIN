@@ -60,6 +60,11 @@ foreach ($port in @(3001, 3002)) {
   if ($listeners) {
     $ids = $listeners | Select-Object -ExpandProperty OwningProcess -Unique
     foreach ($id in $ids) {
+      $proc = Get-Process -Id $id -ErrorAction SilentlyContinue
+      if ($proc -and $proc.ProcessName -eq 'Code') {
+        Write-Warn2 "端口 $port 被 VS Code 进程 (PID=$id) 占用（端口自动转发），已跳过以免关闭编辑器。请在 PORTS 面板删除该端口或重载窗口。"
+        continue
+      }
       try {
         Stop-Process -Id $id -Force -ErrorAction Stop
         Write-Ok "已停止端口 $port 上的进程 PID=$id"
@@ -95,7 +100,7 @@ $webErr = Join-Path $logDir 'web.err.log'
 Start-Process -FilePath $npmCmd -ArgumentList @('run', 'api') -WorkingDirectory $repoRoot -WindowStyle Hidden -RedirectStandardOutput $apiOut -RedirectStandardError $apiErr
 Write-Ok '后端 API 服务已启动 (端口 3001)。'
 Start-Sleep -Seconds 1
-Start-Process -FilePath $npmCmd -ArgumentList @('run', 'preview', '--', '--host', '0.0.0.0', '--port', '3002') -WorkingDirectory $repoRoot -WindowStyle Hidden -RedirectStandardOutput $webOut -RedirectStandardError $webErr
+Start-Process -FilePath $npmCmd -ArgumentList @('run', 'preview', '--', '--host', '127.0.0.1', '--port', '3002') -WorkingDirectory $repoRoot -WindowStyle Hidden -RedirectStandardOutput $webOut -RedirectStandardError $webErr
 Write-Ok '前端预览服务已启动 (端口 3002)。'
 
 # --- 4. 健康检查 ---
