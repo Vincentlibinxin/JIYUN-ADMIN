@@ -1261,13 +1261,18 @@ router.get('/parcels', adminAuth, requirePermission(PERMISSIONS.PARCEL_VIEW), as
 });
 
 router.get('/parcels/export', adminAuth, requirePermission(PERMISSIONS.PARCEL_EXPORT), async (req: AdminRequest, res: Response): Promise<void> => {
+  const keyword = String(req.query.q || '').trim() || undefined;
+  const selectedIdsRaw = parseJsonQuery<number[]>(req.query.selectedIds);
+  const selectedIds = Array.isArray(selectedIdsRaw)
+    ? Array.from(new Set(selectedIdsRaw.map(Number).filter((id) => Number.isInteger(id) && id > 0)))
+    : undefined;
   const startDate = String(req.query.startDate || '').trim() || undefined;
   const endDate = String(req.query.endDate || '').trim() || undefined;
   const sortKey = String(req.query.sortKey || '').trim() || undefined;
   const sortOrder = String(req.query.sortOrder || '').trim() || undefined;
   const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
   const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
-  const rows = await getParcelsForExport(startDate, endDate, sortKey, sortOrder, columnFilters, dateFilters, getActorProviderFilter(req));
+  const rows = await getParcelsForExport(keyword, selectedIds, startDate, endDate, sortKey, sortOrder, columnFilters, dateFilters, getActorProviderFilter(req));
   res.json({ data: rows, count: rows.length });
 });
 
@@ -2119,10 +2124,10 @@ router.post('/logistics', adminAuth, csrfGuard, requirePermission(PERMISSIONS.LO
     res.status(400).json({ error: '物流商名称不能为空' });
     return;
   }
-  // 代号用于生成【初始管理员账号】admin@代号，必须以小写字母开头且仅含小写字母或数字
-  const normalizedCode = typeof code === 'string' ? code.trim().toLowerCase() : '';
-  if (!/^[a-z][a-z0-9]*$/.test(normalizedCode)) {
-    res.status(400).json({ error: '物流商代号必须以小写字母开头，仅含小写字母或数字（用于生成初始管理员账号 admin@代号）' });
+  // 代号用于生成【初始管理员账号】admin@代号，必须以大写字母开头且仅含大写字母或数字
+  const normalizedCode = typeof code === 'string' ? code.trim().toUpperCase() : '';
+  if (!/^[A-Z][A-Z0-9]*$/.test(normalizedCode)) {
+    res.status(400).json({ error: '物流商代号必须以大写字母开头，仅含大写字母或数字（用于生成初始管理员账号 admin@代号）' });
     return;
   }
   const duplicate = await getLogisticsProviderByCode(normalizedCode);

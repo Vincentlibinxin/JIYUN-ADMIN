@@ -1748,6 +1748,8 @@ export const getParcelStatusCounts = async (
 };
 
 export const getParcelsForExport = async (
+  keyword?: string,
+  selectedIds?: number[],
   startDate?: string,
   endDate?: string,
   sortKey?: string,
@@ -1781,6 +1783,26 @@ export const getParcelsForExport = async (
   const colFilter = buildColumnFilters(cleanedFilters, dateFilters, PARCELS_SORT_COLUMNS, 'p.');
   const allClauses = [deletedClause, ...dateRange.clauses, ...colFilter.clauses];
   const allParams = [...dateRange.params, ...colFilter.params];
+
+  const trimmedKeyword = keyword?.trim();
+  if (trimmedKeyword) {
+    const like = `%${trimmedKeyword}%`;
+    allClauses.push(`(
+      CAST(p.id AS CHAR) LIKE ?
+      OR CAST(p.user_id AS CHAR) LIKE ?
+      OR p.tracking_number LIKE ?
+      OR p.origin LIKE ?
+      OR p.destination LIKE ?
+      OR p.status LIKE ?
+      OR u.username LIKE ?
+    )`);
+    allParams.push(like, like, like, like, like, like, like);
+  }
+
+  if (selectedIds && selectedIds.length > 0) {
+    allClauses.push(`p.id IN (${selectedIds.map(() => '?').join(',')})`);
+    allParams.push(...selectedIds);
+  }
 
   if (usernameFilter) {
     allClauses.push(`CAST(u.username AS CHAR) LIKE ?`);
@@ -2570,21 +2592,21 @@ export const getLogisticsProviderCodeById = async (id: number | null | undefined
     `SELECT code FROM logistics_providers WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
     [providerId]
   );
-  const code = row?.code ? String(row.code).trim().toLowerCase() : '';
+  const code = row?.code ? String(row.code).trim().toUpperCase() : '';
   return code || null;
 };
 
 /**
  * 为指定物流商补齐【初始角色】与【初始管理员账号】（幂等，可重复调用）。
  * - 初始角色：name="Admin"，code="admin"，scope="logistics"，is_system=1（不可删除）
- * - 初始管理员账号：username=admin@<物流商代号>，初始密码 88888888，is_system=1（不可删除）
+ * - 初始管理员账号：username=admin@<物流商代号的小写形式>，初始密码 88888888，is_system=1（不可删除）
  */
 export const ensureLogisticsInitialAccess = async (provider: { id: number; code?: string | null; name?: string | null }): Promise<void> => {
   const providerId = Number(provider.id);
   if (!Number.isInteger(providerId) || providerId <= 0) return;
 
-  const normalizedCode = String(provider.code || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  const codeForUser = normalizedCode || `lp${providerId}`;
+  const normalizedCode = String(provider.code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const codeForUser = (normalizedCode || `lp${providerId}`).toLowerCase();
 
   // 1) 初始角色 Admin / admin（物流商作用域）
   const existingRole = await querySingle<{ id: number }>(

@@ -1406,18 +1406,42 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleExportParcels = async () => {
+  const handleExportParcels = async (selectedIds: number[] = []) => {
     try {
+      const validSelectedIds = Array.from(new Set(selectedIds.map(Number).filter((id) => Number.isInteger(id) && id > 0)));
+      const isLoadedAllFilteredRows = parcelTotalItems > 0 && parcels.length > 0 && parcelTotalItems === parcels.length;
+      const loadedRows = isLoadedAllFilteredRows
+        ? (validSelectedIds.length > 0
+          ? parcels.filter((record) => validSelectedIds.includes(record.id))
+          : parcels)
+        : [];
+
+      if (loadedRows.length > 0) {
+        const exportRows = await buildExportRowsFromLoadedParcels(loadedRows as Array<Parcel & { status_remark?: string | null }>);
+        if (exportRows.length > 0) {
+          await exportParcelsToTemplate(exportRows);
+          message.success(`已导出 ${exportRows.length} 条数据`);
+          return;
+        }
+      }
+
       const params = new URLSearchParams({
         sortKey: parcelSort.key,
         sortOrder: parcelSort.direction,
       });
+      const keyword = parcelSearchQuery.trim();
+      if (keyword) {
+        params.set('q', keyword);
+      }
       appendDateRangeParams(params, parcelStartDate, parcelEndDate);
       if (Object.keys(parcelColumnFilters).length > 0) {
         params.set('columnFilters', JSON.stringify(parcelColumnFilters));
       }
       if (Object.keys(parcelDateFilters).length > 0) {
         params.set('dateFilters', JSON.stringify(parcelDateFilters));
+      }
+      if (validSelectedIds.length > 0) {
+        params.set('selectedIds', JSON.stringify(validSelectedIds));
       }
       const response = await adminFetch(`/admin/parcels/export?${params.toString()}`);
       if (!ensureAuthorized(response)) return;
@@ -1560,6 +1584,26 @@ export default function AdminDashboard() {
       }
     } catch { /* ignore */ }
     return [];
+  };
+
+  const buildExportRowsFromLoadedParcels = async (records: Array<Parcel & { status_remark?: string | null }>) => {
+    const exportRows = await Promise.all(records.map(async (record) => {
+      const items = await fetchParcelItems(record.id);
+      return {
+        id: record.id,
+        tracking_number: record.tracking_number,
+        status_remark: record.status_remark || '',
+        username: record.username,
+        weight: record.weight,
+        length_cm: record.length_cm,
+        width_cm: record.width_cm,
+        height_cm: record.height_cm,
+        item_names: items.map((item) => item.name).join(','),
+        item_values: items.map((item) => String(item.value)).join(','),
+        item_quantities: items.map((item) => String(item.quantity)).join(','),
+      };
+    }));
+    return exportRows;
   };
 
   const updateOrderStatus = async (orderId: number, newStatus: string) => {
