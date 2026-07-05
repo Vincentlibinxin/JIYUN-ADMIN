@@ -25,6 +25,7 @@ export interface AddressBookEntry {
   province?: string | null;
   city?: string | null;
   district?: string | null;
+  street?: string | null;
   phone: string;
   address: string;
   user_id: number | null;
@@ -42,6 +43,7 @@ export interface AddressBookPayload {
   province: string;
   city?: string | null;
   district?: string | null;
+  street?: string | null;
   phone: string;
   address: string;
   user_id?: number | null;
@@ -342,7 +344,7 @@ export default function AddressBookTab({
   };
 
   const fillForm = (record: AddressBookEntry) => {
-    const path = [record.province, record.city, record.district].filter((v): v is string => !!v);
+    const path = [record.province, record.city, record.district, record.street].filter((v): v is string => !!v);
     form.setFieldsValue({
       name: record.name,
       regionPath: path,
@@ -390,6 +392,7 @@ export default function AddressBookTab({
       const province = path[0] || '';
       const city = path[1] || '';
       const district = path[2] || '';
+      const street = path[3] || '';
       const { region } = regionInfoFromProvince(province);
       const payload: AddressBookPayload = {
         name: values.name.trim(),
@@ -397,6 +400,7 @@ export default function AddressBookTab({
         province,
         city: city || null,
         district: district || null,
+        street: street || null,
         phone: values.phone.trim(),
         address: values.address.trim(),
         user_id: values.user_id ?? null,
@@ -507,7 +511,7 @@ export default function AddressBookTab({
           width: 220,
           ellipsis: true,
           render: (_, record) => {
-            const parts = [record.province, record.city, record.district].filter(Boolean);
+            const parts = [record.province, record.city, record.district, record.street].filter(Boolean);
             const text = parts.join(' / ');
             if (!text) {
               const r = REGION_MAP[record.region];
@@ -754,11 +758,11 @@ export default function AddressBookTab({
           <Form.Item
             name="regionPath"
             label="行政区域"
-            rules={[{ required: true, message: '请选择省 / 市 / 区县' }]}
+            rules={[{ required: true, message: '请选择省 / 市 / 区县 / 街道' }]}
           >
             <Cascader
               options={regionOptions}
-              placeholder="请选择省 / 市 / 区县"
+              placeholder="请选择省 / 市 / 区县 / 街道"
               changeOnSelect
               showSearch={{
                 filter: (input, path) =>

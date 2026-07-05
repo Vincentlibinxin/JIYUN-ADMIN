@@ -682,6 +682,7 @@ export const initDb = async (): Promise<void> => {
         province VARCHAR(64) DEFAULT NULL,
         city VARCHAR(64) DEFAULT NULL,
         district VARCHAR(64) DEFAULT NULL,
+        street VARCHAR(64) DEFAULT NULL,
         phone VARCHAR(32) NOT NULL,
         address VARCHAR(255) NOT NULL,
         user_id INT DEFAULT NULL,
@@ -693,7 +694,7 @@ export const initDb = async (): Promise<void> => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
-    // Migration: ensure address_book 省/市/区县 列存在（老库补齐）
+    // Migration: ensure address_book 省/市/区县/街道 列存在（老库补齐）
     const [addressBookCols] = await connection.execute<mysql.RowDataPacket[]>(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'address_book'`
     );
@@ -706,6 +707,9 @@ export const initDb = async (): Promise<void> => {
     }
     if (!existingAddressBookCols.has('district')) {
       await connection.execute(`ALTER TABLE address_book ADD COLUMN district VARCHAR(64) DEFAULT NULL AFTER city`);
+    }
+    if (!existingAddressBookCols.has('street')) {
+      await connection.execute(`ALTER TABLE address_book ADD COLUMN street VARCHAR(64) DEFAULT NULL AFTER district`);
     }
 
     // 系统设置 - 包裹状态字典（平台维护）
@@ -3158,7 +3162,7 @@ export const batchDeleteTrackingNumbers = async (categoryId: number, ids: number
 // ============ 地址簿（按物流商归属，可选关联会员） ============
 
 const ADDRESS_BOOK_SORT_COLUMNS = new Set([
-  'id', 'name', 'region', 'province', 'city', 'district', 'phone', 'address', 'user_id', 'logistics_provider_id', 'created_at', 'updated_at',
+  'id', 'name', 'region', 'province', 'city', 'district', 'street', 'phone', 'address', 'user_id', 'logistics_provider_id', 'created_at', 'updated_at',
 ]);
 
 export interface AddressBookPayload {
@@ -3167,6 +3171,7 @@ export interface AddressBookPayload {
   province?: string | null;
   city?: string | null;
   district?: string | null;
+  street?: string | null;
   phone: string;
   address: string;
   user_id?: number | null;
@@ -3196,7 +3201,7 @@ export const getAddressBookPaged = async (
   const offset = (safePage - 1) * safeLimit;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT ab.id, ab.name, ab.region, ab.province, ab.city, ab.district, ab.phone, ab.address, ab.user_id, ab.logistics_provider_id,
+    `SELECT ab.id, ab.name, ab.region, ab.province, ab.city, ab.district, ab.street, ab.phone, ab.address, ab.user_id, ab.logistics_provider_id,
             ab.created_at, ab.updated_at, lp.name AS logistics_provider_name,
             u.username AS member_username, u.real_name AS member_real_name
      FROM address_book ab
@@ -3231,16 +3236,17 @@ export const searchAddressBook = async (keyword: string, providerFilter?: number
        OR ab.province LIKE ?
        OR ab.city LIKE ?
        OR ab.district LIKE ?
+        OR ab.street LIKE ?
        OR u.username LIKE ?
        OR u.real_name LIKE ?
      )`];
-  const params: any[] = [like, like, like, like, like, like, like, like, like];
+      const params: any[] = [like, like, like, like, like, like, like, like, like, like];
   if (providerFilter !== null && providerFilter !== undefined) {
     clauses.push('ab.logistics_provider_id = ?');
     params.push(providerFilter);
   }
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT ab.id, ab.name, ab.region, ab.province, ab.city, ab.district, ab.phone, ab.address, ab.user_id, ab.logistics_provider_id,
+    `SELECT ab.id, ab.name, ab.region, ab.province, ab.city, ab.district, ab.street, ab.phone, ab.address, ab.user_id, ab.logistics_provider_id,
             ab.created_at, ab.updated_at, lp.name AS logistics_provider_name,
             u.username AS member_username, u.real_name AS member_real_name
      FROM address_book ab
@@ -3255,14 +3261,15 @@ export const searchAddressBook = async (keyword: string, providerFilter?: number
 
 export const createAddressBook = async (payload: AddressBookPayload) => {
   const [result] = await pool.execute<mysql.ResultSetHeader>(
-    `INSERT INTO address_book (name, region, province, city, district, phone, address, user_id, logistics_provider_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO address_book (name, region, province, city, district, street, phone, address, user_id, logistics_provider_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       payload.name,
       payload.region,
       payload.province ?? null,
       payload.city ?? null,
       payload.district ?? null,
+      payload.street ?? null,
       payload.phone,
       payload.address,
       payload.user_id ?? null,
@@ -3274,7 +3281,7 @@ export const createAddressBook = async (payload: AddressBookPayload) => {
 
 export const getAddressBookById = async (id: number): Promise<any | null> => {
   return querySingle<any>(
-    `SELECT id, name, region, province, city, district, phone, address, user_id, logistics_provider_id FROM address_book WHERE id = ? LIMIT 1`,
+    `SELECT id, name, region, province, city, district, street, phone, address, user_id, logistics_provider_id FROM address_book WHERE id = ? LIMIT 1`,
     [id]
   );
 };
@@ -3287,6 +3294,7 @@ export const updateAddressBook = async (id: number, payload: Partial<AddressBook
   if (payload.province !== undefined) { sets.push('province = ?'); params.push(payload.province ?? null); }
   if (payload.city !== undefined) { sets.push('city = ?'); params.push(payload.city ?? null); }
   if (payload.district !== undefined) { sets.push('district = ?'); params.push(payload.district ?? null); }
+  if (payload.street !== undefined) { sets.push('street = ?'); params.push(payload.street ?? null); }
   if (payload.phone !== undefined) { sets.push('phone = ?'); params.push(payload.phone); }
   if (payload.address !== undefined) { sets.push('address = ?'); params.push(payload.address); }
   if (payload.user_id !== undefined) { sets.push('user_id = ?'); params.push(payload.user_id ?? null); }

@@ -1,4 +1,4 @@
-// 中国大陆省市区 + 港澳台 三级行政区划数据（基于 china-division）。
+// 中国大陆省市区街道 + 港澳台 三级行政区划数据（基于 china-division）。
 // 数据体积较大，采用动态 import 按需加载并做进程内缓存。
 
 export interface RegionCascaderOption {
@@ -22,19 +22,19 @@ const mapChildren = <T,>(
   return arr.map(fn);
 };
 
-// 加载并构建统一的省/市/区县级联选项（名称作为 value）。
+// 加载并构建统一的省/市/区县/街道级联选项（名称作为 value）。
 export async function loadChinaRegionOptions(): Promise<RegionCascaderOption[]> {
   if (cachedOptions) return cachedOptions;
   if (loadingPromise) return loadingPromise;
   loadingPromise = (async () => {
-    const [pcaMod, hmtMod] = await Promise.all([
-      import('china-division/dist/pca-code.json'),
+    const [pcasMod, hmtMod] = await Promise.all([
+      import('china-division/dist/pcas-code.json'),
       import('china-division/dist/HK-MO-TW.json'),
     ]);
-    const pca = pcaMod.default;
+    const pcas = pcasMod.default;
     const hmt = hmtMod.default;
 
-    const mainland: RegionCascaderOption[] = pca.map((prov) => ({
+    const mainland: RegionCascaderOption[] = pcas.map((prov) => ({
       value: prov.name,
       label: prov.name,
       children: mapChildren(prov.children, (city) => ({
@@ -43,6 +43,10 @@ export async function loadChinaRegionOptions(): Promise<RegionCascaderOption[]> 
         children: mapChildren(city.children, (area) => ({
           value: area.name,
           label: area.name,
+          children: mapChildren(area.children, (street) => ({
+            value: street.name,
+            label: street.name,
+          })),
         })),
       })),
     }));

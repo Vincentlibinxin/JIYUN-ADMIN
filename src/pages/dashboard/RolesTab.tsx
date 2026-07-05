@@ -142,7 +142,7 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
     ],
   },
   {
-    group: '系统设置',
+    group: '包裹状态',
     items: [
       { code: PERMISSIONS.PARCEL_STATUS_VIEW, label: '查看包裹状态' },
       { code: PERMISSIONS.PARCEL_STATUS_CREATE, label: '新增包裹状态' },

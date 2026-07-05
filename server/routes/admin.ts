@@ -2794,7 +2794,7 @@ const ADDRESS_BOOK_REGION_DIAL_CODES: Record<string, string> = {
 const parseAddressBookBody = (
   body: Record<string, any>,
   res: Response
-): { name: string; region: string; province: string; city: string | null; district: string | null; phone: string; address: string } | null => {
+): { name: string; region: string; province: string; city: string | null; district: string | null; street: string | null; phone: string; address: string } | null => {
   const name = String(body.name ?? '').trim();
   if (!name) {
     res.status(400).json({ error: '姓名不能为空' });
@@ -2828,6 +2828,11 @@ const parseAddressBookBody = (
     res.status(400).json({ error: '区县名称过长' });
     return null;
   }
+  const streetRaw = String(body.street ?? '').trim();
+  if (streetRaw.length > 64) {
+    res.status(400).json({ error: '街道/乡镇名称过长' });
+    return null;
+  }
   const phone = String(body.phone ?? '').trim();
   if (!phone) {
     res.status(400).json({ error: '电话不能为空' });
@@ -2846,7 +2851,7 @@ const parseAddressBookBody = (
     res.status(400).json({ error: '地址不能超过255个字符' });
     return null;
   }
-  return { name, region, province, city: cityRaw || null, district: districtRaw || null, phone, address };
+  return { name, region, province, city: cityRaw || null, district: districtRaw || null, street: streetRaw || null, phone, address };
 };
 
 // 解析并校验会员ID（选填）。返回 undefined 表示校验失败已写响应；null 表示未选择会员。
