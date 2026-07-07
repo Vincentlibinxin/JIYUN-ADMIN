@@ -33,7 +33,7 @@ interface RolesTabProps {
 }
 
 // 物流商权限可配置的权限分组（其余分组仅平台角色可配置）
-const LOGISTICS_GROUP_NAMES = ['概览', '系统管理员', '会员', '地址簿', '包裹', '订单', '物流商角色', '库位管理', '单号库', '标签管理'];
+const LOGISTICS_GROUP_NAMES = ['概览', '系统管理员', '会员', '地址簿', '包裹', '订单', '航线运输管理', '物流商角色', '库位管理', '单号库', '标签管理'];
 
 const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; label: string }> }> = [
   {
@@ -104,6 +104,15 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
       { code: PERMISSIONS.ORDER_VIEW, label: '查看订单' },
       { code: PERMISSIONS.ORDER_UPDATE_STATUS, label: '变更订单状态' },
       { code: PERMISSIONS.ORDER_DELETE, label: '删除订单' },
+    ],
+  },
+  {
+    group: '航线运输管理',
+    items: [
+      { code: PERMISSIONS.ROUTE_TRANSPORT_VIEW, label: '查看航线运输' },
+      { code: PERMISSIONS.ROUTE_TRANSPORT_CREATE, label: '新增航线运输' },
+      { code: PERMISSIONS.ROUTE_TRANSPORT_UPDATE, label: '修改航线运输' },
+      { code: PERMISSIONS.ROUTE_TRANSPORT_DELETE, label: '删除航线运输' },
     ],
   },
   {

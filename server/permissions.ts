@@ -84,6 +84,12 @@ export const PERMISSIONS = {
   ADDRESS_BOOK_CREATE: 'address_book.create',
   ADDRESS_BOOK_UPDATE: 'address_book.update',
   ADDRESS_BOOK_DELETE: 'address_book.delete',
+
+  // 航线运输管理（提运单/班次/航线/集装箱，按物流商归属）
+  ROUTE_TRANSPORT_VIEW: 'route_transport.view',
+  ROUTE_TRANSPORT_CREATE: 'route_transport.create',
+  ROUTE_TRANSPORT_UPDATE: 'route_transport.update',
+  ROUTE_TRANSPORT_DELETE: 'route_transport.delete',
 } as const;
 
 export type PermissionCode = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -147,6 +153,12 @@ const ADMIN_PERMISSIONS: PermissionCode[] = [
   PERMISSIONS.ADDRESS_BOOK_CREATE,
   PERMISSIONS.ADDRESS_BOOK_UPDATE,
   PERMISSIONS.ADDRESS_BOOK_DELETE,
+
+  // 航线运输管理
+  PERMISSIONS.ROUTE_TRANSPORT_VIEW,
+  PERMISSIONS.ROUTE_TRANSPORT_CREATE,
+  PERMISSIONS.ROUTE_TRANSPORT_UPDATE,
+  PERMISSIONS.ROUTE_TRANSPORT_DELETE,
 ];
 
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
@@ -204,6 +216,11 @@ export const LOGISTICS_ALLOWED_PERMISSIONS: PermissionCode[] = [
   PERMISSIONS.ADDRESS_BOOK_CREATE,
   PERMISSIONS.ADDRESS_BOOK_UPDATE,
   PERMISSIONS.ADDRESS_BOOK_DELETE,
+  // 航线运输管理
+  PERMISSIONS.ROUTE_TRANSPORT_VIEW,
+  PERMISSIONS.ROUTE_TRANSPORT_CREATE,
+  PERMISSIONS.ROUTE_TRANSPORT_UPDATE,
+  PERMISSIONS.ROUTE_TRANSPORT_DELETE,
 ];
 
 export const getPermissionsForRole = (role: string | undefined | null): PermissionCode[] => {

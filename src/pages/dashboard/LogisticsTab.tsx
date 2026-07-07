@@ -696,11 +696,11 @@ export default function LogisticsTab({
             label="代号/编码"
             rules={modalMode === 'create' ? [
               { required: true, message: '请输入物流商代号' },
-              { pattern: /^[a-z][a-z0-9]*$/, message: '以小写字母开头，仅含小写字母或数字' },
+              { pattern: /^[A-Z][A-Z0-9]*$/, message: '以大写字母开头，仅含大写字母或数字' },
             ] : []}
             extra={modalMode === 'create' ? '将用于生成初始管理员账号 admin@代号（初始密码 88888888）' : undefined}
           >
-            <Input placeholder="如 haoyun，将生成 admin@haoyun" maxLength={64} disabled={modalMode === 'edit'} />
+            <Input placeholder="如 HAOYUN，将生成 admin@HAOYUN" maxLength={64} disabled={modalMode === 'edit'} />
           </Form.Item>
           <Form.Item name="contact_name" label="联系人">
             <Input placeholder="请输入联系人" maxLength={64} />

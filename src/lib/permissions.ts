@@ -67,6 +67,11 @@ export const PERMISSIONS = {
   ADDRESS_BOOK_CREATE: 'address_book.create',
   ADDRESS_BOOK_UPDATE: 'address_book.update',
   ADDRESS_BOOK_DELETE: 'address_book.delete',
+
+  ROUTE_TRANSPORT_VIEW: 'route_transport.view',
+  ROUTE_TRANSPORT_CREATE: 'route_transport.create',
+  ROUTE_TRANSPORT_UPDATE: 'route_transport.update',
+  ROUTE_TRANSPORT_DELETE: 'route_transport.delete',
 } as const;
 
 export type PermissionCode = typeof PERMISSIONS[keyof typeof PERMISSIONS];

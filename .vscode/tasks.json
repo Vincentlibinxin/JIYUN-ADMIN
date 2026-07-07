@@ -1,0 +1,47 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "dev-all-for-addressbook-test",
+			"type": "shell",
+			"command": "npm.cmd",
+			"args": [
+				"run",
+				"dev:all"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "run-addressbook-smoke-test",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"scripts/addressbook-smoke-test.mjs"
+			]
+		},
+		{
+			"label": "list-admin-users",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"scripts/list-admin-users.mjs"
+			]
+		},
+		{
+			"label": "rerun-addressbook-smoke-test",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"scripts/addressbook-smoke-test.mjs"
+			]
+		},
+		{
+			"label": "rerun-addressbook-smoke-test-with-jwt-fallback",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"scripts/addressbook-smoke-test.mjs"
+			]
+		}
+	]
+}

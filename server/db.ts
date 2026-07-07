@@ -237,12 +237,12 @@ export const DEFAULT_PARCEL_STATUSES: Array<{
   { status_id: 3002, status_code: 'export_declaration_rejected', status_name: '出口申报退单', status_type: '信息态', status_category: '出口清关' },
   { status_id: 3003, status_code: 'export_risk_control', status_name: '出口系统布控', status_type: '信息态', status_category: '出口清关' },
   { status_id: 3004, status_code: 'export_system_released', status_name: '出口系统放行', status_type: '信息态', status_category: '出口清关' },
-  { status_id: 3005, status_code: 'export_customs_clearing', status_name: '出口清关中', status_type: '货物态', status_category: '出口清关' },
-  { status_id: 3006, status_code: 'export_customs_inspection', status_name: '出口清关查验', status_type: '货物态', status_category: '出口清关' },
-  { status_id: 3007, status_code: 'export_customs_seized', status_name: '出口清关扣货', status_type: '货物态', status_category: '出口清关' },
-  { status_id: 3008, status_code: 'export_customs_returned', status_name: '出口清关退运', status_type: '货物态', status_category: '出口清关' },
-  { status_id: 3009, status_code: 'export_customs_destroyed', status_name: '出口清关销毁', status_type: '货物态', status_category: '出口清关' },
-  { status_id: 3010, status_code: 'export_customs_released', status_name: '出口清关放行', status_type: '货物态', status_category: '出口清关' },
+  { status_id: 3005, status_code: 'export_customs_clearing', status_name: '出口通关中', status_type: '货物态', status_category: '出口清关' },
+  { status_id: 3006, status_code: 'export_customs_inspection', status_name: '出口通关查验', status_type: '货物态', status_category: '出口清关' },
+  { status_id: 3007, status_code: 'export_customs_seized', status_name: '出口通关扣货', status_type: '货物态', status_category: '出口清关' },
+  { status_id: 3008, status_code: 'export_customs_returned', status_name: '出口通关退运', status_type: '货物态', status_category: '出口清关' },
+  { status_id: 3009, status_code: 'export_customs_destroyed', status_name: '出口通关销毁', status_type: '货物态', status_category: '出口清关' },
+  { status_id: 3010, status_code: 'export_customs_released', status_name: '出口通关放行', status_type: '货物态', status_category: '出口清关' },
   { status_id: 4001, status_code: 'cross_border_departed', status_name: '跨境干线离港', status_type: '货物态', status_category: '跨境干线运输' },
   { status_id: 4002, status_code: 'cross_border_in_transit', status_name: '跨境干线运输中', status_type: '货物态', status_category: '跨境干线运输' },
   { status_id: 4003, status_code: 'cross_border_transshipment', status_name: '跨境干线中转', status_type: '货物态', status_category: '跨境干线运输' },
@@ -251,12 +251,12 @@ export const DEFAULT_PARCEL_STATUSES: Array<{
   { status_id: 5002, status_code: 'import_declaration_rejected', status_name: '进口申报退单', status_type: '信息态', status_category: '进口清关' },
   { status_id: 5003, status_code: 'import_risk_control', status_name: '进口系统布控', status_type: '信息态', status_category: '进口清关' },
   { status_id: 5004, status_code: 'import_system_released', status_name: '进口系统放行', status_type: '信息态', status_category: '进口清关' },
-  { status_id: 5005, status_code: 'import_customs_clearing', status_name: '进口清关中', status_type: '货物态', status_category: '进口清关' },
-  { status_id: 5006, status_code: 'import_customs_inspection', status_name: '进口清关查验', status_type: '货物态', status_category: '进口清关' },
-  { status_id: 5007, status_code: 'import_customs_seized', status_name: '进口清关扣货', status_type: '货物态', status_category: '进口清关' },
-  { status_id: 5008, status_code: 'import_customs_returned', status_name: '进口清关退运', status_type: '货物态', status_category: '进口清关' },
-  { status_id: 5009, status_code: 'import_customs_destroyed', status_name: '进口清关销毁', status_type: '货物态', status_category: '进口清关' },
-  { status_id: 5010, status_code: 'import_customs_released', status_name: '进口清关放行', status_type: '货物态', status_category: '进口清关' },
+  { status_id: 5005, status_code: 'import_customs_clearing', status_name: '进口通关中', status_type: '货物态', status_category: '进口清关' },
+  { status_id: 5006, status_code: 'import_customs_inspection', status_name: '进口通关查验', status_type: '货物态', status_category: '进口清关' },
+  { status_id: 5007, status_code: 'import_customs_seized', status_name: '进口通关扣货', status_type: '货物态', status_category: '进口清关' },
+  { status_id: 5008, status_code: 'import_customs_returned', status_name: '进口通关退运', status_type: '货物态', status_category: '进口清关' },
+  { status_id: 5009, status_code: 'import_customs_destroyed', status_name: '进口通关销毁', status_type: '货物态', status_category: '进口清关' },
+  { status_id: 5010, status_code: 'import_customs_released', status_name: '进口通关放行', status_type: '货物态', status_category: '进口清关' },
   { status_id: 6001, status_code: 'destination_dispatch_outbound', status_name: '派送运输出库', status_type: '货物态', status_category: '目的地派送' },
   { status_id: 6002, status_code: 'destination_dispatch_in_transit', status_name: '派送运输中', status_type: '货物态', status_category: '目的地派送' },
   { status_id: 6003, status_code: 'destination_dispatch_inbound', status_name: '派送运输入库', status_type: '货物态', status_category: '目的地派送' },
@@ -712,6 +712,130 @@ export const initDb = async (): Promise<void> => {
       await connection.execute(`ALTER TABLE address_book ADD COLUMN street VARCHAR(64) DEFAULT NULL AFTER district`);
     }
 
+    // 航线运输管理 - 航线（按物流商归属）
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS shipping_routes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        route_name VARCHAR(128) NOT NULL,
+        route_code VARCHAR(64) DEFAULT NULL,
+        carrier_type VARCHAR(16) NOT NULL DEFAULT '海运',
+        carrier_tool_name VARCHAR(128) DEFAULT NULL,
+        carrier VARCHAR(128) DEFAULT NULL,
+        departure_port VARCHAR(255) DEFAULT NULL,
+        destination_port VARCHAR(255) DEFAULT NULL,
+        description VARCHAR(255) DEFAULT NULL,
+        is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        logistics_provider_id INT DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_shipping_route_name (route_name, logistics_provider_id),
+        INDEX idx_shipping_route_provider (logistics_provider_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // 航线运输管理 - 集装箱（按物流商归属）
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS shipping_containers (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        container_no VARCHAR(64) NOT NULL,
+        container_type VARCHAR(64) NOT NULL,
+        description VARCHAR(255) DEFAULT NULL,
+        is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        logistics_provider_id INT DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_shipping_container_no (container_no, logistics_provider_id),
+        INDEX idx_shipping_container_provider (logistics_provider_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // 航线运输管理 - 班(航)次（关联航线，按物流商归属）
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS shipping_voyages (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        voyage_name VARCHAR(128) NOT NULL,
+        voyage_no VARCHAR(64) DEFAULT NULL,
+        etd DATETIME DEFAULT NULL,
+        eta DATETIME DEFAULT NULL,
+        atd DATETIME DEFAULT NULL,
+        ata DATETIME DEFAULT NULL,
+        si_cutoff DATETIME DEFAULT NULL,
+        cargo_cutoff DATETIME DEFAULT NULL,
+        vgm_cutoff DATETIME DEFAULT NULL,
+        departure_port VARCHAR(128) DEFAULT NULL,
+        destination_port VARCHAR(128) DEFAULT NULL,
+        route_id INT DEFAULT NULL,
+        description VARCHAR(255) DEFAULT NULL,
+        is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        logistics_provider_id INT DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_shipping_voyage_name (voyage_name, logistics_provider_id),
+        INDEX idx_shipping_voyage_provider (logistics_provider_id),
+        INDEX idx_shipping_voyage_route (route_id),
+        CONSTRAINT fk_shipping_voyage_route FOREIGN KEY (route_id) REFERENCES shipping_routes(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // 航线运输管理 - 提(运)单（关联班次，按物流商归属）
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS shipping_bills (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        bl_no VARCHAR(64) DEFAULT NULL,
+        shipper VARCHAR(255) NOT NULL,
+        consignee VARCHAR(255) NOT NULL,
+        notify_party VARCHAR(255) NOT NULL,
+        delivery_place VARCHAR(128) DEFAULT NULL,
+        departure_port VARCHAR(128) DEFAULT NULL,
+        destination_port VARCHAR(128) DEFAULT NULL,
+        container_no VARCHAR(64) DEFAULT NULL,
+        seal_no VARCHAR(64) DEFAULT NULL,
+        package_count INT DEFAULT NULL,
+        weight DECIMAL(12, 3) DEFAULT NULL,
+        volume DECIMAL(12, 3) DEFAULT NULL,
+        marks VARCHAR(255) DEFAULT NULL,
+        voyage_id INT DEFAULT NULL,
+        cargo_status VARCHAR(64) DEFAULT NULL,
+        description VARCHAR(255) DEFAULT NULL,
+        logistics_provider_id INT DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_shipping_bill_provider (logistics_provider_id),
+        INDEX idx_shipping_bill_voyage (voyage_id),
+        CONSTRAINT fk_shipping_bill_voyage FOREIGN KEY (voyage_id) REFERENCES shipping_voyages(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // 航线运输管理 - 为已存在的 shipping_routes 补充起运港/目的港列（多个港口以 / 分隔）
+    const [shipRouteCols] = await connection.execute(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shipping_routes'`
+    );
+    const existingShipRouteCols = new Set((shipRouteCols as any[]).map((r: any) => r.COLUMN_NAME));
+    if (!existingShipRouteCols.has('departure_port')) {
+      await connection.execute(`ALTER TABLE shipping_routes ADD COLUMN departure_port VARCHAR(255) DEFAULT NULL AFTER carrier`);
+    }
+    if (!existingShipRouteCols.has('destination_port')) {
+      await connection.execute(`ALTER TABLE shipping_routes ADD COLUMN destination_port VARCHAR(255) DEFAULT NULL AFTER departure_port`);
+    }
+
+    // 迁移：shipping_bills 删除已废弃字段 bill_no / consignor（幂等）
+    const [shipBillCols] = await connection.execute(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shipping_bills'`
+    );
+    const existingShipBillCols = new Set((shipBillCols as any[]).map((r: any) => r.COLUMN_NAME));
+    if (existingShipBillCols.has('bill_no')) {
+      await connection.execute(`ALTER TABLE shipping_bills DROP COLUMN bill_no`);
+    }
+    if (existingShipBillCols.has('consignor')) {
+      await connection.execute(`ALTER TABLE shipping_bills DROP COLUMN consignor`);
+    }
+    const [shipBillIdxRows] = await connection.execute(
+      `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shipping_bills' AND INDEX_NAME = 'uk_shipping_bill_no'`
+    );
+    if ((shipBillIdxRows as any[]).length > 0) {
+      await connection.execute(`ALTER TABLE shipping_bills DROP INDEX uk_shipping_bill_no`);
+    }
+
     // 系统设置 - 包裹状态字典（平台维护）
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS parcel_statuses (
@@ -744,6 +868,12 @@ export const initDb = async (): Promise<void> => {
         );
       }
     }
+
+    // 迁移：将已存在记录的《状态名称》中"清关"改为"通关"（仅更新 status_name，保留 status_category 分类不变）。
+    // 幂等：更新后 status_name 中不再包含"清关"，重复执行不会再命中 LIKE 条件。
+    await connection.execute(
+      `UPDATE parcel_statuses SET status_name = REPLACE(status_name, '清关', '通关') WHERE status_name LIKE '%清关%'`
+    );
 
     // 迁移：将历史遗留的包裹货物态旧值改为《包裹状态字典》中对应的货物态编码。
     // 幂等：新编码不在旧值集合中，重复执行不会再次命中（WHERE ... IN 旧值集合）。
@@ -952,6 +1082,22 @@ export const initDb = async (): Promise<void> => {
       ];
       if (adminRoleId) {
         for (const permissionCode of ADDRESS_BOOK_CODES) {
+          await connection.execute(
+            'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
+            [adminRoleId, 'admin', permissionCode]
+          );
+        }
+      }
+
+      // 幂等回填：确保内置 admin 角色拥有「航线运输管理」权限（新增模块，历史库需补齐）。
+      const ROUTE_TRANSPORT_CODES = [
+        PERMISSIONS.ROUTE_TRANSPORT_VIEW,
+        PERMISSIONS.ROUTE_TRANSPORT_CREATE,
+        PERMISSIONS.ROUTE_TRANSPORT_UPDATE,
+        PERMISSIONS.ROUTE_TRANSPORT_DELETE,
+      ];
+      if (adminRoleId) {
+        for (const permissionCode of ROUTE_TRANSPORT_CODES) {
           await connection.execute(
             'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
             [adminRoleId, 'admin', permissionCode]
@@ -3344,6 +3490,700 @@ export const batchDeleteAddressBook = async (ids: number[]): Promise<number> => 
     `DELETE FROM address_book WHERE id IN (${placeholders})`,
     ids
   );
+  return result.affectedRows;
+};
+
+// ============ 航线运输管理 - 航线 shipping_routes（按物流商归属） ============
+
+export const SHIPPING_CARRIER_TYPES = ['海运', '空运', '陆运', '铁路', '水运', '其它'];
+
+const SHIPPING_ROUTE_SORT_COLUMNS = new Set([
+  'id', 'route_name', 'route_code', 'carrier_type', 'carrier_tool_name', 'carrier', 'departure_port', 'destination_port', 'is_enabled', 'logistics_provider_id', 'created_at', 'updated_at',
+]);
+
+export interface ShippingRoutePayload {
+  route_name: string;
+  route_code?: string | null;
+  carrier_type: string;
+  carrier_tool_name?: string | null;
+  carrier?: string | null;
+  departure_port?: string | null;
+  destination_port?: string | null;
+  description?: string | null;
+  is_enabled?: boolean;
+  logistics_provider_id?: number | null;
+}
+
+export const getShippingRoutesPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>,
+  providerFilter?: number | null
+) => {
+  const orderBy = `r.${toSafeOrderBy(sortKey, sortOrder, SHIPPING_ROUTE_SORT_COLUMNS, 'created_at')}`;
+  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, SHIPPING_ROUTE_SORT_COLUMNS, 'r.');
+  const allClauses = ['1=1', ...clauses];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    allClauses.push('r.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT r.id, r.route_name, r.route_code, r.carrier_type, r.carrier_tool_name, r.carrier, r.departure_port, r.destination_port, r.description,
+            r.is_enabled, r.logistics_provider_id, r.created_at, r.updated_at, lp.name AS logistics_provider_name
+     FROM shipping_routes r
+     LEFT JOIN logistics_providers lp ON r.logistics_provider_id = lp.id
+     ${whereSql}
+     ORDER BY ${orderBy}
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
+  );
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count FROM shipping_routes r ${whereSql}`,
+    params
+  );
+  const total = Number(countRows?.[0]?.count || 0);
+  return { data: rows as any[], total, pages: Math.max(1, Math.ceil(total / safeLimit)) };
+};
+
+export const searchShippingRoutes = async (keyword: string, providerFilter?: number | null): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const clauses = [`(
+       CAST(r.id AS CHAR) LIKE ?
+       OR r.route_name LIKE ?
+       OR r.route_code LIKE ?
+       OR r.carrier_type LIKE ?
+       OR r.carrier_tool_name LIKE ?
+       OR r.carrier LIKE ?
+       OR r.departure_port LIKE ?
+       OR r.destination_port LIKE ?
+       OR r.description LIKE ?
+     )`];
+  const params: any[] = [like, like, like, like, like, like, like, like, like];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    clauses.push('r.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT r.id, r.route_name, r.route_code, r.carrier_type, r.carrier_tool_name, r.carrier, r.departure_port, r.destination_port, r.description,
+            r.is_enabled, r.logistics_provider_id, r.created_at, r.updated_at, lp.name AS logistics_provider_name
+     FROM shipping_routes r
+     LEFT JOIN logistics_providers lp ON r.logistics_provider_id = lp.id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY r.created_at DESC`,
+    params
+  );
+  return rows as any[];
+};
+
+// 启用中的航线选项（供班次选择关联航线）
+export const getEnabledShippingRoutes = async (providerFilter?: number | null): Promise<any[]> => {
+  const params: any[] = [];
+  let providerClause = '';
+  if (providerFilter !== null && providerFilter !== undefined) {
+    providerClause = 'AND logistics_provider_id = ?';
+    params.push(providerFilter);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, route_name, route_code, carrier_type, departure_port, destination_port FROM shipping_routes WHERE is_enabled = 1 ${providerClause} ORDER BY route_name ASC`,
+    params
+  );
+  return rows as any[];
+};
+
+export const findDuplicateShippingRoute = async (
+  routeName: string,
+  logisticsProviderId: number | null,
+  excludeId?: number
+): Promise<boolean> => {
+  const params: any[] = [routeName];
+  const providerClause = logisticsProviderId === null ? 'logistics_provider_id IS NULL' : (params.push(logisticsProviderId), 'logistics_provider_id = ?');
+  let excludeClause = '';
+  if (excludeId !== undefined) { excludeClause = ' AND id <> ?'; params.push(excludeId); }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id FROM shipping_routes WHERE route_name = ? AND ${providerClause}${excludeClause} LIMIT 1`,
+    params
+  );
+  return rows.length > 0;
+};
+
+export const createShippingRoute = async (payload: ShippingRoutePayload) => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `INSERT INTO shipping_routes (route_name, route_code, carrier_type, carrier_tool_name, carrier, departure_port, destination_port, description, is_enabled, logistics_provider_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      payload.route_name,
+      payload.route_code ?? null,
+      payload.carrier_type,
+      payload.carrier_tool_name ?? null,
+      payload.carrier ?? null,
+      payload.departure_port ?? null,
+      payload.destination_port ?? null,
+      payload.description ?? null,
+      payload.is_enabled === false ? 0 : 1,
+      payload.logistics_provider_id ?? null,
+    ]
+  );
+  return { id: result.insertId, ...payload };
+};
+
+export const getShippingRouteById = async (id: number): Promise<any | null> => {
+  return querySingle<any>(`SELECT * FROM shipping_routes WHERE id = ? LIMIT 1`, [id]);
+};
+
+export const updateShippingRoute = async (id: number, payload: Partial<ShippingRoutePayload>): Promise<boolean> => {
+  const sets: string[] = ['updated_at = NOW()'];
+  const params: any[] = [];
+  if (payload.route_name !== undefined) { sets.push('route_name = ?'); params.push(payload.route_name); }
+  if (payload.route_code !== undefined) { sets.push('route_code = ?'); params.push(payload.route_code ?? null); }
+  if (payload.carrier_type !== undefined) { sets.push('carrier_type = ?'); params.push(payload.carrier_type); }
+  if (payload.carrier_tool_name !== undefined) { sets.push('carrier_tool_name = ?'); params.push(payload.carrier_tool_name ?? null); }
+  if (payload.carrier !== undefined) { sets.push('carrier = ?'); params.push(payload.carrier ?? null); }
+  if (payload.departure_port !== undefined) { sets.push('departure_port = ?'); params.push(payload.departure_port ?? null); }
+  if (payload.destination_port !== undefined) { sets.push('destination_port = ?'); params.push(payload.destination_port ?? null); }
+  if (payload.description !== undefined) { sets.push('description = ?'); params.push(payload.description ?? null); }
+  if (payload.is_enabled !== undefined) { sets.push('is_enabled = ?'); params.push(payload.is_enabled ? 1 : 0); }
+  if (payload.logistics_provider_id !== undefined) { sets.push('logistics_provider_id = ?'); params.push(payload.logistics_provider_id ?? null); }
+  params.push(id);
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE shipping_routes SET ${sets.join(', ')} WHERE id = ?`, params);
+  return result.affectedRows > 0;
+};
+
+export const deleteShippingRoute = async (id: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM shipping_routes WHERE id = ?', [id]);
+  return result.affectedRows > 0;
+};
+
+export const batchDeleteShippingRoutes = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`DELETE FROM shipping_routes WHERE id IN (${placeholders})`, ids);
+  return result.affectedRows;
+};
+
+// ============ 航线运输管理 - 集装箱 shipping_containers（按物流商归属） ============
+
+const SHIPPING_CONTAINER_SORT_COLUMNS = new Set([
+  'id', 'container_no', 'container_type', 'is_enabled', 'logistics_provider_id', 'created_at', 'updated_at',
+]);
+
+export interface ShippingContainerPayload {
+  container_no: string;
+  container_type: string;
+  description?: string | null;
+  is_enabled?: boolean;
+  logistics_provider_id?: number | null;
+}
+
+export const getShippingContainersPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>,
+  providerFilter?: number | null
+) => {
+  const orderBy = `c.${toSafeOrderBy(sortKey, sortOrder, SHIPPING_CONTAINER_SORT_COLUMNS, 'created_at')}`;
+  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, SHIPPING_CONTAINER_SORT_COLUMNS, 'c.');
+  const allClauses = ['1=1', ...clauses];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    allClauses.push('c.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT c.id, c.container_no, c.container_type, c.description, c.is_enabled, c.logistics_provider_id,
+            c.created_at, c.updated_at, lp.name AS logistics_provider_name
+     FROM shipping_containers c
+     LEFT JOIN logistics_providers lp ON c.logistics_provider_id = lp.id
+     ${whereSql}
+     ORDER BY ${orderBy}
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
+  );
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count FROM shipping_containers c ${whereSql}`,
+    params
+  );
+  const total = Number(countRows?.[0]?.count || 0);
+  return { data: rows as any[], total, pages: Math.max(1, Math.ceil(total / safeLimit)) };
+};
+
+export const searchShippingContainers = async (keyword: string, providerFilter?: number | null): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const clauses = [`(
+       CAST(c.id AS CHAR) LIKE ?
+       OR c.container_no LIKE ?
+       OR c.container_type LIKE ?
+       OR c.description LIKE ?
+     )`];
+  const params: any[] = [like, like, like, like];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    clauses.push('c.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT c.id, c.container_no, c.container_type, c.description, c.is_enabled, c.logistics_provider_id,
+            c.created_at, c.updated_at, lp.name AS logistics_provider_name
+     FROM shipping_containers c
+     LEFT JOIN logistics_providers lp ON c.logistics_provider_id = lp.id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY c.created_at DESC`,
+    params
+  );
+  return rows as any[];
+};
+
+// 启用中的集装箱选项（供提运单选择集装箱号）
+export const getEnabledShippingContainers = async (providerFilter?: number | null): Promise<any[]> => {
+  const params: any[] = [];
+  let providerClause = '';
+  if (providerFilter !== null && providerFilter !== undefined) {
+    providerClause = 'AND logistics_provider_id = ?';
+    params.push(providerFilter);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, container_no, container_type FROM shipping_containers WHERE is_enabled = 1 ${providerClause} ORDER BY container_no ASC`,
+    params
+  );
+  return rows as any[];
+};
+
+export const findDuplicateShippingContainer = async (
+  containerNo: string,
+  logisticsProviderId: number | null,
+  excludeId?: number
+): Promise<boolean> => {
+  const params: any[] = [containerNo];
+  const providerClause = logisticsProviderId === null ? 'logistics_provider_id IS NULL' : (params.push(logisticsProviderId), 'logistics_provider_id = ?');
+  let excludeClause = '';
+  if (excludeId !== undefined) { excludeClause = ' AND id <> ?'; params.push(excludeId); }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id FROM shipping_containers WHERE container_no = ? AND ${providerClause}${excludeClause} LIMIT 1`,
+    params
+  );
+  return rows.length > 0;
+};
+
+export const createShippingContainer = async (payload: ShippingContainerPayload) => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `INSERT INTO shipping_containers (container_no, container_type, description, is_enabled, logistics_provider_id)
+     VALUES (?, ?, ?, ?, ?)`,
+    [
+      payload.container_no,
+      payload.container_type,
+      payload.description ?? null,
+      payload.is_enabled === false ? 0 : 1,
+      payload.logistics_provider_id ?? null,
+    ]
+  );
+  return { id: result.insertId, ...payload };
+};
+
+export const getShippingContainerById = async (id: number): Promise<any | null> => {
+  return querySingle<any>(`SELECT * FROM shipping_containers WHERE id = ? LIMIT 1`, [id]);
+};
+
+export const updateShippingContainer = async (id: number, payload: Partial<ShippingContainerPayload>): Promise<boolean> => {
+  const sets: string[] = ['updated_at = NOW()'];
+  const params: any[] = [];
+  if (payload.container_no !== undefined) { sets.push('container_no = ?'); params.push(payload.container_no); }
+  if (payload.container_type !== undefined) { sets.push('container_type = ?'); params.push(payload.container_type); }
+  if (payload.description !== undefined) { sets.push('description = ?'); params.push(payload.description ?? null); }
+  if (payload.is_enabled !== undefined) { sets.push('is_enabled = ?'); params.push(payload.is_enabled ? 1 : 0); }
+  if (payload.logistics_provider_id !== undefined) { sets.push('logistics_provider_id = ?'); params.push(payload.logistics_provider_id ?? null); }
+  params.push(id);
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE shipping_containers SET ${sets.join(', ')} WHERE id = ?`, params);
+  return result.affectedRows > 0;
+};
+
+export const deleteShippingContainer = async (id: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM shipping_containers WHERE id = ?', [id]);
+  return result.affectedRows > 0;
+};
+
+export const batchDeleteShippingContainers = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`DELETE FROM shipping_containers WHERE id IN (${placeholders})`, ids);
+  return result.affectedRows;
+};
+
+// ============ 航线运输管理 - 班(航)次 shipping_voyages（关联航线，按物流商归属） ============
+
+const SHIPPING_VOYAGE_SORT_COLUMNS = new Set([
+  'id', 'voyage_name', 'voyage_no', 'etd', 'eta', 'atd', 'ata', 'si_cutoff', 'cargo_cutoff', 'vgm_cutoff',
+  'departure_port', 'destination_port', 'route_id', 'is_enabled', 'logistics_provider_id', 'created_at', 'updated_at',
+]);
+
+export interface ShippingVoyagePayload {
+  voyage_name: string;
+  voyage_no?: string | null;
+  etd?: string | null;
+  eta?: string | null;
+  atd?: string | null;
+  ata?: string | null;
+  si_cutoff?: string | null;
+  cargo_cutoff?: string | null;
+  vgm_cutoff?: string | null;
+  departure_port?: string | null;
+  destination_port?: string | null;
+  route_id?: number | null;
+  description?: string | null;
+  is_enabled?: boolean;
+  logistics_provider_id?: number | null;
+}
+
+export const getShippingVoyagesPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>,
+  providerFilter?: number | null
+) => {
+  const orderBy = `v.${toSafeOrderBy(sortKey, sortOrder, SHIPPING_VOYAGE_SORT_COLUMNS, 'created_at')}`;
+  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, SHIPPING_VOYAGE_SORT_COLUMNS, 'v.');
+  const allClauses = ['1=1', ...clauses];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    allClauses.push('v.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT v.id, v.voyage_name, v.voyage_no, v.etd, v.eta, v.atd, v.ata, v.si_cutoff, v.cargo_cutoff, v.vgm_cutoff,
+            v.departure_port, v.destination_port, v.route_id, v.description, v.is_enabled, v.logistics_provider_id,
+            v.created_at, v.updated_at, lp.name AS logistics_provider_name, r.route_name AS route_name
+     FROM shipping_voyages v
+     LEFT JOIN logistics_providers lp ON v.logistics_provider_id = lp.id
+     LEFT JOIN shipping_routes r ON v.route_id = r.id
+     ${whereSql}
+     ORDER BY ${orderBy}
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
+  );
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count FROM shipping_voyages v ${whereSql}`,
+    params
+  );
+  const total = Number(countRows?.[0]?.count || 0);
+  return { data: rows as any[], total, pages: Math.max(1, Math.ceil(total / safeLimit)) };
+};
+
+export const searchShippingVoyages = async (keyword: string, providerFilter?: number | null): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const clauses = [`(
+       CAST(v.id AS CHAR) LIKE ?
+       OR v.voyage_name LIKE ?
+       OR v.voyage_no LIKE ?
+       OR v.departure_port LIKE ?
+       OR v.destination_port LIKE ?
+       OR r.route_name LIKE ?
+       OR v.description LIKE ?
+     )`];
+  const params: any[] = [like, like, like, like, like, like, like];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    clauses.push('v.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT v.id, v.voyage_name, v.voyage_no, v.etd, v.eta, v.atd, v.ata, v.si_cutoff, v.cargo_cutoff, v.vgm_cutoff,
+            v.departure_port, v.destination_port, v.route_id, v.description, v.is_enabled, v.logistics_provider_id,
+            v.created_at, v.updated_at, lp.name AS logistics_provider_name, r.route_name AS route_name
+     FROM shipping_voyages v
+     LEFT JOIN logistics_providers lp ON v.logistics_provider_id = lp.id
+     LEFT JOIN shipping_routes r ON v.route_id = r.id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY v.created_at DESC`,
+    params
+  );
+  return rows as any[];
+};
+
+// 启用中的班次选项（供提运单选择关联班次，返回起运港/目的港用于默认填充）
+export const getEnabledShippingVoyages = async (providerFilter?: number | null): Promise<any[]> => {
+  const params: any[] = [];
+  let providerClause = '';
+  if (providerFilter !== null && providerFilter !== undefined) {
+    providerClause = 'AND logistics_provider_id = ?';
+    params.push(providerFilter);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, voyage_name, voyage_no, departure_port, destination_port FROM shipping_voyages WHERE is_enabled = 1 ${providerClause} ORDER BY voyage_name ASC`,
+    params
+  );
+  return rows as any[];
+};
+
+export const findDuplicateShippingVoyage = async (
+  voyageName: string,
+  logisticsProviderId: number | null,
+  excludeId?: number
+): Promise<boolean> => {
+  const params: any[] = [voyageName];
+  const providerClause = logisticsProviderId === null ? 'logistics_provider_id IS NULL' : (params.push(logisticsProviderId), 'logistics_provider_id = ?');
+  let excludeClause = '';
+  if (excludeId !== undefined) { excludeClause = ' AND id <> ?'; params.push(excludeId); }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id FROM shipping_voyages WHERE voyage_name = ? AND ${providerClause}${excludeClause} LIMIT 1`,
+    params
+  );
+  return rows.length > 0;
+};
+
+export const createShippingVoyage = async (payload: ShippingVoyagePayload) => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `INSERT INTO shipping_voyages
+       (voyage_name, voyage_no, etd, eta, atd, ata, si_cutoff, cargo_cutoff, vgm_cutoff, departure_port, destination_port, route_id, description, is_enabled, logistics_provider_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      payload.voyage_name,
+      payload.voyage_no ?? null,
+      payload.etd ?? null,
+      payload.eta ?? null,
+      payload.atd ?? null,
+      payload.ata ?? null,
+      payload.si_cutoff ?? null,
+      payload.cargo_cutoff ?? null,
+      payload.vgm_cutoff ?? null,
+      payload.departure_port ?? null,
+      payload.destination_port ?? null,
+      payload.route_id ?? null,
+      payload.description ?? null,
+      payload.is_enabled === false ? 0 : 1,
+      payload.logistics_provider_id ?? null,
+    ]
+  );
+  return { id: result.insertId, ...payload };
+};
+
+export const getShippingVoyageById = async (id: number): Promise<any | null> => {
+  return querySingle<any>(`SELECT * FROM shipping_voyages WHERE id = ? LIMIT 1`, [id]);
+};
+
+export const updateShippingVoyage = async (id: number, payload: Partial<ShippingVoyagePayload>): Promise<boolean> => {
+  const sets: string[] = ['updated_at = NOW()'];
+  const params: any[] = [];
+  if (payload.voyage_name !== undefined) { sets.push('voyage_name = ?'); params.push(payload.voyage_name); }
+  if (payload.voyage_no !== undefined) { sets.push('voyage_no = ?'); params.push(payload.voyage_no ?? null); }
+  if (payload.etd !== undefined) { sets.push('etd = ?'); params.push(payload.etd ?? null); }
+  if (payload.eta !== undefined) { sets.push('eta = ?'); params.push(payload.eta ?? null); }
+  if (payload.atd !== undefined) { sets.push('atd = ?'); params.push(payload.atd ?? null); }
+  if (payload.ata !== undefined) { sets.push('ata = ?'); params.push(payload.ata ?? null); }
+  if (payload.si_cutoff !== undefined) { sets.push('si_cutoff = ?'); params.push(payload.si_cutoff ?? null); }
+  if (payload.cargo_cutoff !== undefined) { sets.push('cargo_cutoff = ?'); params.push(payload.cargo_cutoff ?? null); }
+  if (payload.vgm_cutoff !== undefined) { sets.push('vgm_cutoff = ?'); params.push(payload.vgm_cutoff ?? null); }
+  if (payload.departure_port !== undefined) { sets.push('departure_port = ?'); params.push(payload.departure_port ?? null); }
+  if (payload.destination_port !== undefined) { sets.push('destination_port = ?'); params.push(payload.destination_port ?? null); }
+  if (payload.route_id !== undefined) { sets.push('route_id = ?'); params.push(payload.route_id ?? null); }
+  if (payload.description !== undefined) { sets.push('description = ?'); params.push(payload.description ?? null); }
+  if (payload.is_enabled !== undefined) { sets.push('is_enabled = ?'); params.push(payload.is_enabled ? 1 : 0); }
+  if (payload.logistics_provider_id !== undefined) { sets.push('logistics_provider_id = ?'); params.push(payload.logistics_provider_id ?? null); }
+  params.push(id);
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE shipping_voyages SET ${sets.join(', ')} WHERE id = ?`, params);
+  return result.affectedRows > 0;
+};
+
+export const deleteShippingVoyage = async (id: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM shipping_voyages WHERE id = ?', [id]);
+  return result.affectedRows > 0;
+};
+
+export const batchDeleteShippingVoyages = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`DELETE FROM shipping_voyages WHERE id IN (${placeholders})`, ids);
+  return result.affectedRows;
+};
+
+// ============ 航线运输管理 - 提(运)单 shipping_bills（关联班次，按物流商归属） ============
+
+const SHIPPING_BILL_SORT_COLUMNS = new Set([
+  'id', 'bl_no', 'shipper', 'consignee', 'notify_party', 'delivery_place', 'departure_port', 'destination_port',
+  'container_no', 'seal_no', 'package_count', 'weight', 'volume', 'marks', 'voyage_id', 'cargo_status',
+  'logistics_provider_id', 'created_at', 'updated_at',
+]);
+
+export interface ShippingBillPayload {
+  bl_no?: string | null;
+  shipper: string;
+  consignee: string;
+  notify_party: string;
+  delivery_place?: string | null;
+  departure_port?: string | null;
+  destination_port?: string | null;
+  container_no?: string | null;
+  seal_no?: string | null;
+  package_count?: number | null;
+  weight?: number | null;
+  volume?: number | null;
+  marks?: string | null;
+  voyage_id?: number | null;
+  cargo_status?: string | null;
+  description?: string | null;
+  logistics_provider_id?: number | null;
+}
+
+export const getShippingBillsPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>,
+  providerFilter?: number | null
+) => {
+  const orderBy = `b.${toSafeOrderBy(sortKey, sortOrder, SHIPPING_BILL_SORT_COLUMNS, 'created_at')}`;
+  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, SHIPPING_BILL_SORT_COLUMNS, 'b.');
+  const allClauses = ['1=1', ...clauses];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    allClauses.push('b.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+      `SELECT b.id, b.bl_no, b.shipper, b.consignee, b.notify_party, b.delivery_place, b.departure_port, b.destination_port,
+        b.container_no, b.seal_no, b.package_count, b.weight, b.volume, b.marks, b.voyage_id, b.cargo_status,
+            b.description, b.logistics_provider_id, b.created_at, b.updated_at,
+            lp.name AS logistics_provider_name, v.voyage_name AS voyage_name
+     FROM shipping_bills b
+     LEFT JOIN logistics_providers lp ON b.logistics_provider_id = lp.id
+     LEFT JOIN shipping_voyages v ON b.voyage_id = v.id
+     ${whereSql}
+     ORDER BY ${orderBy}
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
+  );
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count FROM shipping_bills b ${whereSql}`,
+    params
+  );
+  const total = Number(countRows?.[0]?.count || 0);
+  return { data: rows as any[], total, pages: Math.max(1, Math.ceil(total / safeLimit)) };
+};
+
+export const searchShippingBills = async (keyword: string, providerFilter?: number | null): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const clauses = [`(
+       CAST(b.id AS CHAR) LIKE ?
+       OR b.bl_no LIKE ?
+       OR b.shipper LIKE ?
+       OR b.consignee LIKE ?
+       OR b.notify_party LIKE ?
+       OR b.container_no LIKE ?
+       OR b.departure_port LIKE ?
+       OR b.destination_port LIKE ?
+       OR v.voyage_name LIKE ?
+       OR b.description LIKE ?
+     )`];
+  const params: any[] = [like, like, like, like, like, like, like, like, like, like];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    clauses.push('b.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT b.id, b.bl_no, b.shipper, b.consignee, b.notify_party, b.delivery_place, b.departure_port, b.destination_port,
+            b.container_no, b.seal_no, b.package_count, b.weight, b.volume, b.marks, b.voyage_id, b.cargo_status,
+            b.description, b.logistics_provider_id, b.created_at, b.updated_at,
+            lp.name AS logistics_provider_name, v.voyage_name AS voyage_name
+     FROM shipping_bills b
+     LEFT JOIN logistics_providers lp ON b.logistics_provider_id = lp.id
+     LEFT JOIN shipping_voyages v ON b.voyage_id = v.id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY b.created_at DESC`,
+    params
+  );
+  return rows as any[];
+};
+
+export const createShippingBill = async (payload: ShippingBillPayload) => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `INSERT INTO shipping_bills
+       (bl_no, shipper, consignee, notify_party, delivery_place, departure_port, destination_port, container_no, seal_no,
+        package_count, weight, volume, marks, voyage_id, cargo_status, description, logistics_provider_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      payload.bl_no ?? null,
+      payload.shipper,
+      payload.consignee,
+      payload.notify_party,
+      payload.delivery_place ?? null,
+      payload.departure_port ?? null,
+      payload.destination_port ?? null,
+      payload.container_no ?? null,
+      payload.seal_no ?? null,
+      payload.package_count ?? null,
+      payload.weight ?? null,
+      payload.volume ?? null,
+      payload.marks ?? null,
+      payload.voyage_id ?? null,
+      payload.cargo_status ?? null,
+      payload.description ?? null,
+      payload.logistics_provider_id ?? null,
+    ]
+  );
+  return { id: result.insertId, ...payload };
+};
+
+export const getShippingBillById = async (id: number): Promise<any | null> => {
+  return querySingle<any>(`SELECT * FROM shipping_bills WHERE id = ? LIMIT 1`, [id]);
+};
+
+export const updateShippingBill = async (id: number, payload: Partial<ShippingBillPayload>): Promise<boolean> => {
+  const sets: string[] = ['updated_at = NOW()'];
+  const params: any[] = [];
+  if (payload.bl_no !== undefined) { sets.push('bl_no = ?'); params.push(payload.bl_no ?? null); }
+  if (payload.shipper !== undefined) { sets.push('shipper = ?'); params.push(payload.shipper); }
+  if (payload.consignee !== undefined) { sets.push('consignee = ?'); params.push(payload.consignee); }
+  if (payload.notify_party !== undefined) { sets.push('notify_party = ?'); params.push(payload.notify_party); }
+  if (payload.delivery_place !== undefined) { sets.push('delivery_place = ?'); params.push(payload.delivery_place ?? null); }
+  if (payload.departure_port !== undefined) { sets.push('departure_port = ?'); params.push(payload.departure_port ?? null); }
+  if (payload.destination_port !== undefined) { sets.push('destination_port = ?'); params.push(payload.destination_port ?? null); }
+  if (payload.container_no !== undefined) { sets.push('container_no = ?'); params.push(payload.container_no ?? null); }
+  if (payload.seal_no !== undefined) { sets.push('seal_no = ?'); params.push(payload.seal_no ?? null); }
+  if (payload.package_count !== undefined) { sets.push('package_count = ?'); params.push(payload.package_count ?? null); }
+  if (payload.weight !== undefined) { sets.push('weight = ?'); params.push(payload.weight ?? null); }
+  if (payload.volume !== undefined) { sets.push('volume = ?'); params.push(payload.volume ?? null); }
+  if (payload.marks !== undefined) { sets.push('marks = ?'); params.push(payload.marks ?? null); }
+  if (payload.voyage_id !== undefined) { sets.push('voyage_id = ?'); params.push(payload.voyage_id ?? null); }
+  if (payload.cargo_status !== undefined) { sets.push('cargo_status = ?'); params.push(payload.cargo_status ?? null); }
+  if (payload.description !== undefined) { sets.push('description = ?'); params.push(payload.description ?? null); }
+  if (payload.logistics_provider_id !== undefined) { sets.push('logistics_provider_id = ?'); params.push(payload.logistics_provider_id ?? null); }
+  params.push(id);
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`UPDATE shipping_bills SET ${sets.join(', ')} WHERE id = ?`, params);
+  return result.affectedRows > 0;
+};
+
+export const deleteShippingBill = async (id: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM shipping_bills WHERE id = ?', [id]);
+  return result.affectedRows > 0;
+};
+
+export const batchDeleteShippingBills = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`DELETE FROM shipping_bills WHERE id IN (${placeholders})`, ids);
   return result.affectedRows;
 };
 

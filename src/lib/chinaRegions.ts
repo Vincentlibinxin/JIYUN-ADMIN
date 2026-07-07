@@ -67,6 +67,24 @@ export async function loadChinaRegionOptions(): Promise<RegionCascaderOption[]> 
   return loadingPromise;
 }
 
+// 判断给定的级联路径是否已选到最小级别（叶子节点）。
+// 只有当路径有效且最终节点没有更下一级子节点时才算完整。
+export function isRegionPathComplete(
+  options: RegionCascaderOption[],
+  path?: string[] | null
+): boolean {
+  if (!path || path.length === 0) return false;
+  let level: RegionCascaderOption[] = options;
+  let node: RegionCascaderOption | undefined;
+  for (const value of path) {
+    node = level.find((o) => o.value === value);
+    if (!node) return false; // 路径无效
+    level = node.children ?? [];
+  }
+  // 最终节点若仍有子级则表示未选到最小级别
+  return !node?.children || node.children.length === 0;
+}
+
 // 根据省级名称推导顶层地区（用于电话区号）。
 export function regionInfoFromProvince(
   province?: string | null

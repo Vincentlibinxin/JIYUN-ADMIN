@@ -18,6 +18,7 @@ import {
   SettingOutlined,
   GlobalOutlined,
   ReloadOutlined,
+  NodeIndexOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { useAuth } from '../../lib/auth';
@@ -64,6 +65,7 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
     { key: 'overview', icon: <DashboardOutlined />, label: t('menu.overview'), perm: PERMISSIONS.OVERVIEW_VIEW },
     { key: 'parcels', icon: <CodeSandboxOutlined />, label: t('menu.parcels'), perm: PERMISSIONS.PARCEL_VIEW },
     { key: 'orders', icon: <ShoppingCartOutlined />, label: t('menu.orders'), perm: PERMISSIONS.ORDER_VIEW },
+    { key: 'route-transport', icon: <NodeIndexOutlined />, label: t('menu.routeTransport'), perm: PERMISSIONS.ROUTE_TRANSPORT_VIEW },
     { key: 'sms', icon: <MessageOutlined />, label: t('menu.sms'), perm: PERMISSIONS.SMS_VIEW },
     { key: 'logistics', icon: <CarOutlined />, label: t('menu.logistics'), perm: PERMISSIONS.LOGISTICS_VIEW },
     { key: 'storage-bins', icon: <InboxOutlined />, label: t('menu.storageBins'), perm: PERMISSIONS.STORAGE_BIN_VIEW },

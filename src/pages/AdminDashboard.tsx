@@ -16,6 +16,7 @@ import LogisticsTab, { LogisticsProvider, LogisticsPayload } from './dashboard/L
 import StorageBinsTab, { StorageBin, StorageBinPayload } from './dashboard/StorageBinsTab';
 import NumberLibraryTab, { NumberCategory, NumberCategoryPayload } from './dashboard/NumberLibraryTab';
 import AddressBookTab, { AddressBookEntry, AddressBookPayload } from './dashboard/AddressBookTab';
+import RouteTransportTab from './dashboard/RouteTransportTab';
 import RolesTab from './dashboard/RolesTab';
 import ParcelStatusTab from './dashboard/ParcelStatusTab';
 import LabelsTab from './dashboard/LabelsTab';
@@ -244,6 +245,7 @@ export default function AdminDashboard() {
     if (hasPermission(PERMISSIONS.OVERVIEW_VIEW)) return { menu: 'overview', tab: 'overview' };
     if (hasPermission(PERMISSIONS.PARCEL_VIEW)) return { menu: 'parcels', tab: 'parcels' };
     if (hasPermission(PERMISSIONS.ORDER_VIEW)) return { menu: 'orders', tab: 'orders' };
+    if (hasPermission(PERMISSIONS.ROUTE_TRANSPORT_VIEW)) return { menu: 'route-transport', tab: 'route-transport' };
     if (hasPermission(PERMISSIONS.SMS_VIEW)) return { menu: 'sms', tab: 'sms' };
     if (hasPermission(PERMISSIONS.LOGISTICS_VIEW)) return { menu: 'logistics', tab: 'logistics' };
     if (hasPermission(PERMISSIONS.STORAGE_BIN_VIEW)) return { menu: 'storage-bins', tab: 'storage-bins' };
@@ -2010,6 +2012,16 @@ export default function AdminDashboard() {
                 setOrderDateFilters(df);
                 fetchOrders(1, orderPageSize, orderStartDate, orderEndDate, orderSort.key, orderSort.direction, cf, df);
               }}
+            />
+          )}
+
+          {/* 航线运输管理页面 */}
+          {activeTab === 'route-transport' && (
+            <RouteTransportTab
+              actorScope={actorScope}
+              canCreate={hasPermission(PERMISSIONS.ROUTE_TRANSPORT_CREATE)}
+              canUpdate={hasPermission(PERMISSIONS.ROUTE_TRANSPORT_UPDATE)}
+              canDelete={hasPermission(PERMISSIONS.ROUTE_TRANSPORT_DELETE)}
             />
           )}
 

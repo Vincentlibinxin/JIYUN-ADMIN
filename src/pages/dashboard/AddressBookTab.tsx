@@ -3,7 +3,7 @@ import { Button, Card, Cascader, Checkbox, DatePicker, Form, Input, Modal, Pagin
 import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
-import { loadChinaRegionOptions, regionInfoFromProvince, type RegionCascaderOption } from '../../lib/chinaRegions';
+import { loadChinaRegionOptions, regionInfoFromProvince, isRegionPathComplete, type RegionCascaderOption } from '../../lib/chinaRegions';
 
 // 区域及其国际电话代码（中国大陆/台湾/香港/澳门）
 export const ADDRESS_BOOK_REGIONS: Array<{ value: string; label: string; dialCode: string }> = [
@@ -758,12 +758,22 @@ export default function AddressBookTab({
           <Form.Item
             name="regionPath"
             label="行政区域"
-            rules={[{ required: true, message: '请选择省 / 市 / 区县 / 街道' }]}
+            rules={[
+              { required: true, message: '请选择省 / 市 / 区县 / 街道' },
+              {
+                validator: (_rule, value: string[] | undefined) => {
+                  if (!value || value.length === 0) return Promise.resolve();
+                  if (!isRegionPathComplete(regionOptions, value)) {
+                    return Promise.reject(new Error('请选择到最小级别（如街道 / 区县）'));
+                  }
+                  return Promise.resolve();
+                },
+              },
+            ]}
           >
             <Cascader
               options={regionOptions}
               placeholder="请选择省 / 市 / 区县 / 街道"
-              changeOnSelect
               showSearch={{
                 filter: (input, path) =>
                   path.some((option) => String(option.label).toLowerCase().includes(input.toLowerCase())),
