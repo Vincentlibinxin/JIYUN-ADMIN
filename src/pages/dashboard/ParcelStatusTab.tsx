@@ -3,6 +3,7 @@ import { AutoComplete, Button, Card, Checkbox, Form, Input, InputNumber, Modal, 
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
+import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
 
 interface ParcelStatusItem {
   id: number;
@@ -472,6 +473,9 @@ export default function ParcelStatusTab({ canCreate, canUpdate, canDelete, refre
     },
   ];
 
+  const tableColumns = constrainTableColumns(columns);
+  const tableScrollX = getConstrainedTableScrollX(tableColumns);
+
   const isSearching = searchQuery.trim().length > 0;
 
   return (
@@ -532,7 +536,7 @@ export default function ParcelStatusTab({ canCreate, canUpdate, canDelete, refre
           rowKey={(record) => record.id}
           rowClassName={(record) => (selectedRowKeys.includes(record.id) ? 'row-selected' : '')}
           loading={loading}
-          columns={columns}
+          columns={tableColumns}
           dataSource={items}
           pagination={false}
           size="small"
@@ -540,7 +544,7 @@ export default function ParcelStatusTab({ canCreate, canUpdate, canDelete, refre
           tableLayout="fixed"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
-          scroll={{ x: 'max-content', y: tableScrollY }}
+          scroll={{ x: tableScrollX, y: tableScrollY }}
           locale={{ emptyText: '没有包裹状态记录' }}
           onChange={(_, __, sorter) => {
             if (Array.isArray(sorter)) return;

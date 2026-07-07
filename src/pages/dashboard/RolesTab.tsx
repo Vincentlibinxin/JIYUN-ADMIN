@@ -4,6 +4,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
 import { PERMISSIONS } from '../../lib/permissions';
+import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
 
 interface RoleItem {
   code: string;
@@ -664,6 +665,9 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
     },
   ];
 
+  const tableColumns = constrainTableColumns(columns);
+  const tableScrollX = getConstrainedTableScrollX(tableColumns);
+
   return (
     <Card style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }} bodyStyle={{ padding: 0, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }} bordered={false}>
       {messageContextHolder}
@@ -714,7 +718,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
           rowKey={(record) => roleKey(record)}
           rowClassName={(record) => (selectedRowKeys.includes(roleKey(record)) ? 'row-selected' : '')}
           loading={loading}
-          columns={columns}
+          columns={tableColumns}
           dataSource={pagedRoles}
           pagination={false}
           size="small"
@@ -722,7 +726,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
           tableLayout="fixed"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
-          scroll={{ x: 'max-content', y: tableScrollY }}
+          scroll={{ x: tableScrollX, y: tableScrollY }}
           locale={{ emptyText: '没有角色记录' }}
           onChange={(_, __, sorter) => {
             if (Array.isArray(sorter)) return;

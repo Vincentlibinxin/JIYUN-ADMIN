@@ -4,6 +4,7 @@ import { ReloadOutlined, EyeOutlined, EditOutlined, DeleteOutlined, InboxOutline
 import type { ColumnsType } from 'antd/es/table';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { adminFetch } from '../../lib/api';
+import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
 import dayjs from 'dayjs';
 
 interface Parcel {
@@ -300,6 +301,9 @@ export default function ParcelsTab({
     { title: '备注', dataIndex: 'remark', key: 'remark', width: 180, ellipsis: true, render: (v: string | null) => v || '' },
     { title: '操作人', dataIndex: 'operator_name', key: 'operator_name', width: 100, render: (v: string | null) => v || '系统' },
   ];
+
+  const statusLogsTableColumns = constrainTableColumns(logsColumns);
+  const statusLogsTableScrollX = getConstrainedTableScrollX(statusLogsTableColumns);
 
   const handleInboundSubmit = async () => {
     try {
@@ -841,6 +845,9 @@ export default function ParcelsTab({
     },
   ];
 
+  const tableColumns = constrainTableColumns(columns);
+  const tableScrollX = getConstrainedTableScrollX(tableColumns);
+
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
   // 《包裹状态快筛栏》：按状态字典顺序排列已有包裹的货物态/信息态
@@ -1257,7 +1264,7 @@ export default function ParcelsTab({
           rowKey="id"
           rowClassName={(record) => selectedRowKeys.includes(record.id) ? 'row-selected' : ''}
           loading={loading}
-          columns={columns}
+          columns={tableColumns}
           dataSource={parcels}
           pagination={false}
           size="small"
@@ -1265,7 +1272,7 @@ export default function ParcelsTab({
           tableLayout="fixed"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
-          scroll={{ x: 'max-content', y: tableScrollY }}
+          scroll={{ x: tableScrollX, y: tableScrollY }}
           locale={{ emptyText: '没有包裹记录' }}
           onChange={(_, __, sorter) => {
             if (Array.isArray(sorter)) {
@@ -1341,7 +1348,7 @@ export default function ParcelsTab({
         </div>
         <Table
           rowKey="id"
-          columns={logsColumns}
+          columns={statusLogsTableColumns}
           dataSource={logsData}
           loading={logsLoading}
           size="small"
@@ -1358,7 +1365,7 @@ export default function ParcelsTab({
               fetchStatusLogs(p, s, logsKeyword, logsDateRange);
             },
           }}
-          scroll={{ y: 400 }}
+          scroll={{ x: statusLogsTableScrollX, y: 400 }}
         />
       </Modal>
     </Card>

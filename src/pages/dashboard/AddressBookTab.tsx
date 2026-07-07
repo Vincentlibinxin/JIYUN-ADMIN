@@ -4,6 +4,7 @@ import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
 import { loadChinaRegionOptions, regionInfoFromProvince, isRegionPathComplete, type RegionCascaderOption } from '../../lib/chinaRegions';
+import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
 
 // 区域及其国际电话代码（中国大陆/台湾/香港/澳门）
 export const ADDRESS_BOOK_REGIONS: Array<{ value: string; label: string; dialCode: string }> = [
@@ -636,6 +637,9 @@ export default function AddressBookTab({
     },
   ];
 
+  const tableColumns = constrainTableColumns(columns);
+  const tableScrollX = getConstrainedTableScrollX(tableColumns);
+
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
   return (
@@ -686,7 +690,7 @@ export default function AddressBookTab({
           rowKey="id"
           rowClassName={(record) => selectedRowKeys.includes(record.id) ? 'row-selected' : ''}
           loading={loading}
-          columns={columns}
+          columns={tableColumns}
           dataSource={entries}
           pagination={false}
           size="small"
@@ -694,7 +698,7 @@ export default function AddressBookTab({
           tableLayout="fixed"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
-          scroll={{ x: 'max-content', y: tableScrollY }}
+          scroll={{ x: tableScrollX, y: tableScrollY }}
           locale={{ emptyText: '没有地址记录' }}
           onChange={(_, __, sorter) => {
             if (Array.isArray(sorter)) {

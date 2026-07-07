@@ -3,6 +3,7 @@ import { Button, Card, Checkbox, DatePicker, Form, Input, Modal, Pagination as A
 import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
+import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
 
 export interface NumberCategory {
   id: number;
@@ -263,6 +264,9 @@ function NumbersModal({ open, categoryId, categoryName, canManage, canDelete, on
       : []),
   ];
 
+  const tableColumns = constrainTableColumns(columns);
+  const tableScrollX = getConstrainedTableScrollX(tableColumns);
+
   return (
     <>
       <Modal
@@ -317,11 +321,11 @@ function NumbersModal({ open, categoryId, categoryName, canManage, canDelete, on
         <Table<TrackingNumber>
           rowKey="id"
           loading={loading}
-          columns={columns}
+          columns={tableColumns}
           dataSource={numbers}
           pagination={false}
           size="small"
-          scroll={{ y: 360 }}
+          scroll={{ x: tableScrollX, y: 360 }}
           locale={{ emptyText: '暂无单号' }}
         />
 
@@ -798,6 +802,9 @@ export default function NumberLibraryTab({
     },
   ];
 
+  const categoryTableColumns = constrainTableColumns(columns);
+  const categoryTableScrollX = getConstrainedTableScrollX(categoryTableColumns);
+
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
   return (
@@ -848,7 +855,7 @@ export default function NumberLibraryTab({
           rowKey="id"
           rowClassName={(record) => (selectedRowKeys.includes(record.id) ? 'row-selected' : '')}
           loading={loading}
-          columns={columns}
+          columns={categoryTableColumns}
           dataSource={categories}
           pagination={false}
           size="small"
@@ -856,7 +863,7 @@ export default function NumberLibraryTab({
           tableLayout="fixed"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
-          scroll={{ x: 'max-content', y: tableScrollY }}
+          scroll={{ x: categoryTableScrollX, y: tableScrollY }}
           locale={{ emptyText: '没有号段记录' }}
           onChange={(_, __, sorter) => {
             if (Array.isArray(sorter)) return;

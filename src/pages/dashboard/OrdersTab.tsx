@@ -2,6 +2,7 @@
 import { Button, Card, Checkbox, DatePicker, Input, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tag, Tooltip } from 'antd';
 import { EyeOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
 
 interface Order {
   id: number;
@@ -380,6 +381,9 @@ export default function OrdersTab({
     },
   ];
 
+  const tableColumns = constrainTableColumns(columns);
+  const tableScrollX = getConstrainedTableScrollX(tableColumns);
+
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
   return (
@@ -425,7 +429,7 @@ export default function OrdersTab({
           rowKey="id"
           rowClassName={(record) => selectedRowKeys.includes(record.id) ? 'row-selected' : ''}
           loading={loading}
-          columns={columns}
+          columns={tableColumns}
           dataSource={orders}
           pagination={false}
           size="small"
@@ -433,7 +437,7 @@ export default function OrdersTab({
           tableLayout="fixed"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
-          scroll={{ x: 'max-content', y: tableScrollY }}
+          scroll={{ x: tableScrollX, y: tableScrollY }}
           locale={{ emptyText: '没有订单记录' }}
           onChange={(_, __, sorter) => {
             if (Array.isArray(sorter)) {

@@ -4,6 +4,7 @@ import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, PrinterOutline
 import type { ColumnsType } from 'antd/es/table';
 import type { UploadProps } from 'antd';
 import { adminFetch } from '../../lib/api';
+import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
 
 interface LabelTemplateItem {
   id: number;
@@ -540,6 +541,9 @@ export default function LabelsTab({ canCreate, canUpdate, canDelete, refreshKey 
     },
   ];
 
+  const tableColumns = constrainTableColumns(columns);
+  const tableScrollX = getConstrainedTableScrollX(tableColumns);
+
   const isSearching = searchQuery.trim().length > 0;
 
   return (
@@ -600,7 +604,7 @@ export default function LabelsTab({ canCreate, canUpdate, canDelete, refreshKey 
           rowKey={(record) => record.id}
           rowClassName={(record) => (selectedRowKeys.includes(record.id) ? 'row-selected' : '')}
           loading={loading}
-          columns={columns}
+          columns={tableColumns}
           dataSource={items}
           pagination={false}
           size="small"
@@ -608,7 +612,7 @@ export default function LabelsTab({ canCreate, canUpdate, canDelete, refreshKey 
           tableLayout="fixed"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
-          scroll={{ x: 'max-content', y: tableScrollY }}
+          scroll={{ x: tableScrollX, y: tableScrollY }}
           locale={{ emptyText: '没有标签记录' }}
           onChange={(_, __, sorter) => {
             if (Array.isArray(sorter)) return;

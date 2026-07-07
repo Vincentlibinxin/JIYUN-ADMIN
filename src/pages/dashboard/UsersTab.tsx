@@ -3,6 +3,7 @@ import { Button, Card, Input, Pagination as AntPagination, Popconfirm, Select, S
 import { ReloadOutlined, DeleteOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
+import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
 
 interface User {
   id: number;
@@ -500,6 +501,9 @@ export default function UsersTab({
     },
   ];
 
+  const tableColumns = constrainTableColumns(columns);
+  const tableScrollX = getConstrainedTableScrollX(tableColumns);
+
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
   return (
@@ -545,7 +549,7 @@ export default function UsersTab({
           rowKey="id"
           rowClassName={(record) => selectedRowKeys.includes(record.id) ? 'row-selected' : ''}
           loading={loading}
-          columns={columns}
+          columns={tableColumns}
           dataSource={users}
           pagination={false}
           size="small"
@@ -553,7 +557,7 @@ export default function UsersTab({
           tableLayout="fixed"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
-          scroll={{ x: 'max-content', y: tableScrollY }}
+          scroll={{ x: tableScrollX, y: tableScrollY }}
           locale={{ emptyText: '没有会员记录' }}
           onChange={(_, __, sorter) => {
             if (Array.isArray(sorter)) {

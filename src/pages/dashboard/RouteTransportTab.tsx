@@ -8,6 +8,7 @@ import type { ColumnsType } from 'antd/es/table';
 import type { FormInstance } from 'antd';
 import dayjs from 'dayjs';
 import { adminFetch, ApiRequestError } from '../../lib/api';
+import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
 
 export const SHIPPING_CARRIER_TYPES = ['海运', '空运', '陆运', '铁路', '水运', '其它'];
 
@@ -390,6 +391,9 @@ function CrudResource({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fieldColumns, allSelected, indeterminate, selectedRowKeys, sortKey, sortDirection, columnFilters, localColumnFilters, resetKey, showProviderSelect]);
 
+  const tableColumns = useMemo(() => constrainTableColumns(columns), [columns]);
+  const tableScrollX = useMemo(() => getConstrainedTableScrollX(tableColumns), [tableColumns]);
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
@@ -431,7 +435,7 @@ function CrudResource({
           rowKey="id"
           rowClassName={(record) => selectedRowKeys.includes(record.id) ? 'row-selected' : ''}
           loading={loading}
-          columns={columns}
+          columns={tableColumns}
           dataSource={data}
           pagination={false}
           size="small"
@@ -439,7 +443,7 @@ function CrudResource({
           tableLayout="fixed"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
-          scroll={{ x: 'max-content', y: tableScrollY }}
+          scroll={{ x: tableScrollX, y: tableScrollY }}
           locale={{ emptyText: `没有${entityName}记录` }}
           onChange={(_, __, sorter) => {
             if (Array.isArray(sorter)) return;
@@ -861,9 +865,9 @@ function BillsSubTab(props: SubTabProps) {
   const columns: CrudColumn[] = [
     { key: 'bl_no', title: '提单号', width: 130, searchable: true },
     { key: 'voyage_name', title: '班(航)名称', width: 140, ellipsis: true, render: (v) => v || '—' },
-    { key: 'shipper', title: '发货人', width: 130, searchable: true },
-    { key: 'consignee', title: '收货人', width: 130, searchable: true },
-    { key: 'notify_party', title: '通知人', width: 130, searchable: true },
+    { key: 'shipper', title: '发货人', width: 240, searchable: true },
+    { key: 'consignee', title: '收货人', width: 240, searchable: true },
+    { key: 'notify_party', title: '通知人', width: 240, searchable: true },
     { key: 'departure_port', title: '起运港', width: 120, searchable: true },
     { key: 'destination_port', title: '目的港', width: 120, searchable: true },
     { key: 'container_no', title: '集装箱号', width: 130, searchable: true },

@@ -2,6 +2,7 @@
 import { Button, Card, Checkbox, DatePicker, Input, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tag, Tooltip } from 'antd';
 import { ReloadOutlined, EyeOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
 
 interface SmsInfo {
   id: number;
@@ -378,6 +379,9 @@ export default function SmsTab({
     },
   ];
 
+  const tableColumns = constrainTableColumns(columns);
+  const tableScrollX = getConstrainedTableScrollX(tableColumns);
+
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
   return (
@@ -423,7 +427,7 @@ export default function SmsTab({
           rowKey="id"
           rowClassName={(record) => selectedRowKeys.includes(record.id) ? 'row-selected' : ''}
           loading={loading}
-          columns={columns}
+          columns={tableColumns}
           dataSource={smsItems}
           pagination={false}
           size="small"
@@ -431,7 +435,7 @@ export default function SmsTab({
           tableLayout="fixed"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
-          scroll={{ x: 'max-content', y: tableScrollY }}
+          scroll={{ x: tableScrollX, y: tableScrollY }}
           locale={{ emptyText: '没有简讯记录' }}
           onChange={(_, __, sorter) => {
             if (Array.isArray(sorter)) {

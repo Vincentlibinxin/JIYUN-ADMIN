@@ -3,6 +3,7 @@ import { Button, Card, Checkbox, DatePicker, Form, Input, Modal, Pagination as A
 import { DeleteOutlined, EditOutlined, EyeOutlined, LockOutlined, UnlockOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
+import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
 
 interface AdminUser {
   id: number;
@@ -719,6 +720,9 @@ export default function AdminsTab({
     },
   ];
 
+  const tableColumns = constrainTableColumns(columns);
+  const tableScrollX = getConstrainedTableScrollX(tableColumns);
+
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
   return (
@@ -771,7 +775,7 @@ export default function AdminsTab({
           rowKey="id"
           rowClassName={(record) => selectedRowKeys.includes(record.id) ? 'row-selected' : ''}
           loading={loading}
-          columns={columns}
+          columns={tableColumns}
           dataSource={admins}
           pagination={false}
           size="small"
@@ -779,7 +783,7 @@ export default function AdminsTab({
           tableLayout="fixed"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
-          scroll={{ x: 'max-content', y: tableScrollY }}
+          scroll={{ x: tableScrollX, y: tableScrollY }}
           locale={{ emptyText: '没有管理员记录' }}
           onChange={(_, __, sorter) => {
             if (Array.isArray(sorter)) {
