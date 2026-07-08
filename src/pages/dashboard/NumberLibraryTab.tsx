@@ -860,7 +860,7 @@ export default function NumberLibraryTab({
           pagination={false}
           size="small"
           sticky
-          tableLayout="fixed"
+          tableLayout="auto"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
           scroll={{ x: categoryTableScrollX, y: tableScrollY }}

@@ -301,7 +301,7 @@ export default function LogisticsTab({
       setSubmitting(true);
       const payload: LogisticsPayload = {
         name: values.name.trim(),
-        code: values.code?.trim() || '',
+        code: values.code?.trim().toUpperCase() || '',
         contact_name: values.contact_name?.trim() || '',
         contact_phone: values.contact_phone?.trim() || '',
         email: values.email?.trim() || '',
@@ -632,7 +632,7 @@ export default function LogisticsTab({
           pagination={false}
           size="small"
           sticky
-          tableLayout="fixed"
+          tableLayout="auto"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
           scroll={{ x: tableScrollX, y: tableScrollY }}
@@ -700,11 +700,11 @@ export default function LogisticsTab({
             label="代号/编码"
             rules={modalMode === 'create' ? [
               { required: true, message: '请输入物流商代号' },
-              { pattern: /^[A-Z][A-Z0-9]*$/, message: '以大写字母开头，仅含大写字母或数字' },
+              { pattern: /^[A-Za-z]{4,8}$/, message: '请输入4-8个字母' },
             ] : []}
             extra={modalMode === 'create' ? '将用于生成初始管理员账号 admin@代号（初始密码 88888888）' : undefined}
           >
-            <Input placeholder="如 HAOYUN，将生成 admin@HAOYUN" maxLength={64} disabled={modalMode === 'edit'} />
+            <Input placeholder="如 HAOYUN，将生成 admin@HAOYUN" maxLength={8} disabled={modalMode === 'edit'} />
           </Form.Item>
           <Form.Item name="contact_name" label="联系人">
             <Input placeholder="请输入联系人" maxLength={64} />

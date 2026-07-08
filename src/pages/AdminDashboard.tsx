@@ -2019,6 +2019,7 @@ export default function AdminDashboard() {
           {activeTab === 'route-transport' && (
             <RouteTransportTab
               actorScope={actorScope}
+              actorProviderId={actorProviderId}
               canCreate={hasPermission(PERMISSIONS.ROUTE_TRANSPORT_CREATE)}
               canUpdate={hasPermission(PERMISSIONS.ROUTE_TRANSPORT_UPDATE)}
               canDelete={hasPermission(PERMISSIONS.ROUTE_TRANSPORT_DELETE)}

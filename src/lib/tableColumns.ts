@@ -13,7 +13,18 @@ const isControlColumn = (column: AnyColumn): boolean => {
 };
 
 const capColumnWidth = (width: ColumnType<any>['width']): ColumnType<any>['width'] => {
-  return width;
+  if (typeof width === 'number') {
+    return Math.min(width, MAX_TABLE_DATA_COLUMN_WIDTH_PX);
+  }
+  if (typeof width === 'string') {
+    if (width === 'max-content') return width;
+    const numeric = Number(width.replace(/px$/i, '').trim());
+    if (Number.isFinite(numeric) && /px$/i.test(width)) {
+      return `${Math.min(numeric, MAX_TABLE_DATA_COLUMN_WIDTH_PX)}px`;
+    }
+    return width;
+  }
+  return 'max-content';
 };
 
 const getColumnPixelWidth = (column: AnyColumn): number => {
@@ -27,8 +38,8 @@ const getColumnPixelWidth = (column: AnyColumn): number => {
     return column.width;
   }
   if (typeof column.width === 'string') {
-    if (column.width === 'max-content') {
-      return DEFAULT_AUTO_COLUMN_WIDTH_PX;
+    if (column.width === MAX_TABLE_DATA_COLUMN_MAX_WIDTH_CSS) {
+      return MAX_TABLE_DATA_COLUMN_WIDTH_PX;
     }
     const numeric = Number(column.width.replace(/px$/i, '').trim());
     if (Number.isFinite(numeric) && /px$/i.test(column.width)) {
@@ -39,7 +50,35 @@ const getColumnPixelWidth = (column: AnyColumn): number => {
 };
 
 const constrainLeafColumn = (column: AnyColumn): AnyColumn => {
-  return column;
+  if (isControlColumn(column)) {
+    return column;
+  }
+
+  const nextWidth = column.width == null ? undefined : capColumnWidth(column.width);
+  return {
+    ...column,
+    ...(nextWidth == null ? {} : { width: nextWidth }),
+    onCell: (record, rowIndex) => {
+      const base = column.onCell?.(record, rowIndex) ?? {};
+      return {
+        ...base,
+        style: {
+          ...base.style,
+          maxWidth: MAX_TABLE_DATA_COLUMN_MAX_WIDTH_CSS,
+        },
+      };
+    },
+    onHeaderCell: (col) => {
+      const base = column.onHeaderCell?.(col) ?? {};
+      return {
+        ...base,
+        style: {
+          ...base.style,
+          maxWidth: MAX_TABLE_DATA_COLUMN_MAX_WIDTH_CSS,
+        },
+      };
+    },
+  };
 };
 
 export const constrainTableColumns = <T,>(columns: ColumnsType<T>): ColumnsType<T> =>
@@ -48,6 +87,7 @@ export const constrainTableColumns = <T,>(columns: ColumnsType<T>): ColumnsType<
     if (Array.isArray(current.children) && current.children.length > 0) {
       return {
         ...current,
+        width: current.width == null ? undefined : capColumnWidth(current.width),
         children: constrainTableColumns(current.children),
       } as typeof column;
     }

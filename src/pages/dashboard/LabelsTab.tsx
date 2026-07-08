@@ -609,7 +609,7 @@ export default function LabelsTab({ canCreate, canUpdate, canDelete, refreshKey 
           pagination={false}
           size="small"
           sticky
-          tableLayout="fixed"
+          tableLayout="auto"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
           scroll={{ x: tableScrollX, y: tableScrollY }}

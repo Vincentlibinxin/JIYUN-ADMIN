@@ -432,7 +432,7 @@ export default function SmsTab({
           pagination={false}
           size="small"
           sticky
-          tableLayout="fixed"
+          tableLayout="auto"
           showSorterTooltip={false}
           sortDirections={['ascend', 'descend', 'ascend']}
           scroll={{ x: tableScrollX, y: tableScrollY }}

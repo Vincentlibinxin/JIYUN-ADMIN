@@ -105,7 +105,9 @@ import {
   getShippingRoutesPaged,
   searchShippingRoutes,
   getEnabledShippingRoutes,
+  getShippingRouteGrants,
   findDuplicateShippingRoute,
+  replaceShippingRouteGrants,
   createShippingRoute,
   getShippingRouteById,
   updateShippingRoute,
@@ -2159,10 +2161,10 @@ router.post('/logistics', adminAuth, csrfGuard, requirePermission(PERMISSIONS.LO
     res.status(400).json({ error: '物流商名称不能为空' });
     return;
   }
-  // 代号用于生成【初始管理员账号】admin@代号，必须以大写字母开头且仅含大写字母或数字
+  // 代号用于生成【初始管理员账号】admin@代号，必须为 4-8 个英文字母
   const normalizedCode = typeof code === 'string' ? code.trim().toUpperCase() : '';
-  if (!/^[A-Z][A-Z0-9]*$/.test(normalizedCode)) {
-    res.status(400).json({ error: '物流商代号必须以大写字母开头，仅含大写字母或数字（用于生成初始管理员账号 admin@代号）' });
+  if (!/^[A-Z]{4,8}$/.test(normalizedCode)) {
+    res.status(400).json({ error: '物流商代号必须为4-8个字母（用于生成初始管理员账号 admin@代号）' });
     return;
   }
   const duplicate = await getLogisticsProviderByCode(normalizedCode);
@@ -2210,9 +2212,21 @@ router.put('/logistics/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS
     res.status(400).json({ error: '物流商状态不合法' });
     return;
   }
+  const normalizedCode = code !== undefined ? String(code).trim().toUpperCase() : undefined;
+  if (normalizedCode !== undefined) {
+    if (!/^[A-Z]{4,8}$/.test(normalizedCode)) {
+      res.status(400).json({ error: '物流商代号必须为4-8个字母' });
+      return;
+    }
+    const duplicate = await getLogisticsProviderByCode(normalizedCode);
+    if (duplicate && duplicate.id !== id) {
+      res.status(409).json({ error: '物流商代号已存在' });
+      return;
+    }
+  }
   const ok = await updateLogisticsProvider(id, {
     name: name !== undefined ? String(name).trim() : undefined,
-    code: code !== undefined ? String(code).trim() : undefined,
+    code: normalizedCode,
     contact_name: contact_name !== undefined ? String(contact_name).trim() : undefined,
     contact_phone: contact_phone !== undefined ? String(contact_phone).trim() : undefined,
     email: email !== undefined ? String(email).trim() : undefined,
@@ -3173,8 +3187,70 @@ router.get('/ship-routes/search', adminAuth, requirePermission(PERMISSIONS.ROUTE
 });
 
 router.get('/ship-routes/options', adminAuth, requirePermission(PERMISSIONS.ROUTE_TRANSPORT_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
-  const data = await getEnabledShippingRoutes(getActorProviderFilter(req));
+  const ownedOnly = String(req.query.ownedOnly || '').trim() === '1';
+  const data = await getEnabledShippingRoutes(getActorProviderFilter(req), !ownedOnly);
   res.json({ data });
+});
+
+router.get('/ship-routes/grant-targets', adminAuth, requirePermission(PERMISSIONS.ROUTE_TRANSPORT_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const actorProvider = getActorProviderFilter(req);
+  const all = await getActiveLogisticsProviders();
+  const data = actorProvider !== null
+    ? all.filter((item: any) => Number(item.id) !== actorProvider)
+    : all;
+  res.json({ data });
+});
+
+router.get('/ship-routes/:id/grants', adminAuth, requirePermission(PERMISSIONS.ROUTE_TRANSPORT_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) { res.status(400).json({ error: '航线ID不合法' }); return; }
+  const route = await getShippingRouteById(id);
+  if (!route) { res.status(404).json({ error: '航线不存在' }); return; }
+  if (denyCrossProvider(req, res, route.logistics_provider_id)) return;
+  const data = await getShippingRouteGrants(id);
+  res.json({ data });
+});
+
+router.put('/ship-routes/:id/grants', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ROUTE_TRANSPORT_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) { res.status(400).json({ error: '航线ID不合法' }); return; }
+  const route = await getShippingRouteById(id);
+  if (!route) { res.status(404).json({ error: '航线不存在' }); return; }
+  if (denyCrossProvider(req, res, route.logistics_provider_id)) return;
+
+  const ownerProviderId = Number(route.logistics_provider_id);
+  if (!Number.isInteger(ownerProviderId) || ownerProviderId <= 0) {
+    res.status(400).json({ error: '仅归属物流商的航线支持代理授权' });
+    return;
+  }
+
+  const rawIds = req.body?.grantee_provider_ids;
+  if (!Array.isArray(rawIds)) {
+    res.status(400).json({ error: 'grantee_provider_ids 必须为数组' });
+    return;
+  }
+  const granteeIds = Array.from(new Set(rawIds.map((v: any) => Number(v)).filter((v: number) => Number.isInteger(v) && v > 0 && v !== ownerProviderId)));
+
+  const providers = await getActiveLogisticsProviders();
+  const validProviderSet = new Set<number>(providers.map((p: any) => Number(p.id)).filter((id: number) => Number.isInteger(id) && id > 0));
+  const invalid = granteeIds.find((pid) => !validProviderSet.has(pid));
+  if (invalid) {
+    res.status(400).json({ error: `无效物流商ID: ${invalid}` });
+    return;
+  }
+
+  const savedCount = await replaceShippingRouteGrants(id, ownerProviderId, granteeIds, req.adminId ?? null);
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'ship_route.grant.update',
+    targetType: 'shipping_route',
+    targetId: id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: `grantee_count=${savedCount}`,
+  });
+  const data = await getShippingRouteGrants(id);
+  res.json({ message: '航线代理授权已更新', data, count: savedCount });
 });
 
 router.post('/ship-routes', adminAuth, csrfGuard, requirePermission(PERMISSIONS.ROUTE_TRANSPORT_CREATE), async (req: AdminRequest, res: Response): Promise<void> => {
@@ -3415,7 +3491,8 @@ router.get('/ship-voyages/search', adminAuth, requirePermission(PERMISSIONS.ROUT
 });
 
 router.get('/ship-voyages/options', adminAuth, requirePermission(PERMISSIONS.ROUTE_TRANSPORT_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
-  const data = await getEnabledShippingVoyages(getActorProviderFilter(req));
+  const includeGranted = String(req.query.includeGranted || '').trim() !== '0';
+  const data = await getEnabledShippingVoyages(getActorProviderFilter(req), includeGranted);
   res.json({ data });
 });
 
@@ -3602,7 +3679,12 @@ router.post('/ship-bills', adminAuth, csrfGuard, requirePermission(PERMISSIONS.R
     voyageId = Number(req.body.voyage_id);
     if (!Number.isInteger(voyageId) || voyageId <= 0) { res.status(400).json({ error: '班(航)次ID不合法' }); return; }
     const voyage = await getShippingVoyageById(voyageId);
-    if (denyShippingRelation(req, res, voyage, '所选班(航)次不存在')) return;
+    if (!voyage) { res.status(400).json({ error: '所选班(航)次不存在' }); return; }
+    const actorProvider = getActorProviderFilter(req);
+    if (actorProvider !== null && Number(voyage.logistics_provider_id) !== actorProvider) {
+      res.status(400).json({ error: '物流商仅可关联自有班(航)次' });
+      return;
+    }
   }
   const bill = await createShippingBill({ ...parsed, voyage_id: voyageId, logistics_provider_id: resolvedProviderId });
   await logAdminAudit({ adminId: req.adminId, action: 'ship_bill.create', targetType: 'shipping_bill', targetId: bill.id, result: 'success', ip: getRequestIp(req), detail: 'ship_bill_created' });
@@ -3623,7 +3705,12 @@ router.put('/ship-bills/:id', adminAuth, csrfGuard, requirePermission(PERMISSION
     voyageId = Number(req.body.voyage_id);
     if (!Number.isInteger(voyageId) || voyageId <= 0) { res.status(400).json({ error: '班(航)次ID不合法' }); return; }
     const voyage = await getShippingVoyageById(voyageId);
-    if (denyShippingRelation(req, res, voyage, '所选班(航)次不存在')) return;
+    if (!voyage) { res.status(400).json({ error: '所选班(航)次不存在' }); return; }
+    const actorProvider = getActorProviderFilter(req);
+    if (actorProvider !== null && Number(voyage.logistics_provider_id) !== actorProvider) {
+      res.status(400).json({ error: '物流商仅可关联自有班(航)次' });
+      return;
+    }
   }
   const ok = await updateShippingBill(id, { ...parsed, voyage_id: voyageId, logistics_provider_id: resolvedProviderId });
   if (!ok) { res.status(404).json({ error: '提(运)单不存在' }); return; }

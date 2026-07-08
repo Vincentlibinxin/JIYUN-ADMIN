@@ -733,6 +733,23 @@ export const initDb = async (): Promise<void> => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // 航线运输管理 - 航线代理授权（航线拥有方授权其他物流商查看该航线下班次）
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS shipping_route_grants (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        route_id INT NOT NULL,
+        owner_provider_id INT NOT NULL,
+        grantee_provider_id INT NOT NULL,
+        created_by INT DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_route_grantee (route_id, grantee_provider_id),
+        INDEX idx_route_grants_owner (owner_provider_id),
+        INDEX idx_route_grants_grantee (grantee_provider_id),
+        INDEX idx_route_grants_route (route_id),
+        CONSTRAINT fk_route_grants_route FOREIGN KEY (route_id) REFERENCES shipping_routes(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     // 航线运输管理 - 集装箱（按物流商归属）
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS shipping_containers (
@@ -3514,6 +3531,29 @@ export interface ShippingRoutePayload {
   logistics_provider_id?: number | null;
 }
 
+const buildShippingRouteProviderVisibility = (
+  alias: string,
+  providerFilter?: number | null,
+  includeGranted: boolean = true,
+): { clause: string; params: number[] } => {
+  if (providerFilter === null || providerFilter === undefined) return { clause: '', params: [] };
+  if (!includeGranted) {
+    return {
+      clause: `${alias}.logistics_provider_id = ?`,
+      params: [providerFilter],
+    };
+  }
+  return {
+    clause: `(
+      ${alias}.logistics_provider_id = ?
+      OR ${alias}.id IN (
+        SELECT g.route_id FROM shipping_route_grants g WHERE g.grantee_provider_id = ?
+      )
+    )`,
+    params: [providerFilter, providerFilter],
+  };
+};
+
 export const getShippingRoutesPaged = async (
   page: number,
   limit: number,
@@ -3526,9 +3566,10 @@ export const getShippingRoutesPaged = async (
   const orderBy = `r.${toSafeOrderBy(sortKey, sortOrder, SHIPPING_ROUTE_SORT_COLUMNS, 'created_at')}`;
   const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, SHIPPING_ROUTE_SORT_COLUMNS, 'r.');
   const allClauses = ['1=1', ...clauses];
-  if (providerFilter !== null && providerFilter !== undefined) {
-    allClauses.push('r.logistics_provider_id = ?');
-    params.push(providerFilter);
+  const visibility = buildShippingRouteProviderVisibility('r', providerFilter);
+  if (visibility.clause) {
+    allClauses.push(visibility.clause);
+    params.push(...visibility.params);
   }
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
   const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
@@ -3567,9 +3608,10 @@ export const searchShippingRoutes = async (keyword: string, providerFilter?: num
        OR r.description LIKE ?
      )`];
   const params: any[] = [like, like, like, like, like, like, like, like, like];
-  if (providerFilter !== null && providerFilter !== undefined) {
-    clauses.push('r.logistics_provider_id = ?');
-    params.push(providerFilter);
+  const visibility = buildShippingRouteProviderVisibility('r', providerFilter);
+  if (visibility.clause) {
+    clauses.push(visibility.clause);
+    params.push(...visibility.params);
   }
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT r.id, r.route_name, r.route_code, r.carrier_type, r.carrier_tool_name, r.carrier, r.departure_port, r.destination_port, r.description,
@@ -3584,15 +3626,19 @@ export const searchShippingRoutes = async (keyword: string, providerFilter?: num
 };
 
 // 启用中的航线选项（供班次选择关联航线）
-export const getEnabledShippingRoutes = async (providerFilter?: number | null): Promise<any[]> => {
+export const getEnabledShippingRoutes = async (
+  providerFilter?: number | null,
+  includeGranted: boolean = true,
+): Promise<any[]> => {
   const params: any[] = [];
-  let providerClause = '';
-  if (providerFilter !== null && providerFilter !== undefined) {
-    providerClause = 'AND logistics_provider_id = ?';
-    params.push(providerFilter);
-  }
+  const visibility = buildShippingRouteProviderVisibility('r', providerFilter, includeGranted);
+  const visibilityClause = visibility.clause ? `AND ${visibility.clause}` : '';
+  params.push(...visibility.params);
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, route_name, route_code, carrier_type, departure_port, destination_port FROM shipping_routes WHERE is_enabled = 1 ${providerClause} ORDER BY route_name ASC`,
+    `SELECT r.id, r.route_name, r.route_code, r.carrier_type, r.departure_port, r.destination_port
+     FROM shipping_routes r
+     WHERE r.is_enabled = 1 ${visibilityClause}
+     ORDER BY r.route_name ASC`,
     params
   );
   return rows as any[];
@@ -3636,6 +3682,79 @@ export const createShippingRoute = async (payload: ShippingRoutePayload) => {
 
 export const getShippingRouteById = async (id: number): Promise<any | null> => {
   return querySingle<any>(`SELECT * FROM shipping_routes WHERE id = ? LIMIT 1`, [id]);
+};
+
+export const getShippingRouteGrants = async (routeId: number): Promise<any[]> => {
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT g.id, g.route_id, g.owner_provider_id, g.grantee_provider_id, g.created_by, g.created_at,
+            lp.name AS grantee_provider_name, lp.code AS grantee_provider_code
+     FROM shipping_route_grants g
+     LEFT JOIN logistics_providers lp ON g.grantee_provider_id = lp.id
+     WHERE g.route_id = ?
+     ORDER BY lp.name ASC, g.id ASC`,
+    [routeId]
+  );
+  return rows as any[];
+};
+
+export const replaceShippingRouteGrants = async (
+  routeId: number,
+  ownerProviderId: number,
+  granteeProviderIds: number[],
+  createdBy?: number | null,
+): Promise<number> => {
+  const unique = Array.from(new Set(granteeProviderIds.filter((id) => Number.isInteger(id) && id > 0 && id !== ownerProviderId)));
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(
+      'DELETE FROM shipping_route_grants WHERE route_id = ? AND owner_provider_id = ?',
+      [routeId, ownerProviderId]
+    );
+    if (unique.length > 0) {
+      const valuesSql = unique.map(() => '(?, ?, ?, ?)').join(',');
+      const params: any[] = [];
+      for (const granteeId of unique) {
+        params.push(routeId, ownerProviderId, granteeId, createdBy ?? null);
+      }
+      await conn.execute(
+        `INSERT INTO shipping_route_grants (route_id, owner_provider_id, grantee_provider_id, created_by) VALUES ${valuesSql}`,
+        params
+      );
+    }
+    await conn.commit();
+    return unique.length;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+export const getGrantedShippingRouteIdsForProvider = async (providerId: number): Promise<number[]> => {
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    'SELECT route_id FROM shipping_route_grants WHERE grantee_provider_id = ?',
+    [providerId]
+  );
+  return rows.map((r) => Number(r.route_id)).filter((id) => Number.isInteger(id) && id > 0);
+};
+
+export const canProviderAccessShippingVoyage = async (voyageId: number, providerId: number): Promise<boolean> => {
+  const row = await querySingle<{ count: number }>(
+    `SELECT COUNT(*) AS count
+     FROM shipping_voyages v
+     LEFT JOIN shipping_route_grants g
+       ON g.route_id = v.route_id
+      AND g.grantee_provider_id = ?
+     WHERE v.id = ?
+       AND (
+         v.logistics_provider_id = ?
+         OR (v.route_id IS NOT NULL AND g.id IS NOT NULL)
+       )`,
+    [providerId, voyageId, providerId]
+  );
+  return Number(row?.count || 0) > 0;
 };
 
 export const updateShippingRoute = async (id: number, payload: Partial<ShippingRoutePayload>): Promise<boolean> => {
@@ -3846,6 +3965,32 @@ export interface ShippingVoyagePayload {
   logistics_provider_id?: number | null;
 }
 
+const buildShippingVoyageProviderVisibility = (
+  alias: string,
+  providerFilter?: number | null,
+  includeGranted: boolean = true,
+): { clause: string; params: number[] } => {
+  if (providerFilter === null || providerFilter === undefined) return { clause: '', params: [] };
+  if (!includeGranted) {
+    return {
+      clause: `${alias}.logistics_provider_id = ?`,
+      params: [providerFilter],
+    };
+  }
+  return {
+    clause: `(
+      ${alias}.logistics_provider_id = ?
+      OR (
+        ${alias}.route_id IS NOT NULL
+        AND ${alias}.route_id IN (
+          SELECT g.route_id FROM shipping_route_grants g WHERE g.grantee_provider_id = ?
+        )
+      )
+    )`,
+    params: [providerFilter, providerFilter],
+  };
+};
+
 export const getShippingVoyagesPaged = async (
   page: number,
   limit: number,
@@ -3856,11 +4001,20 @@ export const getShippingVoyagesPaged = async (
   providerFilter?: number | null
 ) => {
   const orderBy = `v.${toSafeOrderBy(sortKey, sortOrder, SHIPPING_VOYAGE_SORT_COLUMNS, 'created_at')}`;
-  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, SHIPPING_VOYAGE_SORT_COLUMNS, 'v.');
+  const normalizedColumnFilters = { ...(columnFilters || {}) };
+  const routeKeyword = String(normalizedColumnFilters.route_name || '').trim();
+  delete normalizedColumnFilters.route_name;
+  const { clauses, params } = buildColumnFilters(normalizedColumnFilters, dateFilters, SHIPPING_VOYAGE_SORT_COLUMNS, 'v.');
   const allClauses = ['1=1', ...clauses];
-  if (providerFilter !== null && providerFilter !== undefined) {
-    allClauses.push('v.logistics_provider_id = ?');
-    params.push(providerFilter);
+  if (routeKeyword) {
+    const like = `%${routeKeyword}%`;
+    allClauses.push('(r.route_name LIKE ? OR v.departure_port LIKE ? OR v.destination_port LIKE ?)');
+    params.push(like, like, like);
+  }
+  const visibility = buildShippingVoyageProviderVisibility('v', providerFilter);
+  if (visibility.clause) {
+    allClauses.push(visibility.clause);
+    params.push(...visibility.params);
   }
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
   const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
@@ -3880,7 +4034,10 @@ export const getShippingVoyagesPaged = async (
     params
   );
   const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT COUNT(*) as count FROM shipping_voyages v ${whereSql}`,
+    `SELECT COUNT(*) as count
+     FROM shipping_voyages v
+     LEFT JOIN shipping_routes r ON v.route_id = r.id
+     ${whereSql}`,
     params
   );
   const total = Number(countRows?.[0]?.count || 0);
@@ -3896,12 +4053,17 @@ export const searchShippingVoyages = async (keyword: string, providerFilter?: nu
        OR v.departure_port LIKE ?
        OR v.destination_port LIKE ?
        OR r.route_name LIKE ?
+       OR lp.name LIKE ?
+       OR CAST(v.etd AS CHAR) LIKE ?
+       OR CAST(v.eta AS CHAR) LIKE ?
+       OR CAST(v.si_cutoff AS CHAR) LIKE ?
        OR v.description LIKE ?
      )`];
-  const params: any[] = [like, like, like, like, like, like, like];
-  if (providerFilter !== null && providerFilter !== undefined) {
-    clauses.push('v.logistics_provider_id = ?');
-    params.push(providerFilter);
+  const params: any[] = [like, like, like, like, like, like, like, like, like, like, like];
+  const visibility = buildShippingVoyageProviderVisibility('v', providerFilter);
+  if (visibility.clause) {
+    clauses.push(visibility.clause);
+    params.push(...visibility.params);
   }
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT v.id, v.voyage_name, v.voyage_no, v.etd, v.eta, v.atd, v.ata, v.si_cutoff, v.cargo_cutoff, v.vgm_cutoff,
@@ -3918,15 +4080,19 @@ export const searchShippingVoyages = async (keyword: string, providerFilter?: nu
 };
 
 // 启用中的班次选项（供提运单选择关联班次，返回起运港/目的港用于默认填充）
-export const getEnabledShippingVoyages = async (providerFilter?: number | null): Promise<any[]> => {
+export const getEnabledShippingVoyages = async (
+  providerFilter?: number | null,
+  includeGranted: boolean = true,
+): Promise<any[]> => {
   const params: any[] = [];
-  let providerClause = '';
-  if (providerFilter !== null && providerFilter !== undefined) {
-    providerClause = 'AND logistics_provider_id = ?';
-    params.push(providerFilter);
-  }
+  const visibility = buildShippingVoyageProviderVisibility('v', providerFilter, includeGranted);
+  const visibilityClause = visibility.clause ? `AND ${visibility.clause}` : '';
+  params.push(...visibility.params);
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, voyage_name, voyage_no, departure_port, destination_port FROM shipping_voyages WHERE is_enabled = 1 ${providerClause} ORDER BY voyage_name ASC`,
+    `SELECT v.id, v.voyage_name, v.voyage_no, v.departure_port, v.destination_port
+     FROM shipping_voyages v
+     WHERE v.is_enabled = 1 ${visibilityClause}
+     ORDER BY v.voyage_name ASC`,
     params
   );
   return rows as any[];
@@ -4054,8 +4220,16 @@ export const getShippingBillsPaged = async (
   const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, SHIPPING_BILL_SORT_COLUMNS, 'b.');
   const allClauses = ['1=1', ...clauses];
   if (providerFilter !== null && providerFilter !== undefined) {
-    allClauses.push('b.logistics_provider_id = ?');
-    params.push(providerFilter);
+    allClauses.push(`(
+      b.logistics_provider_id = ?
+      OR EXISTS (
+        SELECT 1
+        FROM shipping_voyages v2
+        WHERE v2.id = b.voyage_id
+          AND v2.logistics_provider_id = ?
+      )
+    )`);
+    params.push(providerFilter, providerFilter);
   }
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
   const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
@@ -4099,8 +4273,11 @@ export const searchShippingBills = async (keyword: string, providerFilter?: numb
      )`];
   const params: any[] = [like, like, like, like, like, like, like, like, like, like];
   if (providerFilter !== null && providerFilter !== undefined) {
-    clauses.push('b.logistics_provider_id = ?');
-    params.push(providerFilter);
+    clauses.push(`(
+      b.logistics_provider_id = ?
+      OR v.logistics_provider_id = ?
+    )`);
+    params.push(providerFilter, providerFilter);
   }
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT b.id, b.bl_no, b.shipper, b.consignee, b.notify_party, b.delivery_place, b.departure_port, b.destination_port,
