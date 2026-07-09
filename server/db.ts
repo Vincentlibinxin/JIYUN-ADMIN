@@ -65,6 +65,17 @@ const normalizeDateOnly = (value?: string): string | null => {
   return trimmed;
 };
 
+const toShippingBillDatePrefix = (value?: string | Date | null): string => {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}${m[2]}${m[3]}`;
+  const d = value instanceof Date ? value : new Date();
+  const year = String(d.getFullYear());
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}${month}${day}`;
+};
+
 const buildCreatedAtFilter = (startDate?: string, endDate?: string, colPrefix: string = '') => {
   const clauses: string[] = [];
   const params: unknown[] = [];
@@ -798,6 +809,7 @@ export const initDb = async (): Promise<void> => {
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS shipping_bills (
         id INT AUTO_INCREMENT PRIMARY KEY,
+        shipping_bill_id VARCHAR(12) NOT NULL,
         bl_no VARCHAR(64) DEFAULT NULL,
         shipper VARCHAR(255) NOT NULL,
         consignee VARCHAR(255) NOT NULL,
@@ -807,6 +819,7 @@ export const initDb = async (): Promise<void> => {
         destination_port VARCHAR(128) DEFAULT NULL,
         container_no VARCHAR(64) DEFAULT NULL,
         seal_no VARCHAR(64) DEFAULT NULL,
+        container_bindings_json TEXT DEFAULT NULL,
         package_count INT DEFAULT NULL,
         weight DECIMAL(12, 3) DEFAULT NULL,
         volume DECIMAL(12, 3) DEFAULT NULL,
@@ -817,6 +830,7 @@ export const initDb = async (): Promise<void> => {
         logistics_provider_id INT DEFAULT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_shipping_bill_id (shipping_bill_id),
         INDEX idx_shipping_bill_provider (logistics_provider_id),
         INDEX idx_shipping_bill_voyage (voyage_id),
         CONSTRAINT fk_shipping_bill_voyage FOREIGN KEY (voyage_id) REFERENCES shipping_voyages(id) ON DELETE SET NULL
@@ -846,12 +860,50 @@ export const initDb = async (): Promise<void> => {
     if (existingShipBillCols.has('consignor')) {
       await connection.execute(`ALTER TABLE shipping_bills DROP COLUMN consignor`);
     }
+    if (!existingShipBillCols.has('container_bindings_json')) {
+      await connection.execute(`ALTER TABLE shipping_bills ADD COLUMN container_bindings_json TEXT DEFAULT NULL AFTER seal_no`);
+    }
+    if (!existingShipBillCols.has('shipping_bill_id')) {
+      await connection.execute(`ALTER TABLE shipping_bills ADD COLUMN shipping_bill_id VARCHAR(12) DEFAULT NULL AFTER id`);
+    }
     const [shipBillIdxRows] = await connection.execute(
       `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shipping_bills' AND INDEX_NAME = 'uk_shipping_bill_no'`
     );
     if ((shipBillIdxRows as any[]).length > 0) {
       await connection.execute(`ALTER TABLE shipping_bills DROP INDEX uk_shipping_bill_no`);
     }
+    const [shipBillIdIdxRows] = await connection.execute(
+      `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shipping_bills' AND INDEX_NAME = 'uk_shipping_bill_id'`
+    );
+    if ((shipBillIdIdxRows as any[]).length === 0) {
+      await connection.execute(`ALTER TABLE shipping_bills ADD UNIQUE KEY uk_shipping_bill_id (shipping_bill_id)`);
+    }
+    const [missingShipBillIdRows] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT id, created_at FROM shipping_bills WHERE shipping_bill_id IS NULL OR shipping_bill_id = '' ORDER BY created_at ASC, id ASC`
+    );
+    const seqMap = new Map<string, number>();
+    for (const row of missingShipBillIdRows) {
+      const prefix = toShippingBillDatePrefix(String(row.created_at || ''));
+      let currentSeq = seqMap.get(prefix);
+      if (currentSeq === undefined) {
+        const [maxSeqRows] = await connection.execute<mysql.RowDataPacket[]>(
+          `SELECT MAX(CAST(SUBSTRING(shipping_bill_id, 9, 4) AS UNSIGNED)) AS max_seq
+           FROM shipping_bills
+           WHERE shipping_bill_id LIKE ?`,
+          [`${prefix}%`]
+        );
+        currentSeq = Number(maxSeqRows?.[0]?.max_seq || 0);
+      }
+      currentSeq += 1;
+      if (currentSeq > 9999) throw new Error(`shipping_bill_id exhausted for date ${prefix}`);
+      const shippingBillId = `${prefix}${String(currentSeq).padStart(4, '0')}`;
+      await connection.execute(
+        `UPDATE shipping_bills SET shipping_bill_id = ? WHERE id = ?`,
+        [shippingBillId, row.id]
+      );
+      seqMap.set(prefix, currentSeq);
+    }
+    await connection.execute(`ALTER TABLE shipping_bills MODIFY COLUMN shipping_bill_id VARCHAR(12) NOT NULL`);
 
     // 系统设置 - 包裹状态字典（平台维护）
     await connection.execute(`
@@ -4089,8 +4141,13 @@ export const getEnabledShippingVoyages = async (
   const visibilityClause = visibility.clause ? `AND ${visibility.clause}` : '';
   params.push(...visibility.params);
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT v.id, v.voyage_name, v.voyage_no, v.departure_port, v.destination_port
+    `SELECT v.id, v.voyage_name, v.voyage_no, v.departure_port, v.destination_port,
+            v.logistics_provider_id, lp.name AS logistics_provider_name,
+            r.route_name, r.logistics_provider_id AS route_provider_id, rlp.name AS route_provider_name
      FROM shipping_voyages v
+     LEFT JOIN logistics_providers lp ON v.logistics_provider_id = lp.id
+     LEFT JOIN shipping_routes r ON v.route_id = r.id
+     LEFT JOIN logistics_providers rlp ON r.logistics_provider_id = rlp.id
      WHERE v.is_enabled = 1 ${visibilityClause}
      ORDER BY v.voyage_name ASC`,
     params
@@ -4182,12 +4239,13 @@ export const batchDeleteShippingVoyages = async (ids: number[]): Promise<number>
 // ============ 航线运输管理 - 提(运)单 shipping_bills（关联班次，按物流商归属） ============
 
 const SHIPPING_BILL_SORT_COLUMNS = new Set([
-  'id', 'bl_no', 'shipper', 'consignee', 'notify_party', 'delivery_place', 'departure_port', 'destination_port',
-  'container_no', 'seal_no', 'package_count', 'weight', 'volume', 'marks', 'voyage_id', 'cargo_status',
+  'id', 'shipping_bill_id', 'bl_no', 'shipper', 'consignee', 'notify_party', 'delivery_place', 'departure_port', 'destination_port',
+  'container_no', 'seal_no', 'container_bindings_json', 'package_count', 'weight', 'volume', 'marks', 'voyage_id', 'cargo_status',
   'logistics_provider_id', 'created_at', 'updated_at',
 ]);
 
 export interface ShippingBillPayload {
+  shipping_bill_id?: string;
   bl_no?: string | null;
   shipper: string;
   consignee: string;
@@ -4197,6 +4255,7 @@ export interface ShippingBillPayload {
   destination_port?: string | null;
   container_no?: string | null;
   seal_no?: string | null;
+  container_bindings_json?: string | null;
   package_count?: number | null;
   weight?: number | null;
   volume?: number | null;
@@ -4237,10 +4296,11 @@ export const getShippingBillsPaged = async (
   const offset = (safePage - 1) * safeLimit;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-      `SELECT b.id, b.bl_no, b.shipper, b.consignee, b.notify_party, b.delivery_place, b.departure_port, b.destination_port,
-        b.container_no, b.seal_no, b.package_count, b.weight, b.volume, b.marks, b.voyage_id, b.cargo_status,
+      `SELECT b.id, b.shipping_bill_id, b.bl_no, b.shipper, b.consignee, b.notify_party, b.delivery_place, b.departure_port, b.destination_port,
+        b.container_no, b.seal_no, b.container_bindings_json, b.package_count, b.weight, b.volume, b.marks, b.voyage_id, b.cargo_status,
             b.description, b.logistics_provider_id, b.created_at, b.updated_at,
-            lp.name AS logistics_provider_name, v.voyage_name AS voyage_name
+        lp.name AS logistics_provider_name, v.voyage_name AS voyage_name,
+        v.logistics_provider_id AS voyage_logistics_provider_id
      FROM shipping_bills b
      LEFT JOIN logistics_providers lp ON b.logistics_provider_id = lp.id
      LEFT JOIN shipping_voyages v ON b.voyage_id = v.id
@@ -4261,17 +4321,19 @@ export const searchShippingBills = async (keyword: string, providerFilter?: numb
   const like = `%${keyword}%`;
   const clauses = [`(
        CAST(b.id AS CHAR) LIKE ?
+      OR b.shipping_bill_id LIKE ?
        OR b.bl_no LIKE ?
        OR b.shipper LIKE ?
        OR b.consignee LIKE ?
        OR b.notify_party LIKE ?
        OR b.container_no LIKE ?
+        OR b.container_bindings_json LIKE ?
        OR b.departure_port LIKE ?
        OR b.destination_port LIKE ?
        OR v.voyage_name LIKE ?
        OR b.description LIKE ?
      )`];
-  const params: any[] = [like, like, like, like, like, like, like, like, like, like];
+      const params: any[] = [like, like, like, like, like, like, like, like, like, like, like, like];
   if (providerFilter !== null && providerFilter !== undefined) {
     clauses.push(`(
       b.logistics_provider_id = ?
@@ -4280,10 +4342,11 @@ export const searchShippingBills = async (keyword: string, providerFilter?: numb
     params.push(providerFilter, providerFilter);
   }
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT b.id, b.bl_no, b.shipper, b.consignee, b.notify_party, b.delivery_place, b.departure_port, b.destination_port,
-            b.container_no, b.seal_no, b.package_count, b.weight, b.volume, b.marks, b.voyage_id, b.cargo_status,
+        `SELECT b.id, b.shipping_bill_id, b.bl_no, b.shipper, b.consignee, b.notify_party, b.delivery_place, b.departure_port, b.destination_port,
+          b.container_no, b.seal_no, b.container_bindings_json, b.package_count, b.weight, b.volume, b.marks, b.voyage_id, b.cargo_status,
             b.description, b.logistics_provider_id, b.created_at, b.updated_at,
-            lp.name AS logistics_provider_name, v.voyage_name AS voyage_name
+          lp.name AS logistics_provider_name, v.voyage_name AS voyage_name,
+          v.logistics_provider_id AS voyage_logistics_provider_id
      FROM shipping_bills b
      LEFT JOIN logistics_providers lp ON b.logistics_provider_id = lp.id
      LEFT JOIN shipping_voyages v ON b.voyage_id = v.id
@@ -4295,32 +4358,52 @@ export const searchShippingBills = async (keyword: string, providerFilter?: numb
 };
 
 export const createShippingBill = async (payload: ShippingBillPayload) => {
-  const [result] = await pool.execute<mysql.ResultSetHeader>(
-    `INSERT INTO shipping_bills
-       (bl_no, shipper, consignee, notify_party, delivery_place, departure_port, destination_port, container_no, seal_no,
-        package_count, weight, volume, marks, voyage_id, cargo_status, description, logistics_provider_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      payload.bl_no ?? null,
-      payload.shipper,
-      payload.consignee,
-      payload.notify_party,
-      payload.delivery_place ?? null,
-      payload.departure_port ?? null,
-      payload.destination_port ?? null,
-      payload.container_no ?? null,
-      payload.seal_no ?? null,
-      payload.package_count ?? null,
-      payload.weight ?? null,
-      payload.volume ?? null,
-      payload.marks ?? null,
-      payload.voyage_id ?? null,
-      payload.cargo_status ?? null,
-      payload.description ?? null,
-      payload.logistics_provider_id ?? null,
-    ]
-  );
-  return { id: result.insertId, ...payload };
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const prefix = toShippingBillDatePrefix();
+    const [maxSeqRows] = await pool.execute<mysql.RowDataPacket[]>(
+      `SELECT MAX(CAST(SUBSTRING(shipping_bill_id, 9, 4) AS UNSIGNED)) AS max_seq
+       FROM shipping_bills
+       WHERE shipping_bill_id LIKE ?`,
+      [`${prefix}%`]
+    );
+    const nextSeq = Number(maxSeqRows?.[0]?.max_seq || 0) + 1;
+    if (nextSeq > 9999) throw new Error(`shipping_bill_id exhausted for date ${prefix}`);
+    const shippingBillId = payload.shipping_bill_id || `${prefix}${String(nextSeq).padStart(4, '0')}`;
+    try {
+      const [result] = await pool.execute<mysql.ResultSetHeader>(
+        `INSERT INTO shipping_bills
+           (shipping_bill_id, bl_no, shipper, consignee, notify_party, delivery_place, departure_port, destination_port, container_no, seal_no, container_bindings_json,
+            package_count, weight, volume, marks, voyage_id, cargo_status, description, logistics_provider_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          shippingBillId,
+          payload.bl_no ?? null,
+          payload.shipper,
+          payload.consignee,
+          payload.notify_party,
+          payload.delivery_place ?? null,
+          payload.departure_port ?? null,
+          payload.destination_port ?? null,
+          payload.container_no ?? null,
+          payload.seal_no ?? null,
+          payload.container_bindings_json ?? null,
+          payload.package_count ?? null,
+          payload.weight ?? null,
+          payload.volume ?? null,
+          payload.marks ?? null,
+          payload.voyage_id ?? null,
+          payload.cargo_status ?? null,
+          payload.description ?? null,
+          payload.logistics_provider_id ?? null,
+        ]
+      );
+      return { id: result.insertId, shipping_bill_id: shippingBillId, ...payload };
+    } catch (err: any) {
+      if (err?.code === 'ER_DUP_ENTRY') continue;
+      throw err;
+    }
+  }
+  throw new Error('生成提(运)单ID失败，请稍后重试');
 };
 
 export const getShippingBillById = async (id: number): Promise<any | null> => {
@@ -4339,6 +4422,7 @@ export const updateShippingBill = async (id: number, payload: Partial<ShippingBi
   if (payload.destination_port !== undefined) { sets.push('destination_port = ?'); params.push(payload.destination_port ?? null); }
   if (payload.container_no !== undefined) { sets.push('container_no = ?'); params.push(payload.container_no ?? null); }
   if (payload.seal_no !== undefined) { sets.push('seal_no = ?'); params.push(payload.seal_no ?? null); }
+  if (payload.container_bindings_json !== undefined) { sets.push('container_bindings_json = ?'); params.push(payload.container_bindings_json ?? null); }
   if (payload.package_count !== undefined) { sets.push('package_count = ?'); params.push(payload.package_count ?? null); }
   if (payload.weight !== undefined) { sets.push('weight = ?'); params.push(payload.weight ?? null); }
   if (payload.volume !== undefined) { sets.push('volume = ?'); params.push(payload.volume ?? null); }

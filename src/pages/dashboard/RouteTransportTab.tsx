@@ -3,7 +3,7 @@ import {
   AutoComplete, Button, Card, DatePicker, Form, Input, InputNumber, Modal,
   Pagination as AntPagination, Popconfirm, Select, Space, Switch, Table, Tabs, Tag, Tooltip, message,
 } from 'antd';
-import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, EyeOutlined, MinusCircleOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { FormInstance } from 'antd';
 import dayjs from 'dayjs';
@@ -44,7 +44,7 @@ interface CrudResourceProps {
   refreshKey?: number;
   modalWidth?: number;
   searchPlaceholder: string;
-  renderForm: (ctx: { mode: ModalMode; form: FormInstance }) => React.ReactNode;
+  renderForm: (ctx: { mode: ModalMode; form: FormInstance; record: any | null }) => React.ReactNode;
   fillForm: (record: any, form: FormInstance) => void;
   buildPayload: (values: any, showProviderSelect: boolean) => Record<string, any> | null;
   createDefaults?: Record<string, any>;
@@ -52,6 +52,8 @@ interface CrudResourceProps {
   canUpdateRecord?: (record: any) => boolean;
   canDeleteRecord?: (record: any) => boolean;
   renderRowActions?: (record: any) => React.ReactNode;
+  modalClassName?: string;
+  formClassName?: string;
 }
 
 const formatDateTime = (value?: string | null): string =>
@@ -69,6 +71,27 @@ const renderLabeledFields = (items: Array<{ label: string; value: React.ReactNod
 );
 
 const renderDateValue = (value: unknown) => formatDateTime(value as string | null | undefined) || '—';
+
+function TextareaLabelWithCount({
+  form,
+  name,
+  label,
+  max = 255,
+}: {
+  form: FormInstance;
+  name: string;
+  label: string;
+  max?: number;
+}) {
+  const value = Form.useWatch(name, form);
+  const count = typeof value === 'string' ? value.length : 0;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <span>{label}</span>
+      <span style={{ color: '#8c8c8c', fontWeight: 400, fontSize: 12 }}>{count} / {max}</span>
+    </span>
+  );
+}
 
 const renderMultilineCell = (value?: string | null, maxLines = 5) => {
   const text = (value || '').trim();
@@ -90,12 +113,50 @@ const renderMultilineCell = (value?: string | null, maxLines = 5) => {
   );
 };
 
+interface ShippingBillContainerBinding {
+  container_no: string;
+  seal_no?: string | null;
+}
+
+const normalizeShippingBillContainerBindings = (value: unknown): ShippingBillContainerBinding[] => {
+  if (!Array.isArray(value)) return [];
+  const list: ShippingBillContainerBinding[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const rawNo = String((item as any).container_no ?? '').trim();
+    const rawSeal = String((item as any).seal_no ?? '').trim();
+    if (!rawNo && !rawSeal) continue;
+    if (!rawNo) continue;
+    list.push({ container_no: rawNo, seal_no: rawSeal || null });
+  }
+  return list;
+};
+
+const parseShippingBillContainerBindings = (record: any): ShippingBillContainerBinding[] => {
+  const raw = record?.container_bindings_json;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      const normalized = normalizeShippingBillContainerBindings(parsed);
+      if (normalized.length > 0) return normalized;
+    } catch {
+      // ignore parse failure and fallback to legacy fields
+    }
+  }
+  const legacyNo = String(record?.container_no ?? '').trim();
+  const legacySeal = String(record?.seal_no ?? '').trim();
+  if (legacyNo || legacySeal) {
+    return [{ container_no: legacyNo, seal_no: legacySeal || null }].filter((b) => b.container_no);
+  }
+  return [];
+};
+
 // 通用自包含 CRUD 表格（自带 adminFetch，分页/列搜索/排序/选择/增删改查）
 function CrudResource({
   apiPath, entityName, idPrefix, columns: fieldColumns, defaultSort, canCreate, canUpdate, canDelete,
   showProviderSelect, providerRequired, providerOptions, refreshKey, modalWidth = 720, searchPlaceholder,
   renderForm, fillForm, buildPayload, createDefaults, onBeforeOpenModal,
-  canUpdateRecord, canDeleteRecord, renderRowActions,
+  canUpdateRecord, canDeleteRecord, renderRowActions, modalClassName, formClassName,
 }: CrudResourceProps) {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -268,6 +329,7 @@ function CrudResource({
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>('create');
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingRecord, setEditingRecord] = useState<any | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
 
@@ -275,6 +337,7 @@ function CrudResource({
     await onBeforeOpenModal?.();
     setModalMode('create');
     setEditingId(null);
+    setEditingRecord(null);
     form.resetFields();
     if (createDefaults) form.setFieldsValue(createDefaults);
     setModalOpen(true);
@@ -283,6 +346,7 @@ function CrudResource({
     await onBeforeOpenModal?.();
     setModalMode('view');
     setEditingId(record.id);
+    setEditingRecord(record);
     form.resetFields();
     fillForm(record, form);
     setModalOpen(true);
@@ -291,6 +355,7 @@ function CrudResource({
     await onBeforeOpenModal?.();
     setModalMode('edit');
     setEditingId(record.id);
+    setEditingRecord(record);
     form.resetFields();
     fillForm(record, form);
     setModalOpen(true);
@@ -520,6 +585,7 @@ function CrudResource({
         open={modalOpen}
         onOk={handleModalOk}
         onCancel={() => setModalOpen(false)}
+        centered
         confirmLoading={submitting}
         okText={isView ? '关闭' : '保存'}
         cancelText="取消"
@@ -527,14 +593,17 @@ function CrudResource({
         cancelButtonProps={isView ? { children: '关闭' } : undefined}
         destroyOnClose
         width={modalWidth}
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
+        className={modalClassName}
+        styles={modalClassName ? { body: { paddingTop: 12, paddingBottom: 8 } } : undefined}
       >
-        <Form form={form} layout="vertical" disabled={isView}>
+        <Form form={form} layout="vertical" disabled={isView} className={formClassName}>
           {showProviderSelect && (
             <Form.Item name="logistics_provider_id" label="物流商" rules={providerRequired ? [{ required: true, message: '请选择所属物流商' }] : undefined}>
               <Select allowClear showSearch optionFilterProp="label" placeholder={providerRequired ? '请选择所属物流商' : '请选择物流商（可空）'} options={providerSelectOptions} />
             </Form.Item>
           )}
-          {renderForm({ mode: modalMode, form })}
+          {renderForm({ mode: modalMode, form, record: editingRecord })}
         </Form>
       </Modal>
     </Card>
@@ -659,10 +728,16 @@ function RoutesSubTab(props: SubTabProps) {
   const columns: CrudColumn[] = [
     {
       key: 'route_name', title: '航线信息', width: 250, searchable: true, sortable: true,
-      render: (_v, record) => renderLabeledFields([
-        { label: '航线名称', value: <Tag color="blue">{record.route_name || '—'}</Tag> },
-        { label: '航线代码', value: record.route_code || '—' },
-      ]),
+      render: (_v, record) => {
+        const isOwned = !(props.actorScope === 'logistics' && props.actorProviderId && Number(record.logistics_provider_id) !== Number(props.actorProviderId));
+        const operatorName = record.logistics_provider_name || (record.logistics_provider_id ? `物流商#${record.logistics_provider_id}` : '—');
+        const operatorNode: React.ReactNode = isOwned ? <Tag color="success">自有</Tag> : operatorName;
+        return renderLabeledFields([
+          { label: '航线名称', value: <Tag color="blue">{record.route_name || '—'}</Tag> },
+          { label: '航线代码', value: record.route_code || '—' },
+          { label: '航线运营人', value: operatorNode },
+        ]);
+      },
     },
     {
       key: 'carrier_type', title: '承运信息', width: 250, searchable: true, sortable: true,
@@ -1063,7 +1138,18 @@ function VoyagesSubTab(props: SubTabProps) {
 
 // -------- 提(运)单管理 --------
 function BillsSubTab(props: SubTabProps) {
-  const [voyageOptions, setVoyageOptions] = useState<Array<{ id: number; voyage_name: string; voyage_no: string | null; departure_port: string | null; destination_port: string | null }>>([]);
+  const [voyageOptions, setVoyageOptions] = useState<Array<{
+    id: number;
+    voyage_name: string;
+    voyage_no: string | null;
+    departure_port: string | null;
+    destination_port: string | null;
+    route_name: string | null;
+    logistics_provider_id: number | null;
+    logistics_provider_name: string | null;
+    route_provider_id: number | null;
+    route_provider_name: string | null;
+  }>>([]);
   const [containerOptions, setContainerOptions] = useState<Array<{ id: number; container_no: string; container_type: string }>>([]);
   const [cargoStatusOptions, setCargoStatusOptions] = useState<Array<{ status_code: string; status_name: string }>>([]);
   // 关联班(航)次带出的可选港口（起运港/目的港各自的下拉候选，取班次中以 / 分隔的多个港口）
@@ -1090,7 +1176,7 @@ function BillsSubTab(props: SubTabProps) {
     setDestinationPortOptions([]);
     try {
       const [vRes, cRes, sRes] = await Promise.all([
-        adminFetch('/admin/ship-voyages/options?includeGranted=0'),
+        adminFetch('/admin/ship-voyages/options?includeGranted=1'),
         adminFetch('/admin/ship-containers/options'),
         adminFetch('/admin/ship-bills/cargo-status-options'),
       ]);
@@ -1101,14 +1187,74 @@ function BillsSubTab(props: SubTabProps) {
   };
   useEffect(() => { fetchAux(); }, []);
 
-  const voyageSelectOptions = voyageOptions.map((v) => ({ label: v.voyage_no ? `${v.voyage_name}（${v.voyage_no}）` : v.voyage_name, value: v.id }));
+  const formatVoyageOwnership = (v: {
+    logistics_provider_id: number | null;
+    logistics_provider_name: string | null;
+    route_provider_name: string | null;
+  }): string => {
+    if (props.actorScope === 'logistics' && props.actorProviderId && Number(v.logistics_provider_id) === Number(props.actorProviderId)) {
+      return '自有';
+    }
+    return String(v.route_provider_name || v.logistics_provider_name || '代理航线').trim();
+  };
+  const voyageSelectOptions = voyageOptions.map((v) => {
+    const routeName = String(v.route_name || '').trim() || '未关联航线';
+    const ownerText = formatVoyageOwnership(v);
+    const ownerNode = ownerText === '自有'
+      ? <Tag color="success" style={{ marginInlineEnd: 0 }}>自有</Tag>
+      : <span>{ownerText}</span>;
+    return {
+      label: <span>{v.voyage_name}{'<<'}{routeName}{'<<'}{ownerNode}</span>,
+      value: v.id,
+      searchText: `${v.voyage_name} ${routeName} ${ownerText} ${v.voyage_no || ''}`.trim(),
+    };
+  });
   const containerAutoOptions = containerOptions.map((c) => ({ value: c.container_no, label: `${c.container_no}（${c.container_type}）` }));
   const cargoStatusSelectOptions = cargoStatusOptions.map((s) => ({ label: s.status_name, value: s.status_code }));
+  const compactGap = 8;
+  const compactFlexWideStyle = { flex: 1, minWidth: 220, marginBottom: 8 } as const;
+  const compactFlexNarrowStyle = { flex: 1, minWidth: 140, marginBottom: 8 } as const;
+  const compactItemStyle = { marginBottom: 8 } as const;
+  const shippingBillSectionStyle = { marginBottom: 12, padding: '10px 12px', border: '1px solid #f0f0f0', borderRadius: 8, background: '#fafafa' } as const;
+  const shippingBillSectionTitleStyle = { marginBottom: 8, fontSize: 13, fontWeight: 600, color: '#262626' } as const;
+  const shippingBillTwoColumnGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: compactGap } as const;
+  const shippingBillThreeColumnGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: compactGap } as const;
+  const shippingBillContainerListStyle = { maxHeight: 168, overflowY: 'auto', paddingRight: 4, marginBottom: 6 } as const;
+  const defaultCargoStatusCode = useMemo(() => {
+    const hit = cargoStatusOptions.find((s) => String(s.status_name || '').trim() === '待入库');
+    return hit?.status_code || null;
+  }, [cargoStatusOptions]);
+
+  const isNonOwnedVoyageBill = (record: any): boolean => {
+    if (props.actorScope !== 'logistics') return false;
+    if (!props.actorProviderId) return false;
+    const actorProviderId = Number(props.actorProviderId);
+    const voyageId = Number(record?.voyage_id || 0);
+    if (!Number.isInteger(voyageId) || voyageId <= 0) return false;
+    const recordOwnerProviderId = Number(record?.voyage_logistics_provider_id || 0);
+    if (Number.isInteger(recordOwnerProviderId) && recordOwnerProviderId > 0) {
+      return recordOwnerProviderId !== actorProviderId;
+    }
+    const selected = voyageOptions.find((v) => v.id === voyageId);
+    if (!selected?.logistics_provider_id) return false;
+    return Number(selected.logistics_provider_id) !== actorProviderId;
+  };
+  const isNonOwnedVoyageById = (voyageId: unknown): boolean => {
+    if (props.actorScope !== 'logistics') return false;
+    if (!props.actorProviderId) return false;
+    const actorProviderId = Number(props.actorProviderId);
+    const id = Number(voyageId || 0);
+    if (!Number.isInteger(id) || id <= 0) return false;
+    const selected = voyageOptions.find((v) => v.id === id);
+    if (!selected?.logistics_provider_id) return false;
+    return Number(selected.logistics_provider_id) !== actorProviderId;
+  };
 
   const columns: CrudColumn[] = [
     {
       key: 'bl_no', title: '提单/班次信息', width: 260, searchable: true,
       render: (_v, record) => renderLabeledFields([
+        { label: '提(运)单ID', value: record.shipping_bill_id || '—' },
         { label: '提单号', value: record.bl_no || '—' },
         { label: '班(航)名称', value: record.voyage_name || '—' },
         { label: '货物状态', value: record.cargo_status ? <Tag color="processing">{cargoStatusMap[record.cargo_status] || record.cargo_status}</Tag> : '—' },
@@ -1128,12 +1274,17 @@ function BillsSubTab(props: SubTabProps) {
     },
     {
       key: 'departure_port', title: '港口及箱信息', width: 300, searchable: true,
-      render: (_v, record) => renderLabeledFields([
-        { label: '起运港', value: record.departure_port || '—' },
-        { label: '目的港', value: record.destination_port || '—' },
-        { label: '集装箱号', value: record.container_no || '—' },
-        { label: '封条号', value: record.seal_no || '—' },
-      ]),
+      render: (_v, record) => {
+        const bindings = parseShippingBillContainerBindings(record);
+        const containerNode = bindings.length > 0
+          ? bindings.map((b) => b.container_no).filter(Boolean).join(' / ')
+          : '—';
+        return renderLabeledFields([
+          { label: '起运港', value: record.departure_port || '—' },
+          { label: '目的港', value: record.destination_port || '—' },
+          { label: '集装箱', value: containerNode },
+        ]);
+      },
     },
     {
       key: 'package_count', title: '货物信息', width: 320,
@@ -1161,113 +1312,194 @@ function BillsSubTab(props: SubTabProps) {
       idPrefix="bill"
       columns={columns}
       modalWidth={820}
+      modalClassName="shipping-bill-modal"
+      formClassName="compact-form"
       canCreate={props.canCreate}
       canUpdate={props.canUpdate}
       canDelete={props.canDelete}
       showProviderSelect={props.showProviderSelect}
       providerOptions={props.providerOptions}
       refreshKey={props.refreshKey}
+      createDefaults={{ cargo_status: defaultCargoStatusCode }}
       searchPlaceholder="搜索提(运)单：提单号、发/收货人、集装箱号或港口"
       onBeforeOpenModal={fetchAux}
-      renderForm={({ form }) => (
+      renderForm={({ form, mode, record }) => {
+        const currentVoyageId = form.getFieldValue('voyage_id');
+        const isLimitedCreate = mode === 'create' && isNonOwnedVoyageById(currentVoyageId);
+        const isLimitedEdit = mode === 'edit' && (isNonOwnedVoyageBill(record) || isNonOwnedVoyageById(currentVoyageId));
+        const isLimitedMode = isLimitedCreate || isLimitedEdit;
+        return (
         <>
-          <Space size={12} style={{ display: 'flex' }} wrap>
-            <Form.Item name="bl_no" label="提单号" style={{ flex: 1, minWidth: 240 }}>
-              <Input placeholder="请输入提单号（选填）" maxLength={64} />
-            </Form.Item>
-          </Space>
-          <Form.Item name="voyage_id" label="关联班(航)次">
-            <Select
-              allowClear showSearch optionFilterProp="label"
-              placeholder="请选择关联班(航)次（可空）"
-              options={voyageSelectOptions}
-              onChange={(val) => {
-                const v = voyageOptions.find((o) => o.id === val);
-                const depPorts = parsePorts(v?.departure_port);
-                const destPorts = parsePorts(v?.destination_port);
-                setDeparturePortOptions(buildPortOptions(depPorts));
-                setDestinationPortOptions(buildPortOptions(destPorts));
-                if (v) {
-                  form.setFieldsValue({
-                    departure_port: depPorts[0] || '',
-                    destination_port: destPorts[0] || '',
-                  });
-                }
-              }}
-            />
-          </Form.Item>
-          <Space size={12} style={{ display: 'flex' }} wrap>
-            <Form.Item name="departure_port" label="起运港" rules={[{ required: true, message: '请选择起运港' }]} style={{ flex: 1, minWidth: 240 }}>
+          {isLimitedMode && (
+            <div style={{ marginBottom: 8, color: '#8c8c8c' }}>非自有航线提(运)单可编辑：班(航)次、起运港、目的港、发货人、收货人、通知人、件数、重量、体积、交货地、唛头、备注。</div>
+          )}
+          <div style={shippingBillSectionStyle}>
+            <div style={shippingBillSectionTitleStyle}>基础信息</div>
+            <Form.Item name="voyage_id" label="关联班(航)次" rules={[{ required: true, message: '请选择关联班(航)次' }]} style={compactItemStyle}>
               <Select
-                placeholder="请选择起运港"
-                options={departurePortOptions}
+                allowClear showSearch optionFilterProp="searchText"
+                placeholder="请选择关联班(航)次"
+                options={voyageSelectOptions}
+                onChange={(val) => {
+                  const v = voyageOptions.find((o) => o.id === val);
+                  const depPorts = parsePorts(v?.departure_port);
+                  const destPorts = parsePorts(v?.destination_port);
+                  setDeparturePortOptions(buildPortOptions(depPorts));
+                  setDestinationPortOptions(buildPortOptions(destPorts));
+                  if (v) {
+                    form.setFieldsValue({
+                      departure_port: depPorts[0] || '',
+                      destination_port: destPorts[0] || '',
+                    });
+                  }
+                }}
               />
             </Form.Item>
-            <Form.Item name="destination_port" label="目的港" rules={[{ required: true, message: '请选择目的港' }]} style={{ flex: 1, minWidth: 240 }}>
-              <Select
-                placeholder="请选择目的港"
-                options={destinationPortOptions}
-              />
+            <div style={shippingBillTwoColumnGridStyle}>
+              <Form.Item name="departure_port" label="起运港" rules={[{ required: true, message: '请选择起运港' }]} style={compactItemStyle}>
+                <Select placeholder="请选择起运港" options={departurePortOptions} />
+              </Form.Item>
+              <Form.Item name="destination_port" label="目的港" rules={[{ required: true, message: '请选择目的港' }]} style={compactItemStyle}>
+                <Select placeholder="请选择目的港" options={destinationPortOptions} />
+              </Form.Item>
+              <Form.Item name="shipping_bill_id" label="提(运)单ID" style={compactItemStyle}>
+                <Input disabled placeholder="保存后自动生成" maxLength={12} />
+              </Form.Item>
+              <Form.Item name="bl_no" label="提单号" style={compactItemStyle}>
+                <Input disabled={isLimitedMode} placeholder="请输入提单号（选填）" maxLength={64} />
+              </Form.Item>
+            </div>
+          </div>
+
+          <div style={shippingBillSectionStyle}>
+            <div style={shippingBillSectionTitleStyle}>参与方信息</div>
+            <div style={shippingBillTwoColumnGridStyle}>
+              <Form.Item name="shipper" label="发货人" style={compactItemStyle}>
+                <Input.TextArea rows={2} maxLength={255} placeholder="请输入发货人" />
+              </Form.Item>
+              <Form.Item name="consignee" label="收货人" style={compactItemStyle}>
+                <Input.TextArea rows={2} maxLength={255} placeholder="请输入收货人" />
+              </Form.Item>
+              <Form.Item name="notify_party" label="通知人" style={compactItemStyle}>
+                <Input.TextArea rows={2} maxLength={255} placeholder="请输入通知人" />
+              </Form.Item>
+            </div>
+          </div>
+
+          <div style={shippingBillSectionStyle}>
+            <Form.List name="container_bindings" initialValue={[]}>
+              {(fields, { add, remove }) => (
+                <>
+                  <div style={shippingBillSectionTitleStyle}>集装箱绑定</div>
+                  <div style={shippingBillContainerListStyle}>
+                    {fields.map(({ key, name, ...restField }) => (
+                      <div key={key} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) 20px', gap: 8, alignItems: 'start', marginBottom: 6 }}>
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'container_no']}
+                          dependencies={['container_bindings']}
+                          rules={[
+                            ({ getFieldValue }) => ({
+                              validator(_, value) {
+                                const current = String(value ?? '').trim();
+                                if (!current) return Promise.resolve();
+                                const currentKey = current.toUpperCase();
+                                const bindings = Array.isArray(getFieldValue('container_bindings')) ? getFieldValue('container_bindings') : [];
+                                const hasDuplicate = bindings.some((row: any, idx: number) => (
+                                  idx !== Number(name) && String(row?.container_no ?? '').trim().toUpperCase() === currentKey
+                                ));
+                                if (hasDuplicate) return Promise.reject(new Error('同一个提(运)单内集装箱号不能重复'));
+                                return Promise.resolve();
+                              },
+                            }),
+                          ]}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <AutoComplete
+                            disabled={isLimitedMode}
+                            allowClear
+                            options={containerAutoOptions}
+                            placeholder="可自定义或从启用集装箱中选择"
+                            filterOption={(input, option) => String(option?.value ?? '').toUpperCase().includes(input.toUpperCase())}
+                          />
+                        </Form.Item>
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'seal_no']}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <Input disabled={isLimitedMode} placeholder="请输入封条号（选填）" maxLength={64} />
+                        </Form.Item>
+                        <MinusCircleOutlined
+                          style={{ marginTop: 9, color: '#ff4d4f', fontSize: 16 }}
+                          onClick={() => { if (!isLimitedMode) remove(name); }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <Button
+                    type="dashed"
+                    disabled={isLimitedMode}
+                    onClick={() => add({ container_no: '', seal_no: '' })}
+                    block
+                    icon={<PlusOutlined />}
+                  >
+                    添加集装箱
+                  </Button>
+                </>
+              )}
+            </Form.List>
+          </div>
+
+          <div style={shippingBillSectionStyle}>
+            <div style={shippingBillSectionTitleStyle}>货物信息</div>
+            <div style={shippingBillThreeColumnGridStyle}>
+              <Form.Item name="package_count" label="件数" style={compactItemStyle}>
+                <InputNumber min={0} precision={0} style={{ width: '100%' }} placeholder="件数" />
+              </Form.Item>
+              <Form.Item name="weight" label="重量" style={compactItemStyle}>
+                <InputNumber min={0} style={{ width: '100%' }} placeholder="重量" />
+              </Form.Item>
+              <Form.Item name="volume" label="体积" style={compactItemStyle}>
+                <InputNumber min={0} style={{ width: '100%' }} placeholder="体积" />
+              </Form.Item>
+            </div>
+            <div style={shippingBillTwoColumnGridStyle}>
+              <Form.Item name="delivery_place" label="交货地" style={compactItemStyle}>
+                <Input placeholder="请输入交货地（选填）" maxLength={128} />
+              </Form.Item>
+              <Form.Item name="cargo_status" label="货物状态" style={compactItemStyle}>
+                <Select disabled={isLimitedMode} allowClear showSearch optionFilterProp="label" placeholder="请选择货物状态（货物态）" options={cargoStatusSelectOptions} />
+              </Form.Item>
+            </div>
+            <Form.Item
+              name="marks"
+              label={<TextareaLabelWithCount form={form} name="marks" label="唛头" max={255} />}
+              style={{ marginBottom: 0 }}
+            >
+              <Input.TextArea rows={2} maxLength={255} placeholder="唛头（选填）" />
             </Form.Item>
-          </Space>
-          <Space size={12} style={{ display: 'flex' }} wrap>
-            <Form.Item name="shipper" label="发货人" rules={[{ required: true, message: '请输入发货人' }]} style={{ flex: 1, minWidth: 240 }}>
-              <Input.TextArea rows={2} maxLength={255} placeholder="请输入发货人" />
+          </div>
+
+          <div style={{ ...shippingBillSectionStyle, marginBottom: 0 }}>
+            <div style={shippingBillSectionTitleStyle}>备注</div>
+            <Form.Item
+              name="description"
+              label={<TextareaLabelWithCount form={form} name="description" label="备注" max={255} />}
+              style={{ marginBottom: 0 }}
+            >
+              <Input.TextArea rows={2} maxLength={255} placeholder="备注" />
             </Form.Item>
-            <Form.Item name="consignee" label="收货人" rules={[{ required: true, message: '请输入收货人' }]} style={{ flex: 1, minWidth: 240 }}>
-              <Input.TextArea rows={2} maxLength={255} placeholder="请输入收货人" />
-            </Form.Item>
-          </Space>
-          <Space size={12} style={{ display: 'flex' }} wrap>
-            <Form.Item name="notify_party" label="通知人" rules={[{ required: true, message: '请输入通知人' }]} style={{ flex: 1, minWidth: 240 }}>
-              <Input.TextArea rows={2} maxLength={255} placeholder="请输入通知人" />
-            </Form.Item>
-          </Space>
-          <Space size={12} style={{ display: 'flex' }} wrap>
-            <Form.Item name="container_no" label="集装箱号" style={{ flex: 1, minWidth: 240 }}>
-              <AutoComplete
-                allowClear
-                options={containerAutoOptions}
-                placeholder="可自定义或从启用集装箱中选择"
-                filterOption={(input, option) => String(option?.value ?? '').toUpperCase().includes(input.toUpperCase())}
-              />
-            </Form.Item>
-            <Form.Item name="seal_no" label="封条号" style={{ flex: 1, minWidth: 240 }}>
-              <Input placeholder="请输入封条号（选填）" maxLength={64} />
-            </Form.Item>
-          </Space>
-          <Space size={12} style={{ display: 'flex' }} wrap>
-            <Form.Item name="package_count" label="件数" style={{ flex: 1, minWidth: 150 }}>
-              <InputNumber min={0} precision={0} style={{ width: '100%' }} placeholder="件数" />
-            </Form.Item>
-            <Form.Item name="weight" label="重量" style={{ flex: 1, minWidth: 150 }}>
-              <InputNumber min={0} style={{ width: '100%' }} placeholder="重量" />
-            </Form.Item>
-            <Form.Item name="volume" label="体积" style={{ flex: 1, minWidth: 150 }}>
-              <InputNumber min={0} style={{ width: '100%' }} placeholder="体积" />
-            </Form.Item>
-          </Space>
-          <Space size={12} style={{ display: 'flex' }} wrap>
-            <Form.Item name="delivery_place" label="交货地" style={{ flex: 1, minWidth: 240 }}>
-              <Input placeholder="请输入交货地（选填）" maxLength={128} />
-            </Form.Item>
-            <Form.Item name="cargo_status" label="货物状态" style={{ flex: 1, minWidth: 240 }}>
-              <Select allowClear showSearch optionFilterProp="label" placeholder="请选择货物状态（货物态）" options={cargoStatusSelectOptions} />
-            </Form.Item>
-          </Space>
-          <Form.Item name="marks" label="唛头">
-            <Input.TextArea rows={2} maxLength={255} showCount placeholder="唛头（选填）" />
-          </Form.Item>
-          <Form.Item name="description" label="备注">
-            <Input.TextArea rows={2} maxLength={255} showCount placeholder="备注" />
-          </Form.Item>
+          </div>
         </>
-      )}
+      );
+      }}
       fillForm={(record, form) => {
         const v = voyageOptions.find((o) => o.id === (record.voyage_id ?? null));
         setDeparturePortOptions(buildPortOptions(parsePorts(v?.departure_port), record.departure_port));
         setDestinationPortOptions(buildPortOptions(parsePorts(v?.destination_port), record.destination_port));
         form.setFieldsValue({
+          shipping_bill_id: record.shipping_bill_id || '',
           bl_no: record.bl_no || '',
           voyage_id: record.voyage_id ?? null,
           departure_port: record.departure_port || '',
@@ -1275,8 +1507,7 @@ function BillsSubTab(props: SubTabProps) {
           shipper: record.shipper,
           consignee: record.consignee,
           notify_party: record.notify_party,
-          container_no: record.container_no || '',
-          seal_no: record.seal_no || '',
+          container_bindings: parseShippingBillContainerBindings(record),
           package_count: record.package_count ?? null,
           weight: record.weight !== null && record.weight !== undefined && record.weight !== '' ? Number(record.weight) : null,
           volume: record.volume !== null && record.volume !== undefined && record.volume !== '' ? Number(record.volume) : null,
@@ -1288,6 +1519,7 @@ function BillsSubTab(props: SubTabProps) {
         });
       }}
       buildPayload={(values, showProvider) => ({
+        container_bindings: normalizeShippingBillContainerBindings(values.container_bindings),
         bl_no: (values.bl_no || '').trim(),
         voyage_id: values.voyage_id ?? null,
         departure_port: (values.departure_port || '').trim(),
@@ -1295,8 +1527,6 @@ function BillsSubTab(props: SubTabProps) {
         shipper: (values.shipper || '').trim(),
         consignee: (values.consignee || '').trim(),
         notify_party: (values.notify_party || '').trim(),
-        container_no: (values.container_no || '').trim(),
-        seal_no: (values.seal_no || '').trim(),
         package_count: values.package_count ?? null,
         weight: values.weight ?? null,
         volume: values.volume ?? null,

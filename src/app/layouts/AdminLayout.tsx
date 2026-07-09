@@ -42,6 +42,12 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
   const siderWidth = 160;
   const siderCollapsedWidth = 52;
 
+  const displayRoleName = adminUser?.role_name || t('app.admin');
+  const displayUserName = adminUser?.username || 'Admin';
+  const displayProviderName = adminUser?.role_scope === 'logistics'
+    ? (adminUser?.logistics_provider_name || `#${adminUser?.logistics_provider_id ?? ''}`)
+    : '平台';
+
   const langOptions: Array<{ key: LangCode; label: string }> = [
     { key: 'zh-CN', label: t('lang.simplifiedChinese') },
     { key: 'zh-TW', label: t('lang.traditionalChinese') },
@@ -199,8 +205,8 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
           <Dropdown menu={{ items: userDropdownItems }} placement="bottomRight" arrow>
             <div className={styles.userInfo}>
               <div style={{ textAlign: 'right', lineHeight: '1.2' }}>
-                 <div className={styles.username}>{adminUser?.username || 'Admin'}</div>
-                  <div className={styles.role}>{adminUser?.role_name || t('app.admin')}</div>
+                <div className={styles.username}>{`${displayRoleName}:${displayUserName}`}</div>
+                <div className={styles.role}>{displayProviderName}</div>
               </div>
               <UserOutlined style={{ fontSize: '20px', padding: '8px', background: '#f1f5f9', borderRadius: '50%', color: '#64748b' }} />
             </div>

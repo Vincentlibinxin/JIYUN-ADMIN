@@ -125,6 +125,7 @@ import {
   getShippingVoyagesPaged,
   searchShippingVoyages,
   getEnabledShippingVoyages,
+  canProviderAccessShippingVoyage,
   findDuplicateShippingVoyage,
   createShippingVoyage,
   getShippingVoyageById,
@@ -3587,19 +3588,17 @@ const parseShippingBillBody = async (
 ): Promise<{
   bl_no: string | null; shipper: string; consignee: string; notify_party: string; delivery_place: string | null;
   departure_port: string | null; destination_port: string | null; container_no: string | null; seal_no: string | null;
+  container_bindings_json: string | null;
   package_count: number | null; weight: number | null; volume: number | null; marks: string | null;
   cargo_status: string | null; description: string | null;
 } | null> => {
   const bl_no = String(body.bl_no ?? '').trim();
   if (bl_no.length > 64) { res.status(400).json({ error: '提单号过长' }); return null; }
   const shipper = String(body.shipper ?? '').trim();
-  if (!shipper) { res.status(400).json({ error: '发货人不能为空' }); return null; }
   if (shipper.length > 255) { res.status(400).json({ error: '发货人过长' }); return null; }
   const consignee = String(body.consignee ?? '').trim();
-  if (!consignee) { res.status(400).json({ error: '收货人不能为空' }); return null; }
   if (consignee.length > 255) { res.status(400).json({ error: '收货人过长' }); return null; }
   const notify_party = String(body.notify_party ?? '').trim();
-  if (!notify_party) { res.status(400).json({ error: '通知人不能为空' }); return null; }
   if (notify_party.length > 255) { res.status(400).json({ error: '通知人过长' }); return null; }
   const departure_port = String(body.departure_port ?? '').trim();
   if (!departure_port) { res.status(400).json({ error: '起运港不能为空' }); return null; }
@@ -3609,10 +3608,33 @@ const parseShippingBillBody = async (
   if (destination_port.length > 128) { res.status(400).json({ error: '目的港过长' }); return null; }
   const delivery_place = String(body.delivery_place ?? '').trim();
   if (delivery_place.length > 128) { res.status(400).json({ error: '交货地过长' }); return null; }
-  const container_no = String(body.container_no ?? '').trim();
-  if (container_no.length > 64) { res.status(400).json({ error: '集装箱号过长' }); return null; }
-  const seal_no = String(body.seal_no ?? '').trim();
-  if (seal_no.length > 64) { res.status(400).json({ error: '封条号过长' }); return null; }
+  const legacyContainerNo = String(body.container_no ?? '').trim();
+  if (legacyContainerNo.length > 64) { res.status(400).json({ error: '集装箱号过长' }); return null; }
+  const legacySealNo = String(body.seal_no ?? '').trim();
+  if (legacySealNo.length > 64) { res.status(400).json({ error: '封条号过长' }); return null; }
+  const rawBindings = Array.isArray(body.container_bindings) ? body.container_bindings : [];
+  const containerBindings: Array<{ container_no: string; seal_no: string | null }> = [];
+  const seenContainerNos = new Set<string>();
+  for (const item of rawBindings) {
+    if (!item || typeof item !== 'object') continue;
+    const no = String(item.container_no ?? '').trim();
+    const seal = String(item.seal_no ?? '').trim();
+    if (!no && !seal) continue;
+    if (!no) { res.status(400).json({ error: '集装箱号不能为空' }); return null; }
+    if (no.length > 64) { res.status(400).json({ error: '集装箱号过长' }); return null; }
+    const normalizedNo = no.toUpperCase();
+    if (seenContainerNos.has(normalizedNo)) { res.status(400).json({ error: '同一个提(运)单内集装箱号不能重复' }); return null; }
+    seenContainerNos.add(normalizedNo);
+    if (seal.length > 64) { res.status(400).json({ error: '封条号过长' }); return null; }
+    containerBindings.push({ container_no: no, seal_no: seal || null });
+  }
+  if (containerBindings.length === 0 && (legacyContainerNo || legacySealNo)) {
+    if (!legacyContainerNo) { res.status(400).json({ error: '集装箱号不能为空' }); return null; }
+    containerBindings.push({ container_no: legacyContainerNo, seal_no: legacySealNo || null });
+  }
+  const container_no = containerBindings[0]?.container_no || null;
+  const seal_no = containerBindings[0]?.seal_no || null;
+  const container_bindings_json = containerBindings.length > 0 ? JSON.stringify(containerBindings) : null;
   const marks = String(body.marks ?? '').trim();
   if (marks.length > 255) { res.status(400).json({ error: '唛头过长' }); return null; }
   const description = String(body.description ?? '').trim();
@@ -3640,8 +3662,9 @@ const parseShippingBillBody = async (
     delivery_place: delivery_place || null,
     departure_port,
     destination_port,
-    container_no: container_no || null,
-    seal_no: seal_no || null,
+    container_no,
+    seal_no,
+    container_bindings_json,
     package_count: packageCount === null ? null : Math.trunc(packageCount as number),
     weight: weight as number | null,
     volume: volume as number | null,
@@ -3674,17 +3697,41 @@ router.post('/ship-bills', adminAuth, csrfGuard, requirePermission(PERMISSIONS.R
   if (!parsed) return;
   const resolvedProviderId = resolveShippingProviderForCreate(req);
   // 关联班次（选填）
+  const actorProvider = getActorProviderFilter(req);
   let voyageId: number | null = null;
+  let voyage: any | null = null;
   if (req.body?.voyage_id !== undefined && req.body?.voyage_id !== null && req.body?.voyage_id !== '') {
     voyageId = Number(req.body.voyage_id);
     if (!Number.isInteger(voyageId) || voyageId <= 0) { res.status(400).json({ error: '班(航)次ID不合法' }); return; }
-    const voyage = await getShippingVoyageById(voyageId);
+    voyage = await getShippingVoyageById(voyageId);
     if (!voyage) { res.status(400).json({ error: '所选班(航)次不存在' }); return; }
-    const actorProvider = getActorProviderFilter(req);
-    if (actorProvider !== null && Number(voyage.logistics_provider_id) !== actorProvider) {
-      res.status(400).json({ error: '物流商仅可关联自有班(航)次' });
-      return;
+    if (actorProvider !== null) {
+      const canAccess = await canProviderAccessShippingVoyage(voyageId, actorProvider);
+      if (!canAccess) {
+        res.status(400).json({ error: '物流商仅可关联自有或已授权航线下的班(航)次' });
+        return;
+      }
     }
+  }
+  const isNonOwnedVoyage = actorProvider !== null
+    && voyageId !== null
+    && Number(voyage?.logistics_provider_id || 0) > 0
+    && Number(voyage?.logistics_provider_id) !== Number(actorProvider);
+  if (isNonOwnedVoyage) {
+    parsed.bl_no = null;
+    parsed.container_no = null;
+    parsed.seal_no = null;
+    parsed.container_bindings_json = null;
+  }
+  if (!parsed.cargo_status) {
+    const statuses = await getEnabledParcelStatuses();
+    const pendingInbound = statuses.find((s: any) => (
+      String(s?.status_type || '').trim() === '货物态'
+      && String(s?.status_name || '').trim() === '待入库'
+      && Number(s?.is_enabled ?? 1) === 1
+    ));
+    const defaultCode = String(pendingInbound?.status_code || '').trim();
+    if (defaultCode) parsed.cargo_status = defaultCode;
   }
   const bill = await createShippingBill({ ...parsed, voyage_id: voyageId, logistics_provider_id: resolvedProviderId });
   await logAdminAudit({ adminId: req.adminId, action: 'ship_bill.create', targetType: 'shipping_bill', targetId: bill.id, result: 'success', ip: getRequestIp(req), detail: 'ship_bill_created' });
@@ -3697,21 +3744,83 @@ router.put('/ship-bills/:id', adminAuth, csrfGuard, requirePermission(PERMISSION
   const existing = await getShippingBillById(id);
   if (!existing) { res.status(404).json({ error: '提(运)单不存在' }); return; }
   if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
-  const parsed = await parseShippingBillBody(req.body || {}, res);
-  if (!parsed) return;
+  const actorProvider = getActorProviderFilter(req);
   const resolvedProviderId = resolveShippingProviderForUpdate(req, existing);
-  let voyageId: number | null = null;
+  let voyageId: number | null = existing.voyage_id ?? null;
   if (req.body?.voyage_id !== undefined && req.body?.voyage_id !== null && req.body?.voyage_id !== '') {
     voyageId = Number(req.body.voyage_id);
     if (!Number.isInteger(voyageId) || voyageId <= 0) { res.status(400).json({ error: '班(航)次ID不合法' }); return; }
-    const voyage = await getShippingVoyageById(voyageId);
+  }
+  let voyage: any | null = null;
+  if (voyageId !== null) {
+    voyage = await getShippingVoyageById(voyageId);
     if (!voyage) { res.status(400).json({ error: '所选班(航)次不存在' }); return; }
-    const actorProvider = getActorProviderFilter(req);
-    if (actorProvider !== null && Number(voyage.logistics_provider_id) !== actorProvider) {
-      res.status(400).json({ error: '物流商仅可关联自有班(航)次' });
-      return;
+    if (actorProvider !== null) {
+      const canAccess = await canProviderAccessShippingVoyage(voyageId, actorProvider);
+      if (!canAccess) { res.status(400).json({ error: '物流商仅可关联自有或已授权航线下的班(航)次' }); return; }
     }
   }
+
+  const isNonOwnedVoyage = actorProvider !== null
+    && voyageId !== null
+    && Number(voyage?.logistics_provider_id || 0) > 0
+    && Number(voyage?.logistics_provider_id) !== Number(actorProvider);
+
+  if (isNonOwnedVoyage) {
+    const departure_port = String(req.body?.departure_port ?? existing.departure_port ?? '').trim();
+    if (!departure_port) { res.status(400).json({ error: '起运港不能为空' }); return; }
+    if (departure_port.length > 128) { res.status(400).json({ error: '起运港过长' }); return; }
+    const destination_port = String(req.body?.destination_port ?? existing.destination_port ?? '').trim();
+    if (!destination_port) { res.status(400).json({ error: '目的港不能为空' }); return; }
+    if (destination_port.length > 128) { res.status(400).json({ error: '目的港过长' }); return; }
+
+    const shipper = String(req.body?.shipper ?? existing.shipper ?? '').trim();
+    if (shipper.length > 255) { res.status(400).json({ error: '发货人过长' }); return; }
+    const consignee = String(req.body?.consignee ?? existing.consignee ?? '').trim();
+    if (consignee.length > 255) { res.status(400).json({ error: '收货人过长' }); return; }
+    const notify_party = String(req.body?.notify_party ?? existing.notify_party ?? '').trim();
+    if (notify_party.length > 255) { res.status(400).json({ error: '通知人过长' }); return; }
+    const delivery_place = String(req.body?.delivery_place ?? existing.delivery_place ?? '').trim();
+    if (delivery_place.length > 128) { res.status(400).json({ error: '交货地过长' }); return; }
+    const marks = String(req.body?.marks ?? existing.marks ?? '').trim();
+    if (marks.length > 255) { res.status(400).json({ error: '唛头过长' }); return; }
+    const description = String(req.body?.description ?? existing.description ?? '').trim();
+    if (description.length > 255) { res.status(400).json({ error: '备注不能超过255个字符' }); return; }
+
+    const packageCountRaw = req.body?.package_count !== undefined ? req.body.package_count : existing.package_count;
+    const weightRaw = req.body?.weight !== undefined ? req.body.weight : existing.weight;
+    const volumeRaw = req.body?.volume !== undefined ? req.body.volume : existing.volume;
+    const packageCount = normalizeShippingNumber(packageCountRaw);
+    const weight = normalizeShippingNumber(weightRaw);
+    const volume = normalizeShippingNumber(volumeRaw);
+    if ([packageCount, weight, volume].some((v) => v === undefined)) {
+      res.status(400).json({ error: '件数/重量/体积 必须为非负数字' });
+      return;
+    }
+
+    const ok = await updateShippingBill(id, {
+      voyage_id: voyageId,
+      departure_port,
+      destination_port,
+      shipper,
+      consignee,
+      notify_party,
+      package_count: packageCount === null ? null : Math.trunc(packageCount as number),
+      weight: weight as number | null,
+      volume: volume as number | null,
+      delivery_place: delivery_place || null,
+      marks: marks || null,
+      description: description || null,
+      logistics_provider_id: resolvedProviderId,
+    });
+    if (!ok) { res.status(404).json({ error: '提(运)单不存在' }); return; }
+    await logAdminAudit({ adminId: req.adminId, action: 'ship_bill.update', targetType: 'shipping_bill', targetId: id, result: 'success', ip: getRequestIp(req), detail: 'ship_bill_updated_non_owned_voyage_limited' });
+    res.json({ message: '提(运)单已更新', id });
+    return;
+  }
+
+  const parsed = await parseShippingBillBody(req.body || {}, res);
+  if (!parsed) return;
   const ok = await updateShippingBill(id, { ...parsed, voyage_id: voyageId, logistics_provider_id: resolvedProviderId });
   if (!ok) { res.status(404).json({ error: '提(运)单不存在' }); return; }
   await logAdminAudit({ adminId: req.adminId, action: 'ship_bill.update', targetType: 'shipping_bill', targetId: id, result: 'success', ip: getRequestIp(req), detail: 'ship_bill_updated' });

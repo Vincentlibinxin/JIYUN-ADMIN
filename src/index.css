@@ -140,3 +140,23 @@ main form details {
   max-height: calc(100vh - 200px);
   overflow-y: auto;
 }
+
+.shipping-bill-modal .ant-modal-body {
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+}
+
+.shipping-bill-modal {
+  max-width: calc(100vw - 24px) !important;
+}
+
+.shipping-bill-modal .ant-modal-content {
+  max-height: calc(100vh - 24px);
+  display: flex;
+  flex-direction: column;
+}
+
+.shipping-bill-modal .ant-modal-body {
+  flex: 1;
+  min-height: 0;
+}
