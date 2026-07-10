@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, memo } from 'react';
 import { Button, Card, Cascader, Checkbox, DatePicker, Form, Input, Modal, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tag, Tooltip, message } from 'antd';
 import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -98,7 +98,7 @@ interface MemberOption {
   phone: string | null;
 }
 
-export default function AddressBookTab({
+export default memo(function AddressBookTab({
   entries,
   loading,
   searchQuery,
@@ -832,4 +832,4 @@ export default function AddressBookTab({
       </Modal>
     </Card>
   );
-}
+});

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, memo } from 'react';
 import { Button, Card, Checkbox, DatePicker, Form, Input, InputNumber, Modal, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tag, Tooltip, message } from 'antd';
 import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -104,7 +104,7 @@ const formatNumber = (value: number | string | null | undefined): string => {
   return Number.isFinite(n) ? String(n) : '';
 };
 
-export default function StorageBinsTab({
+export default memo(function StorageBinsTab({
   bins,
   loading,
   searchQuery,
@@ -845,4 +845,4 @@ export default function StorageBinsTab({
       </Modal>
     </Card>
   );
-}
+});

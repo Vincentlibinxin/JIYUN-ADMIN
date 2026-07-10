@@ -1,4 +1,4 @@
-﻿import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
+﻿import { useEffect, useLayoutEffect, useRef, useState, useCallback, memo } from 'react';
 import { Button, Card, Checkbox, DatePicker, Form, Image, Input, InputNumber, Modal, Pagination as AntPagination, Popconfirm, Row, Col, Select, Space, Table, Tooltip, Upload, Tag } from 'antd';
 import { ReloadOutlined, EyeOutlined, EditOutlined, DeleteOutlined, InboxOutlined, PlusOutlined, MinusCircleOutlined, FileTextOutlined, PictureOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -69,7 +69,7 @@ interface ParcelsTabProps {
   onColumnFilterChange?: (columnFilters: Record<string, string>, dateFilters: Record<string, [string, string]>) => void;
 }
 
-export default function ParcelsTab({
+export default memo(function ParcelsTab({
   parcels,
   loading,
   searchQuery,
@@ -1370,4 +1370,4 @@ export default function ParcelsTab({
       </Modal>
     </Card>
   );
-}
+});

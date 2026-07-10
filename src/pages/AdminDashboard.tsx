@@ -1,5 +1,5 @@
 ﻿import AdminLayout from '../app/layouts/AdminLayout';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { message, Tabs } from 'antd';
 import { Home, Users, User, ShoppingCart, MessageCircle, Package, ClipboardList, Shield } from 'lucide-react';
 
@@ -181,6 +181,7 @@ export default function AdminDashboard() {
   const [numberCategorySort, setNumberCategorySort] = useState<SortConfig<'id' | 'number_category' | 'is_enabled' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [addressSort, setAddressSort] = useState<SortConfig<'id' | 'name' | 'region' | 'phone' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [refreshKey, setRefreshKey] = useState(0);
+  const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
 
   const [userColumnFilters, setUserColumnFilters] = useState<Record<string, string>>({});
   const [userDateFilters, setUserDateFilters] = useState<Record<string, [string, string]>>({});
@@ -223,7 +224,7 @@ export default function AdminDashboard() {
     hasLabelView ? { key: 'labels', label: '标签管理' } : null,
   ].filter(Boolean) as Array<{ key: string; label: string }>;
 
-  const handleMenuClick = (key: string) => {
+  const handleMenuClick = useCallback((key: string) => {
     if (key === 'admins') {
       const nextTab = systemAdminTabs[0]?.key ?? 'logistics-admins';
       setActiveMenu('admins');
@@ -238,7 +239,7 @@ export default function AdminDashboard() {
     }
     setActiveMenu(key);
     setActiveTab(key);
-  };
+  }, [hasAdminView, hasParcelStatusView, hasLabelView]);
 
   // 计算登录后默认落地页：物流商等无「概览」权限的账号不显示首页，跳转到第一个可访问页面
   const resolveLandingTab = (): { menu: string; tab: string } => {
@@ -278,32 +279,49 @@ export default function AdminDashboard() {
     if (authLoading || !adminUser) {
       return;
     }
-
-    fetchUsers();
-    fetchOrders();
-    fetchParcels();
+    // 按需加载数据，而不是初始化时全部加载
   }, [authLoading, adminUser]);
 
   useEffect(() => {
-    if (activeTab === 'sms') {
+    if (activeTab === 'users' && !loadedTabs.has('users')) {
+      fetchUsers();
+      setLoadedTabs(prev => new Set([...prev, 'users']));
+    }
+    if (activeTab === 'orders' && !loadedTabs.has('orders')) {
+      fetchOrders();
+      setLoadedTabs(prev => new Set([...prev, 'orders']));
+    }
+    if (activeTab === 'parcels' && !loadedTabs.has('parcels')) {
+      fetchParcels();
+      setLoadedTabs(prev => new Set([...prev, 'parcels']));
+    }
+    if (activeTab === 'sms' && !loadedTabs.has('sms')) {
       fetchSms();
+      setLoadedTabs(prev => new Set([...prev, 'sms']));
     }
     if (activeTab === 'platform-admins' || activeTab === 'logistics-admins') {
-      fetchAdmins();
+      if (!loadedTabs.has('admins')) {
+        fetchAdmins();
+        setLoadedTabs(prev => new Set([...prev, 'admins']));
+      }
     }
-    if (activeTab === 'logistics') {
+    if (activeTab === 'logistics' && !loadedTabs.has('logistics')) {
       fetchLogistics();
+      setLoadedTabs(prev => new Set([...prev, 'logistics']));
     }
-    if (activeTab === 'storage-bins') {
+    if (activeTab === 'storage-bins' && !loadedTabs.has('storage-bins')) {
       fetchStorageBins();
+      setLoadedTabs(prev => new Set([...prev, 'storage-bins']));
     }
-    if (activeTab === 'number-library') {
+    if (activeTab === 'number-library' && !loadedTabs.has('number-library')) {
       fetchNumberCategories();
+      setLoadedTabs(prev => new Set([...prev, 'number-library']));
     }
-    if (activeTab === 'address-book') {
+    if (activeTab === 'address-book' && !loadedTabs.has('address-book')) {
       fetchAddressEntries();
+      setLoadedTabs(prev => new Set([...prev, 'address-book']));
     }
-  }, [activeTab]);
+  }, [activeTab, loadedTabs]);
 
   const fetchUsers = async (
     page: number = 1,

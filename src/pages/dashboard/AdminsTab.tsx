@@ -1,4 +1,4 @@
-﻿import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+﻿import { useEffect, useLayoutEffect, useRef, useState, memo } from 'react';
 import { Button, Card, Checkbox, DatePicker, Form, Input, Modal, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tag, Tooltip, message, Descriptions } from 'antd';
 import { DeleteOutlined, EditOutlined, EyeOutlined, LockOutlined, UnlockOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -88,7 +88,7 @@ interface AdminsTabProps {
   actorProviderCode?: string | null;
 }
 
-export default function AdminsTab({
+export default memo(function AdminsTab({
   admins,
   loading,
   searchQuery,
@@ -1035,4 +1035,4 @@ export default function AdminsTab({
       </Modal>
     </Card>
   );
-}
+});
