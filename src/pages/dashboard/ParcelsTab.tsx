@@ -187,6 +187,7 @@ export default memo(function ParcelsTab({
 
   // 《包裹状态字典》：货物态/信息态下拉与标签映射均来自字典（启用项）
   const [statusDict, setStatusDict] = useState<{ status_code: string; status_name: string; status_type: string; status_category: string | null }[]>([]);
+  const [statusDictLoading, setStatusDictLoading] = useState(true);
   useEffect(() => {
     (async () => {
       try {
@@ -196,6 +197,7 @@ export default memo(function ParcelsTab({
           setStatusDict(Array.isArray(j.data) ? j.data : []);
         }
       } catch { /* ignore */ }
+      finally { setStatusDictLoading(false); }
     })();
   }, []);
   const cargoStatusOptions = statusDict
@@ -206,6 +208,11 @@ export default memo(function ParcelsTab({
     .map((s) => ({ label: s.status_name, value: s.status_code }));
   const statusNameMap: Record<string, string> = Object.fromEntries(statusDict.map((s) => [s.status_code, s.status_name]));
   const statusCategoryMap: Record<string, string> = Object.fromEntries(statusDict.map((s) => [s.status_code, s.status_category || '']));
+  const getStatusName = (code: string | null | undefined, emptyText = ''): string => {
+    if (!code) return emptyText;
+    if (statusDictLoading) return '加载中...';
+    return statusNameMap[code] || '未知状态';
+  };
   const statusColor = (code: string | null): string => {
     if (!code) return 'default';
     return (statusCategoryMap[code] || '').includes('异常') ? 'red' : 'blue';
@@ -291,13 +298,13 @@ export default memo(function ParcelsTab({
       title: '货物态变更', key: 'status_change', width: 200,
       render: (_: unknown, r: StatusLog) => (
         <span>
-          <Tag color={statusColor(r.from_status)}>{statusNameMap[r.from_status || ''] || r.from_status || '无'}</Tag>
+          <Tag color={statusColor(r.from_status)}>{getStatusName(r.from_status, '无')}</Tag>
           →
-          <Tag color={statusColor(r.to_status)}>{statusNameMap[r.to_status] || r.to_status}</Tag>
+          <Tag color={statusColor(r.to_status)}>{getStatusName(r.to_status, '无')}</Tag>
         </span>
       ),
     },
-    { title: '信息态', dataIndex: 'sub_status', key: 'sub_status', width: 120, render: (v: string | null) => (v ? (statusNameMap[v] || v) : '') },
+    { title: '信息态', dataIndex: 'sub_status', key: 'sub_status', width: 120, render: (v: string | null) => getStatusName(v, '') },
     { title: '备注', dataIndex: 'remark', key: 'remark', width: 180, ellipsis: true, render: (v: string | null) => v || '' },
     { title: '操作人', dataIndex: 'operator_name', key: 'operator_name', width: 100, render: (v: string | null) => v || '系统' },
   ];
@@ -720,19 +727,27 @@ export default memo(function ParcelsTab({
           title: renderSearchInput('status', '货物态'),
           key: 'status_child',
           width: 160,
-          render: (_, record) => (
-            <Select
-              size="small"
-              value={record.status}
-              style={{ width: '100%' }}
-              onChange={(value) => onUpdateStatus(record.id, value)}
-              onClick={(e) => e.stopPropagation()}
-              disabled={!canUpdateStatus}
-              showSearch
-              optionFilterProp="label"
-              options={cargoStatusOptions}
-            />
-          ),
+          render: (_, record) => {
+            if (statusDictLoading) {
+              return <span style={{ color: '#999' }}>加载中...</span>;
+            }
+            const statusOptions = cargoStatusOptions.some((o) => o.value === record.status)
+              ? cargoStatusOptions
+              : [...cargoStatusOptions, { label: getStatusName(record.status, '未知状态'), value: record.status }];
+            return (
+              <Select
+                size="small"
+                value={record.status}
+                style={{ width: '100%' }}
+                onChange={(value) => onUpdateStatus(record.id, value)}
+                onClick={(e) => e.stopPropagation()}
+                disabled={!canUpdateStatus}
+                showSearch
+                optionFilterProp="label"
+                options={statusOptions}
+              />
+            );
+          },
         },
       ],
     },
@@ -872,7 +887,7 @@ export default memo(function ParcelsTab({
         transition: 'all 0.15s',
       }}
     >
-      <div style={{ fontSize: 13, color: selected ? '#1677ff' : 'rgba(0,0,0,0.85)', whiteSpace: 'nowrap' }}>{statusNameMap[code] || code}</div>
+      <div style={{ fontSize: 13, color: selected ? '#1677ff' : 'rgba(0,0,0,0.85)', whiteSpace: 'nowrap' }}>{getStatusName(code, '未知状态')}</div>
       <div style={{ fontSize: 13, fontWeight: 600, color: selected ? '#1677ff' : '#8c8c8c' }}>{count}</div>
     </div>
   );
