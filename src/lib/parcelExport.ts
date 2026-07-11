@@ -19,6 +19,37 @@ export interface ExportParcelRow {
   item_quantities?: string | null;
 }
 
+function splitListValue(value?: string | null): string[] {
+  if (!value) return [];
+  const parts = value
+    .split(/[\n,，]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return parts;
+}
+
+function expandRowsByItems(parcels: ExportParcelRow[]): Array<ExportParcelRow & { item_name: string; item_value: string; item_quantity: string }> {
+  const expanded: Array<ExportParcelRow & { item_name: string; item_value: string; item_quantity: string }> = [];
+
+  parcels.forEach((parcel) => {
+    const names = splitListValue(parcel.item_names);
+    const values = splitListValue(parcel.item_values);
+    const quantities = splitListValue(parcel.item_quantities);
+    const maxLen = Math.max(names.length, values.length, quantities.length, 1);
+
+    for (let i = 0; i < maxLen; i += 1) {
+      expanded.push({
+        ...parcel,
+        item_name: names[i] || '',
+        item_value: values[i] || '',
+        item_quantity: quantities[i] || '',
+      });
+    }
+  });
+
+  return expanded;
+}
+
 // Template columns (1-indexed):
 // A=单序(公式), B=运单号, C=缴税方式, D=代收款, E=自提方, F=备注, G=客户,
 // H=发件人, I=发件电话, J=发件人地址,
@@ -38,7 +69,8 @@ export async function exportParcelsToTemplate(parcels: ExportParcelRow[], templa
   if (!ws) throw new Error('模板缺少 Sheet1');
 
   const DATA_START_ROW = 3;
-  parcels.forEach((p, idx) => {
+  const rowsToExport = expandRowsByItems(parcels);
+  rowsToExport.forEach((p, idx) => {
     const row = ws.getRow(DATA_START_ROW + idx);
     // Keep the col A formula (单序) — do not overwrite.
     row.getCell(2).value = p.tracking_number || '';           // B 运单号
@@ -49,9 +81,9 @@ export async function exportParcelsToTemplate(parcels: ExportParcelRow[], templa
     row.getCell(19).value = p.length_cm != null ? Number(p.length_cm) : '';  // S 长
     row.getCell(20).value = p.width_cm != null ? Number(p.width_cm) : '';    // T 宽
     row.getCell(21).value = p.height_cm != null ? Number(p.height_cm) : '';  // U 高
-    row.getCell(22).value = p.item_names || '';               // V 物品名称
-    row.getCell(23).value = p.item_values || '';              // W 单价
-    row.getCell(24).value = p.item_quantities || '';          // X 数量
+    row.getCell(22).value = p.item_name || '';               // V 物品名称
+    row.getCell(23).value = p.item_value || '';              // W 单价
+    row.getCell(24).value = p.item_quantity || '';           // X 数量
     row.commit();
   });
 

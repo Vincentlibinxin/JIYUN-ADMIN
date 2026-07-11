@@ -600,12 +600,14 @@ export default function ParcelStatusTab({ canCreate, canUpdate, canDelete, refre
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         onOk={handleSubmit}
+        centered
         confirmLoading={submitting}
         okButtonProps={{ style: { background: '#f58220' } }}
         okText={modalMode === 'create' ? '创建' : '保存'}
         cancelText="取消"
         width={560}
         destroyOnClose
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         <Form form={form} layout="vertical" preserve={false}>
           <Form.Item

@@ -829,11 +829,13 @@ export default memo(function AdminsTab({
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         onOk={modalMode === 'view' ? () => setModalOpen(false) : handleSubmit}
+        centered
         okText={modalMode === 'view' ? '关闭' : '保存'}
         cancelText="取消"
         confirmLoading={submitting}
         cancelButtonProps={modalMode === 'view' ? { style: { display: 'none' } } : undefined}
         destroyOnClose
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         {modalMode === 'view' && activeAdmin && (
           <Descriptions column={1} size="small" bordered>

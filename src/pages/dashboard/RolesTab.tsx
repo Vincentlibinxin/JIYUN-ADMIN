@@ -779,12 +779,14 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         onOk={handleSubmit}
+        centered
         confirmLoading={submitting}
         okButtonProps={{ disabled: isSuperAdminEditing, style: { background: '#f58220' } }}
         okText={modalMode === 'create' ? '创建' : '保存'}
         cancelText="取消"
         width={640}
         destroyOnClose
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         <Form form={form} layout="vertical" preserve={false}>
           <Form.Item

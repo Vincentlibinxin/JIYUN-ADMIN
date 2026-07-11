@@ -668,12 +668,14 @@ export default function LabelsTab({ canCreate, canUpdate, canDelete, refreshKey 
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         onOk={handleSubmit}
+        centered
         confirmLoading={submitting}
         okButtonProps={{ style: { background: '#f58220' } }}
         okText={modalMode === 'create' ? '创建' : '保存'}
         cancelText="取消"
         width={720}
         destroyOnClose
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         <Form form={form} layout="vertical" preserve={false}>
           <Form.Item
@@ -732,6 +734,7 @@ export default function LabelsTab({ canCreate, canUpdate, canDelete, refreshKey 
         title={`预览：${previewTitle}`}
         open={previewOpen}
         onCancel={() => setPreviewOpen(false)}
+        centered
         width={560}
         footer={[
           <Button key="print" type="primary" icon={<PrinterOutlined />} style={{ background: '#f58220' }} onClick={() => printLabelHtml(previewHtml)}>
@@ -740,6 +743,7 @@ export default function LabelsTab({ canCreate, canUpdate, canDelete, refreshKey 
           <Button key="close" onClick={() => setPreviewOpen(false)}>关闭</Button>,
         ]}
         destroyOnClose
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         <div style={{ background: '#f5f5f5', padding: 16, display: 'flex', justifyContent: 'center' }}>
           <iframe

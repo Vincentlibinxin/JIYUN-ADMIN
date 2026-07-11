@@ -763,6 +763,7 @@ export default memo(function StorageBinsTab({
         open={modalOpen}
         onOk={handleModalOk}
         onCancel={() => setModalOpen(false)}
+        centered
         confirmLoading={submitting}
         okText={isView ? '关闭' : '保存'}
         cancelText="取消"
@@ -770,6 +771,7 @@ export default memo(function StorageBinsTab({
         cancelButtonProps={isView ? { children: '关闭' } : undefined}
         destroyOnClose
         width={640}
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         <Form form={form} layout="vertical" disabled={isView} onValuesChange={refreshBinPreview}>
           <Form.Item

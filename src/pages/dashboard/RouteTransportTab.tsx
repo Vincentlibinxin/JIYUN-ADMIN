@@ -505,6 +505,39 @@ function CrudResource({
 
   return (
     <Card bodyStyle={{ padding: 0, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }} bordered={false} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      {modalClassName && (
+        <style dangerouslySetInnerHTML={{ __html: `
+          .${modalClassName} .ant-modal-container {
+            padding: 0 !important;
+            overflow: hidden !important;
+            background: #f5f5f5 !important;
+          }
+          .${modalClassName} .ant-modal-header {
+            background: #f5f5f5 !important;
+            margin: 0 !important;
+            padding: 12px 16px !important;
+            border-bottom: 1px solid #e8e8e8 !important;
+          }
+          .${modalClassName} .ant-modal-body {
+            background: #fff !important;
+            padding: 0 !important;
+          }
+          .${modalClassName} .ant-modal-footer {
+            background: #f5f5f5 !important;
+            margin-top: 0 !important;
+            padding: 10px 16px !important;
+            border-top: 1px solid #e8e8e8 !important;
+          }
+          .${modalClassName} .ant-modal-title,
+          .${modalClassName} .ant-modal-close {
+            color: #1f1f1f !important;
+          }
+          .${modalClassName} .ant-modal-close:hover {
+            color: #1f1f1f !important;
+            background: #eaeaea !important;
+          }
+        ` }} />
+      )}
       <div style={{ padding: '6px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
         <div style={{ flex: '0 0 auto', display: 'flex', gap: 8 }}>
           {canCreate && (
@@ -594,17 +627,42 @@ function CrudResource({
         destroyOnClose
         width={modalWidth}
         style={{ maxWidth: 'calc(100vw - 24px)' }}
+        rootClassName={modalClassName}
         className={modalClassName}
-        styles={modalClassName ? { body: { paddingTop: 12, paddingBottom: 8 } } : undefined}
+        styles={modalClassName ? {
+          content: {
+            padding: 0,
+            overflow: 'hidden',
+            background: '#f5f5f5',
+          },
+          header: {
+            background: '#f5f5f5',
+            margin: 0,
+            padding: '12px 16px',
+            borderBottom: '1px solid #e8e8e8',
+          },
+          body: {
+            padding: 0,
+            background: '#fff',
+          },
+          footer: {
+            background: '#f5f5f5',
+            margin: 0,
+            padding: '10px 16px',
+            borderTop: '1px solid #e8e8e8',
+          },
+        } : undefined}
       >
-        <Form form={form} layout="vertical" disabled={isView} className={formClassName}>
-          {showProviderSelect && (
-            <Form.Item name="logistics_provider_id" label="物流商" rules={providerRequired ? [{ required: true, message: '请选择所属物流商' }] : undefined}>
-              <Select allowClear showSearch optionFilterProp="label" placeholder={providerRequired ? '请选择所属物流商' : '请选择物流商（可空）'} options={providerSelectOptions} />
-            </Form.Item>
-          )}
-          {renderForm({ mode: modalMode, form, record: editingRecord })}
-        </Form>
+        <div style={modalClassName ? { padding: '12px 24px 8px' } : undefined}>
+          <Form form={form} layout="vertical" disabled={isView} className={formClassName}>
+            {showProviderSelect && (
+              <Form.Item name="logistics_provider_id" label="物流商" rules={providerRequired ? [{ required: true, message: '请选择所属物流商' }] : undefined}>
+                <Select allowClear showSearch optionFilterProp="label" placeholder={providerRequired ? '请选择所属物流商' : '请选择物流商（可空）'} options={providerSelectOptions} />
+              </Form.Item>
+            )}
+            {renderForm({ mode: modalMode, form, record: editingRecord })}
+          </Form>
+        </div>
       </Modal>
     </Card>
   );
@@ -856,10 +914,12 @@ function RoutesSubTab(props: SubTabProps) {
           setGrantRoute(null);
           setGranteeProviderIds([]);
         }}
+        centered
         confirmLoading={grantSubmitting}
         okText="保存授权"
         cancelText="取消"
         destroyOnClose
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         <div style={{ color: '#8c8c8c', marginBottom: 8 }}>可将该航线授权给其它物流商，授权后对方可在班(航)次管理只读查看该航线下班次，并在提(运)单中关联班次。</div>
         <Select

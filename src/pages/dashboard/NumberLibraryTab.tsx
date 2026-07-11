@@ -273,9 +273,11 @@ function NumbersModal({ open, categoryId, categoryName, canManage, canDelete, on
         title={`单号管理 - ${categoryName}`}
         open={open}
         onCancel={handleClose}
+        centered
         footer={<Button onClick={handleClose}>关闭</Button>}
         width={760}
         destroyOnClose
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           {canManage && (
@@ -348,10 +350,12 @@ function NumbersModal({ open, categoryId, categoryName, canManage, canDelete, on
         open={addOpen}
         onOk={handleAdd}
         onCancel={() => setAddOpen(false)}
+        centered
         confirmLoading={submitting}
         okText="导入"
         cancelText="取消"
         destroyOnClose
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         <p style={{ marginTop: 0, color: '#888' }}>每行一个单号（也支持逗号分隔），重复单号将自动跳过。</p>
         <Input.TextArea

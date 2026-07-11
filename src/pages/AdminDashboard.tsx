@@ -300,8 +300,8 @@ export default function AdminDashboard() {
       setLoadedTabs(prev => new Set([...prev, 'sms']));
     }
     if (activeTab === 'platform-admins' || activeTab === 'logistics-admins') {
+      fetchAdmins();
       if (!loadedTabs.has('admins')) {
-        fetchAdmins();
         setLoadedTabs(prev => new Set([...prev, 'admins']));
       }
     }

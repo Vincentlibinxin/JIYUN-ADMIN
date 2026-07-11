@@ -604,11 +604,13 @@ export default function UsersTab({
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         onOk={modalMode === 'edit' ? handleModalSubmit : () => setModalOpen(false)}
+        centered
         okText={modalMode === 'edit' ? '保存' : '关闭'}
         cancelText="取消"
         confirmLoading={submitting}
         cancelButtonProps={modalMode === 'view' ? { style: { display: 'none' } } : undefined}
         destroyOnClose
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         {activeUser && modalMode === 'view' && (
           <Descriptions column={1} size="small" bordered>

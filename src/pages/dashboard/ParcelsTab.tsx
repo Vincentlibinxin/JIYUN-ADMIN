@@ -986,10 +986,12 @@ export default memo(function ParcelsTab({
           setBatchLogisticsModalOpen(false);
         }}
         onOk={() => void handleBatchAdjustLogistics()}
+        centered
         confirmLoading={batchAdjustLoading}
         okText="确认修改"
         cancelText="取消"
         okButtonProps={{ disabled: !batchLogisticsProviderId }}
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         <Form layout="vertical">
           <Form.Item label="目标物流商" required>
@@ -1011,9 +1013,11 @@ export default memo(function ParcelsTab({
         open={inboundOpen}
         onCancel={() => { setInboundOpen(false); inboundForm.resetFields(); setFileList([]); }}
         onOk={handleInboundSubmit}
+        centered
         confirmLoading={inboundLoading}
         okText="确认入库"
         cancelText="取消"
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         <Form form={inboundForm} layout="vertical" autoComplete="off">
           <Form.Item name="tracking_number" label="包裹单号" rules={[{ required: true, message: '请输入包裹单号' }]}>
@@ -1101,12 +1105,14 @@ export default memo(function ParcelsTab({
         open={editOpen}
         onCancel={() => { setEditOpen(false); editForm.resetFields(); setEditFileList([]); setEditingParcel(null); }}
         onOk={handleEditSubmit}
+        centered
         confirmLoading={editLoading}
         okText="保存"
         cancelText="取消"
         width={720}
         styles={{ body: { paddingTop: 12, paddingBottom: 8 } }}
         className="parcel-edit-modal"
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         <Form form={editForm} layout="vertical" autoComplete="off" size="small" className="compact-form">
           <Row gutter={8}>
@@ -1337,9 +1343,11 @@ export default memo(function ParcelsTab({
         title="包裹状态流转日志"
         open={logsOpen}
         onCancel={() => setLogsOpen(false)}
+        centered
         footer={null}
         width={1000}
         destroyOnClose
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           <Input.Search
