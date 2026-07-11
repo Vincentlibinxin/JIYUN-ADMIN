@@ -598,6 +598,8 @@ export default function ParcelStatusTab({ canCreate, canUpdate, canDelete, refre
       <Modal
         title={modalMode === 'create' ? '新增包裹状态' : '编辑包裹状态'}
         open={modalOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
         onCancel={() => setModalOpen(false)}
         onOk={handleSubmit}
         centered

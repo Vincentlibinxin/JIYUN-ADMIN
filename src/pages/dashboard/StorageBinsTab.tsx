@@ -761,6 +761,8 @@ export default memo(function StorageBinsTab({
       <Modal
         title={modalTitle}
         open={modalOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
         onOk={handleModalOk}
         onCancel={() => setModalOpen(false)}
         centered

@@ -272,6 +272,8 @@ function NumbersModal({ open, categoryId, categoryName, canManage, canDelete, on
       <Modal
         title={`单号管理 - ${categoryName}`}
         open={open}
+        rootClassName="detail-modal"
+        className="detail-modal"
         onCancel={handleClose}
         centered
         footer={<Button onClick={handleClose}>关闭</Button>}
@@ -348,6 +350,8 @@ function NumbersModal({ open, categoryId, categoryName, canManage, canDelete, on
       <Modal
         title="导入单号"
         open={addOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
         onOk={handleAdd}
         onCancel={() => setAddOpen(false)}
         centered
@@ -905,6 +909,8 @@ export default function NumberLibraryTab({
       <Modal
         title={modalTitle}
         open={modalOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
         onOk={handleModalOk}
         onCancel={() => setModalOpen(false)}
         confirmLoading={submitting}

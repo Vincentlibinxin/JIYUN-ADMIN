@@ -740,6 +740,8 @@ export default memo(function AddressBookTab({
       <Modal
         title={modalTitle}
         open={modalOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
         onOk={handleModalOk}
         onCancel={() => setModalOpen(false)}
         centered

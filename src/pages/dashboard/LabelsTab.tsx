@@ -666,6 +666,8 @@ export default function LabelsTab({ canCreate, canUpdate, canDelete, refreshKey 
       <Modal
         title={modalMode === 'create' ? '新增标签' : '编辑标签'}
         open={modalOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
         onCancel={() => setModalOpen(false)}
         onOk={handleSubmit}
         centered
@@ -733,6 +735,8 @@ export default function LabelsTab({ canCreate, canUpdate, canDelete, refreshKey 
       <Modal
         title={`预览：${previewTitle}`}
         open={previewOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
         onCancel={() => setPreviewOpen(false)}
         centered
         width={560}

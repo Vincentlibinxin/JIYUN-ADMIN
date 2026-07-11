@@ -418,6 +418,7 @@ function CrudResource({
 
   const isView = modalMode === 'view';
   const modalTitle = modalMode === 'create' ? `新增${entityName}` : modalMode === 'edit' ? `修改${entityName}` : `查看${entityName}`;
+  const mergedModalClassName = modalClassName ? `detail-modal ${modalClassName}` : 'detail-modal';
 
   const columns: ColumnsType<any> = useMemo(() => {
     const indexCol: any = {
@@ -627,8 +628,8 @@ function CrudResource({
         destroyOnClose
         width={modalWidth}
         style={{ maxWidth: 'calc(100vw - 24px)' }}
-        rootClassName={modalClassName}
-        className={modalClassName}
+        rootClassName={mergedModalClassName}
+        className={mergedModalClassName}
         styles={modalClassName ? {
           content: {
             padding: 0,
@@ -908,6 +909,8 @@ function RoutesSubTab(props: SubTabProps) {
       <Modal
         title={grantRoute ? `航线代理授权 - ${grantRoute.route_name}` : '航线代理授权'}
         open={grantModalOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
         onOk={handleGrantSave}
         onCancel={() => {
           setGrantModalOpen(false);
@@ -1272,14 +1275,17 @@ function BillsSubTab(props: SubTabProps) {
   const containerAutoOptions = containerOptions.map((c) => ({ value: c.container_no, label: `${c.container_no}（${c.container_type}）` }));
   const cargoStatusSelectOptions = cargoStatusOptions.map((s) => ({ label: s.status_name, value: s.status_code }));
   const compactGap = 8;
-  const compactFlexWideStyle = { flex: 1, minWidth: 220, marginBottom: 8 } as const;
-  const compactFlexNarrowStyle = { flex: 1, minWidth: 140, marginBottom: 8 } as const;
   const compactItemStyle = { marginBottom: 8 } as const;
-  const shippingBillSectionStyle = { marginBottom: 12, padding: '10px 12px', border: '1px solid #f0f0f0', borderRadius: 8, background: '#fafafa' } as const;
-  const shippingBillSectionTitleStyle = { marginBottom: 8, fontSize: 13, fontWeight: 600, color: '#262626' } as const;
-  const shippingBillTwoColumnGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: compactGap } as const;
-  const shippingBillThreeColumnGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: compactGap } as const;
-  const shippingBillContainerListStyle = { maxHeight: 168, overflowY: 'auto', paddingRight: 4, marginBottom: 6 } as const;
+  const shippingBillSectionStyle = { marginBottom: 12, padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5' } as const;
+  const shippingBillSectionTitleStyle = { marginBottom: 8, fontSize: 24 / 2, fontWeight: 700, color: '#141414' } as const;
+  const shippingBillTopGridStyle = { display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)', gap: 8, marginBottom: 12 } as const;
+  const shippingBillBottomGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 8 } as const;
+  const shippingBillBaseGridStyle = { display: 'grid', gridTemplateColumns: '72px minmax(0, 1fr)', columnGap: 6, rowGap: 6, alignItems: 'center' } as const;
+  const shippingBillPortsRowStyle = { display: 'grid', gridTemplateColumns: '72px minmax(0, 1fr) 46px minmax(0, 1fr)', columnGap: 6, alignItems: 'center' } as const;
+  const shippingBillFieldLabelStyle = { textAlign: 'right', whiteSpace: 'nowrap' } as const;
+  const shippingBillPartyGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: compactGap } as const;
+  const shippingBillCargoMetricGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: compactGap } as const;
+  const shippingBillContainerListStyle = { minHeight: 220, maxHeight: 260, overflowY: 'auto', paddingRight: 4, marginBottom: 6 } as const;
   const defaultCargoStatusCode = useMemo(() => {
     const hit = cargoStatusOptions.find((s) => String(s.status_name || '').trim() === '待入库');
     return hit?.status_code || null;
@@ -1313,12 +1319,25 @@ function BillsSubTab(props: SubTabProps) {
   const columns: CrudColumn[] = [
     {
       key: 'bl_no', title: '提单/班次信息', width: 260, searchable: true,
-      render: (_v, record) => renderLabeledFields([
-        { label: '提(运)单ID', value: record.shipping_bill_id || '—' },
-        { label: '提单号', value: record.bl_no || '—' },
-        { label: '班(航)名称', value: record.voyage_name || '—' },
-        { label: '货物状态', value: record.cargo_status ? <Tag color="processing">{cargoStatusMap[record.cargo_status] || record.cargo_status}</Tag> : '—' },
-      ]),
+      render: (_v, record) => {
+        const rows: Array<{ label: string; value: ReactNode }> = [
+          { label: '提(运)单ID', value: record.shipping_bill_id || '—' },
+          { label: '提单号', value: record.bl_no || '—' },
+          { label: '班(航)名称', value: record.voyage_name || '—' },
+        ];
+        const isAgentView = props.actorScope === 'logistics' && isNonOwnedVoyageBill(record);
+        const canViewAgentName = props.actorScope === 'logistics' && !isAgentView;
+        if (isAgentView) {
+          rows.push({ label: '航线运营人', value: record.voyage_logistics_provider_name || (record.voyage_logistics_provider_id ? `物流商#${record.voyage_logistics_provider_id}` : '—') });
+        } else if (canViewAgentName) {
+          rows.push({ label: '代理名称', value: record.logistics_provider_name || (record.logistics_provider_id ? `物流商#${record.logistics_provider_id}` : '—') });
+        }
+        rows.push({
+          label: '货物状态',
+          value: record.cargo_status ? <Tag color="processing">{cargoStatusMap[record.cargo_status] || record.cargo_status}</Tag> : '—',
+        });
+        return renderLabeledFields(rows);
+      },
     },
     {
       key: 'description', title: '备注', width: 240, searchable: true, ellipsis: false,
@@ -1393,163 +1412,179 @@ function BillsSubTab(props: SubTabProps) {
           {isLimitedMode && (
             <div style={{ marginBottom: 8, color: '#8c8c8c' }}>非自有航线提(运)单可编辑：班(航)次、起运港、目的港、发货人、收货人、通知人、件数、重量、体积、交货地、唛头、备注。</div>
           )}
-          <div style={shippingBillSectionStyle}>
-            <div style={shippingBillSectionTitleStyle}>基础信息</div>
-            <Form.Item name="voyage_id" label="关联班(航)次" rules={[{ required: true, message: '请选择关联班(航)次' }]} style={compactItemStyle}>
-              <Select
-                allowClear showSearch optionFilterProp="searchText"
-                placeholder="请选择关联班(航)次"
-                options={voyageSelectOptions}
-                onChange={(val) => {
-                  const v = voyageOptions.find((o) => o.id === val);
-                  const depPorts = parsePorts(v?.departure_port);
-                  const destPorts = parsePorts(v?.destination_port);
-                  setDeparturePortOptions(buildPortOptions(depPorts));
-                  setDestinationPortOptions(buildPortOptions(destPorts));
-                  if (v) {
-                    form.setFieldsValue({
-                      departure_port: depPorts[0] || '',
-                      destination_port: destPorts[0] || '',
-                    });
-                  }
-                }}
-              />
-            </Form.Item>
-            <div style={shippingBillTwoColumnGridStyle}>
-              <Form.Item name="departure_port" label="起运港" rules={[{ required: true, message: '请选择起运港' }]} style={compactItemStyle}>
-                <Select placeholder="请选择起运港" options={departurePortOptions} />
-              </Form.Item>
-              <Form.Item name="destination_port" label="目的港" rules={[{ required: true, message: '请选择目的港' }]} style={compactItemStyle}>
-                <Select placeholder="请选择目的港" options={destinationPortOptions} />
-              </Form.Item>
-              <Form.Item name="shipping_bill_id" label="提(运)单ID" style={compactItemStyle}>
-                <Input disabled placeholder="保存后自动生成" maxLength={12} />
-              </Form.Item>
-              <Form.Item name="bl_no" label="提单号" style={compactItemStyle}>
-                <Input disabled={isLimitedMode} placeholder="请输入提单号（选填）" maxLength={64} />
+          <div className="shipping-bill-top-grid" style={shippingBillTopGridStyle}>
+            <div style={{ ...shippingBillSectionStyle, marginBottom: 0 }}>
+              <div style={shippingBillSectionTitleStyle}>基础信息</div>
+              <div style={shippingBillBaseGridStyle}>
+                <div style={shippingBillFieldLabelStyle}>班(航)次</div>
+                <Form.Item name="voyage_id" rules={[{ required: true, message: '请选择关联班(航)次' }]} style={compactItemStyle}>
+                  <Select
+                    allowClear showSearch optionFilterProp="searchText"
+                    placeholder="请选择关联班(航)次"
+                    options={voyageSelectOptions}
+                    onChange={(val) => {
+                      const v = voyageOptions.find((o) => o.id === val);
+                      const depPorts = parsePorts(v?.departure_port);
+                      const destPorts = parsePorts(v?.destination_port);
+                      setDeparturePortOptions(buildPortOptions(depPorts));
+                      setDestinationPortOptions(buildPortOptions(destPorts));
+                      if (v) {
+                        form.setFieldsValue({
+                          departure_port: depPorts[0] || '',
+                          destination_port: destPorts[0] || '',
+                        });
+                      }
+                    }}
+                  />
+                </Form.Item>
+
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <div style={shippingBillPortsRowStyle}>
+                    <span style={shippingBillFieldLabelStyle}>启运港</span>
+                    <Form.Item name="departure_port" rules={[{ required: true, message: '请选择起运港' }]} style={compactItemStyle}>
+                      <Select placeholder="请选择起运港" options={departurePortOptions} />
+                    </Form.Item>
+                    <span style={shippingBillFieldLabelStyle}>目的港</span>
+                    <Form.Item name="destination_port" rules={[{ required: true, message: '请选择目的港' }]} style={compactItemStyle}>
+                      <Select placeholder="请选择目的港" options={destinationPortOptions} />
+                    </Form.Item>
+                  </div>
+                </div>
+
+                <div style={shippingBillFieldLabelStyle}>提(运)单ID</div>
+                <Form.Item name="shipping_bill_id" style={compactItemStyle}>
+                  <Input disabled placeholder="保存后自动生成" maxLength={12} />
+                </Form.Item>
+
+                <div style={shippingBillFieldLabelStyle}>提单号</div>
+                <Form.Item name="bl_no" style={compactItemStyle}>
+                  <Input disabled={isLimitedMode} placeholder="请输入提单号（选填）" maxLength={64} />
+                </Form.Item>
+
+                <div style={shippingBillFieldLabelStyle}>货物状态</div>
+                <Form.Item name="cargo_status" style={{ marginBottom: 0 }}>
+                  <Select disabled={isLimitedMode} allowClear showSearch optionFilterProp="label" placeholder="请选择货物状态（货物态）" options={cargoStatusSelectOptions} />
+                </Form.Item>
+              </div>
+            </div>
+
+            <div style={{ ...shippingBillSectionStyle, marginBottom: 0 }}>
+              <div style={shippingBillSectionTitleStyle}>备注</div>
+              <Form.Item
+                name="description"
+                style={{ marginBottom: 0 }}
+              >
+                <Input.TextArea rows={10} maxLength={255} placeholder="备注" />
               </Form.Item>
             </div>
           </div>
 
-          <div style={shippingBillSectionStyle}>
-            <div style={shippingBillSectionTitleStyle}>参与方信息</div>
-            <div style={shippingBillTwoColumnGridStyle}>
+          <div style={{ ...shippingBillSectionStyle, gridColumn: '1 / -1' }}>
+            <div style={shippingBillSectionTitleStyle}>收发货人信息</div>
+            <div style={shippingBillPartyGridStyle}>
               <Form.Item name="shipper" label="发货人" style={compactItemStyle}>
-                <Input.TextArea rows={2} maxLength={255} placeholder="请输入发货人" />
+                <Input.TextArea rows={7} maxLength={255} placeholder="请输入发货人信息" />
               </Form.Item>
               <Form.Item name="consignee" label="收货人" style={compactItemStyle}>
-                <Input.TextArea rows={2} maxLength={255} placeholder="请输入收货人" />
+                <Input.TextArea rows={7} maxLength={255} placeholder="请输入收货人信息" />
               </Form.Item>
               <Form.Item name="notify_party" label="通知人" style={compactItemStyle}>
-                <Input.TextArea rows={2} maxLength={255} placeholder="请输入通知人" />
+                <Input.TextArea rows={7} maxLength={255} placeholder="请输入通知人信息" />
               </Form.Item>
             </div>
           </div>
 
-          <div style={shippingBillSectionStyle}>
-            <Form.List name="container_bindings" initialValue={[]}>
-              {(fields, { add, remove }) => (
-                <>
-                  <div style={shippingBillSectionTitleStyle}>集装箱绑定</div>
-                  <div style={shippingBillContainerListStyle}>
-                    {fields.map(({ key, name, ...restField }) => (
-                      <div key={key} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) 20px', gap: 8, alignItems: 'start', marginBottom: 6 }}>
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'container_no']}
-                          dependencies={['container_bindings']}
-                          rules={[
-                            ({ getFieldValue }) => ({
-                              validator(_, value) {
-                                const current = String(value ?? '').trim();
-                                if (!current) return Promise.resolve();
-                                const currentKey = current.toUpperCase();
-                                const bindings = Array.isArray(getFieldValue('container_bindings')) ? getFieldValue('container_bindings') : [];
-                                const hasDuplicate = bindings.some((row: any, idx: number) => (
-                                  idx !== Number(name) && String(row?.container_no ?? '').trim().toUpperCase() === currentKey
-                                ));
-                                if (hasDuplicate) return Promise.reject(new Error('同一个提(运)单内集装箱号不能重复'));
-                                return Promise.resolve();
-                              },
-                            }),
-                          ]}
-                          style={{ marginBottom: 0 }}
-                        >
-                          <AutoComplete
-                            disabled={isLimitedMode}
-                            allowClear
-                            options={containerAutoOptions}
-                            placeholder="可自定义或从启用集装箱中选择"
-                            filterOption={(input, option) => String(option?.value ?? '').toUpperCase().includes(input.toUpperCase())}
+          <div style={shippingBillBottomGridStyle}>
+            <div style={{ ...shippingBillSectionStyle, marginBottom: 0 }}>
+              <Form.List name="container_bindings" initialValue={[]}>
+                {(fields, { add, remove }) => (
+                  <>
+                    <div style={{ ...shippingBillSectionTitleStyle, marginBottom: 12 }}>集装箱信息</div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                      <Button
+                        type="dashed"
+                        disabled={isLimitedMode}
+                        onClick={() => add({ container_no: '', seal_no: '' })}
+                        icon={<PlusOutlined />}
+                      >
+                        添加集装箱
+                      </Button>
+                    </div>
+                    <div style={shippingBillContainerListStyle}>
+                      {fields.map(({ key, name, ...restField }) => (
+                        <div key={key} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) 20px', gap: 8, alignItems: 'start', marginBottom: 6 }}>
+                          <Form.Item
+                            {...restField}
+                            name={[name, 'container_no']}
+                            dependencies={['container_bindings']}
+                            rules={[
+                              ({ getFieldValue }) => ({
+                                validator(_, value) {
+                                  const current = String(value ?? '').trim();
+                                  if (!current) return Promise.resolve();
+                                  const currentKey = current.toUpperCase();
+                                  const bindings = Array.isArray(getFieldValue('container_bindings')) ? getFieldValue('container_bindings') : [];
+                                  const hasDuplicate = bindings.some((row: any, idx: number) => (
+                                    idx !== Number(name) && String(row?.container_no ?? '').trim().toUpperCase() === currentKey
+                                  ));
+                                  if (hasDuplicate) return Promise.reject(new Error('同一个提(运)单内集装箱号不能重复'));
+                                  return Promise.resolve();
+                                },
+                              }),
+                            ]}
+                            style={{ marginBottom: 0 }}
+                          >
+                            <AutoComplete
+                              disabled={isLimitedMode}
+                              allowClear
+                              options={containerAutoOptions}
+                              placeholder="输入/选择集装箱号"
+                              filterOption={(input, option) => String(option?.value ?? '').toUpperCase().includes(input.toUpperCase())}
+                            />
+                          </Form.Item>
+                          <Form.Item
+                            {...restField}
+                            name={[name, 'seal_no']}
+                            style={{ marginBottom: 0 }}
+                          >
+                            <Input disabled={isLimitedMode} placeholder="输入封条号" maxLength={64} />
+                          </Form.Item>
+                          <MinusCircleOutlined
+                            style={{ marginTop: 9, color: '#ff4d4f', fontSize: 16 }}
+                            onClick={() => { if (!isLimitedMode) remove(name); }}
                           />
-                        </Form.Item>
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'seal_no']}
-                          style={{ marginBottom: 0 }}
-                        >
-                          <Input disabled={isLimitedMode} placeholder="请输入封条号（选填）" maxLength={64} />
-                        </Form.Item>
-                        <MinusCircleOutlined
-                          style={{ marginTop: 9, color: '#ff4d4f', fontSize: 16 }}
-                          onClick={() => { if (!isLimitedMode) remove(name); }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <Button
-                    type="dashed"
-                    disabled={isLimitedMode}
-                    onClick={() => add({ container_no: '', seal_no: '' })}
-                    block
-                    icon={<PlusOutlined />}
-                  >
-                    添加集装箱
-                  </Button>
-                </>
-              )}
-            </Form.List>
-          </div>
-
-          <div style={shippingBillSectionStyle}>
-            <div style={shippingBillSectionTitleStyle}>货物信息</div>
-            <div style={shippingBillThreeColumnGridStyle}>
-              <Form.Item name="package_count" label="件数" style={compactItemStyle}>
-                <InputNumber min={0} precision={0} style={{ width: '100%' }} placeholder="件数" />
-              </Form.Item>
-              <Form.Item name="weight" label="重量" style={compactItemStyle}>
-                <InputNumber min={0} style={{ width: '100%' }} placeholder="重量" />
-              </Form.Item>
-              <Form.Item name="volume" label="体积" style={compactItemStyle}>
-                <InputNumber min={0} style={{ width: '100%' }} placeholder="体积" />
-              </Form.Item>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </Form.List>
             </div>
-            <div style={shippingBillTwoColumnGridStyle}>
+
+            <div style={{ ...shippingBillSectionStyle, marginBottom: 0 }}>
+              <div style={shippingBillSectionTitleStyle}>货物信息</div>
+              <div style={shippingBillCargoMetricGridStyle}>
+                <Form.Item name="package_count" label="件数" style={compactItemStyle}>
+                  <InputNumber min={0} precision={0} style={{ width: '100%' }} placeholder="件数" />
+                </Form.Item>
+                <Form.Item name="weight" label="重量" style={compactItemStyle}>
+                  <InputNumber min={0} style={{ width: '100%' }} placeholder="重量" />
+                </Form.Item>
+                <Form.Item name="volume" label="体积" style={compactItemStyle}>
+                  <InputNumber min={0} style={{ width: '100%' }} placeholder="体积" />
+                </Form.Item>
+              </div>
               <Form.Item name="delivery_place" label="交货地" style={compactItemStyle}>
                 <Input placeholder="请输入交货地（选填）" maxLength={128} />
               </Form.Item>
-              <Form.Item name="cargo_status" label="货物状态" style={compactItemStyle}>
-                <Select disabled={isLimitedMode} allowClear showSearch optionFilterProp="label" placeholder="请选择货物状态（货物态）" options={cargoStatusSelectOptions} />
+              <Form.Item
+                name="marks"
+                label={<TextareaLabelWithCount form={form} name="marks" label="唛头" max={255} />}
+                style={compactItemStyle}
+              >
+                <Input.TextArea rows={7} maxLength={255} placeholder="唛头（选填）" />
               </Form.Item>
             </div>
-            <Form.Item
-              name="marks"
-              label={<TextareaLabelWithCount form={form} name="marks" label="唛头" max={255} />}
-              style={{ marginBottom: 0 }}
-            >
-              <Input.TextArea rows={2} maxLength={255} placeholder="唛头（选填）" />
-            </Form.Item>
-          </div>
-
-          <div style={{ ...shippingBillSectionStyle, marginBottom: 0 }}>
-            <div style={shippingBillSectionTitleStyle}>备注</div>
-            <Form.Item
-              name="description"
-              label={<TextareaLabelWithCount form={form} name="description" label="备注" max={255} />}
-              style={{ marginBottom: 0 }}
-            >
-              <Input.TextArea rows={2} maxLength={255} placeholder="备注" />
-            </Form.Item>
           </div>
         </>
       );

@@ -827,6 +827,8 @@ export default memo(function AdminsTab({
           ? (scope === 'platform' ? '新增平台管理员' : scope === 'logistics' ? '新增物流商管理员' : '新增管理员')
           : modalMode === 'edit' ? '修改管理员' : '管理员详情'}
         open={modalOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
         onCancel={() => setModalOpen(false)}
         onOk={modalMode === 'view' ? () => setModalOpen(false) : handleSubmit}
         centered

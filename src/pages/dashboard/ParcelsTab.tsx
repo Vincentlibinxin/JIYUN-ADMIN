@@ -981,6 +981,8 @@ export default memo(function ParcelsTab({
       <Modal
         title="批量修改物流商"
         open={batchLogisticsModalOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
         onCancel={() => {
           if (batchAdjustLoading) return;
           setBatchLogisticsModalOpen(false);
@@ -1011,6 +1013,8 @@ export default memo(function ParcelsTab({
       <Modal
         title="包裹入库"
         open={inboundOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
         onCancel={() => { setInboundOpen(false); inboundForm.resetFields(); setFileList([]); }}
         onOk={handleInboundSubmit}
         centered
@@ -1103,6 +1107,8 @@ export default memo(function ParcelsTab({
       <Modal
         title="编辑包裹"
         open={editOpen}
+        rootClassName="detail-modal"
+        className="detail-modal parcel-edit-modal"
         onCancel={() => { setEditOpen(false); editForm.resetFields(); setEditFileList([]); setEditingParcel(null); }}
         onOk={handleEditSubmit}
         centered
@@ -1111,7 +1117,6 @@ export default memo(function ParcelsTab({
         cancelText="取消"
         width={720}
         styles={{ body: { paddingTop: 12, paddingBottom: 8 } }}
-        className="parcel-edit-modal"
         style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         <Form form={editForm} layout="vertical" autoComplete="off" size="small" className="compact-form">
@@ -1342,6 +1347,8 @@ export default memo(function ParcelsTab({
       <Modal
         title="包裹状态流转日志"
         open={logsOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
         onCancel={() => setLogsOpen(false)}
         centered
         footer={null}

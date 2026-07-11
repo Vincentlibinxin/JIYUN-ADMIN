@@ -777,6 +777,8 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
       <Modal
         title={modalMode === 'create' ? '新增角色' : isSuperAdminEditing ? '查看角色（超级管理员）' : '编辑角色'}
         open={modalOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
         onCancel={() => setModalOpen(false)}
         onOk={handleSubmit}
         centered

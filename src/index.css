@@ -150,6 +150,43 @@ main form details {
   max-width: calc(100vw - 24px) !important;
 }
 
+.detail-modal .ant-modal-container,
+.ant-modal.detail-modal .ant-modal-container,
+.detail-modal.ant-modal .ant-modal-container {
+  background: #f5f5f5 !important;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.detail-modal .ant-modal-header {
+  background: #f5f5f5 !important;
+  margin: 0 !important;
+  padding: 12px 16px !important;
+  border-bottom: 1px solid #e8e8e8 !important;
+}
+
+.detail-modal .ant-modal-body {
+  background: #fff !important;
+  padding: 12px 24px 8px;
+}
+
+.detail-modal .ant-modal-footer {
+  background: #f5f5f5 !important;
+  margin-top: 0 !important;
+  padding: 10px 16px !important;
+  border-top: 1px solid #e8e8e8 !important;
+}
+
+.detail-modal .ant-modal-title,
+.detail-modal .ant-modal-close {
+  color: #1f1f1f !important;
+}
+
+.detail-modal .ant-modal-close:hover {
+  color: #1f1f1f !important;
+  background: #eaeaea !important;
+}
+
 .shipping-bill-modal .ant-modal-container,
 .ant-modal.shipping-bill-modal .ant-modal-container,
 .shipping-bill-modal.ant-modal .ant-modal-container {
@@ -189,4 +226,10 @@ main form details {
 .shipping-bill-modal .ant-modal-close:hover {
   color: #1f1f1f !important;
   background: #eaeaea !important;
+}
+
+@media (max-width: 991px) {
+  .shipping-bill-modal .shipping-bill-top-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
 }

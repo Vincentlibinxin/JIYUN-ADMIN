@@ -602,6 +602,8 @@ export default function UsersTab({
       <Modal
         title={modalMode === 'view' ? '会员详情' : '修改会员物流商'}
         open={modalOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
         onCancel={() => setModalOpen(false)}
         onOk={modalMode === 'edit' ? handleModalSubmit : () => setModalOpen(false)}
         centered

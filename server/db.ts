@@ -4300,10 +4300,12 @@ export const getShippingBillsPaged = async (
         b.container_no, b.seal_no, b.container_bindings_json, b.package_count, b.weight, b.volume, b.marks, b.voyage_id, b.cargo_status,
             b.description, b.logistics_provider_id, b.created_at, b.updated_at,
         lp.name AS logistics_provider_name, v.voyage_name AS voyage_name,
-        v.logistics_provider_id AS voyage_logistics_provider_id
+        v.logistics_provider_id AS voyage_logistics_provider_id,
+        vlp.name AS voyage_logistics_provider_name
      FROM shipping_bills b
      LEFT JOIN logistics_providers lp ON b.logistics_provider_id = lp.id
      LEFT JOIN shipping_voyages v ON b.voyage_id = v.id
+     LEFT JOIN logistics_providers vlp ON v.logistics_provider_id = vlp.id
      ${whereSql}
      ORDER BY ${orderBy}
      LIMIT ${safeLimit} OFFSET ${offset}`,
@@ -4346,10 +4348,12 @@ export const searchShippingBills = async (keyword: string, providerFilter?: numb
           b.container_no, b.seal_no, b.container_bindings_json, b.package_count, b.weight, b.volume, b.marks, b.voyage_id, b.cargo_status,
             b.description, b.logistics_provider_id, b.created_at, b.updated_at,
           lp.name AS logistics_provider_name, v.voyage_name AS voyage_name,
-          v.logistics_provider_id AS voyage_logistics_provider_id
+          v.logistics_provider_id AS voyage_logistics_provider_id,
+          vlp.name AS voyage_logistics_provider_name
      FROM shipping_bills b
      LEFT JOIN logistics_providers lp ON b.logistics_provider_id = lp.id
      LEFT JOIN shipping_voyages v ON b.voyage_id = v.id
+     LEFT JOIN logistics_providers vlp ON v.logistics_provider_id = vlp.id
      WHERE ${clauses.join(' AND ')}
      ORDER BY b.created_at DESC`,
     params
