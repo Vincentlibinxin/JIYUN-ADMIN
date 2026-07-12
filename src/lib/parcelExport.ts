@@ -1,6 +1,3 @@
-import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
-
 export interface ExportParcelRow {
   id: number;
   tracking_number?: string | null;
@@ -60,6 +57,16 @@ function expandRowsByItems(parcels: ExportParcelRow[]): Array<ExportParcelRow & 
 // Data rows start from row 3.
 
 export async function exportParcelsToTemplate(parcels: ExportParcelRow[], templateUrl = '/运单模板.xlsx') {
+  const [excelModule, fileSaverModule] = await Promise.all([
+    import('exceljs'),
+    import('file-saver'),
+  ]);
+  const ExcelJS = (excelModule as any).default ?? excelModule;
+  const saveAs =
+    (fileSaverModule as any).saveAs ??
+    (fileSaverModule as any).default?.saveAs ??
+    (fileSaverModule as any).default;
+
   const resp = await fetch(templateUrl);
   if (!resp.ok) throw new Error('加载模板失败');
   const buf = await resp.arrayBuffer();

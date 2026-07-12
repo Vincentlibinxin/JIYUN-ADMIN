@@ -20,7 +20,6 @@ import RouteTransportTab from './dashboard/RouteTransportTab';
 import RolesTab from './dashboard/RolesTab';
 import ParcelStatusTab from './dashboard/ParcelStatusTab';
 import LabelsTab from './dashboard/LabelsTab';
-import { exportParcelsToTemplate } from '../lib/parcelExport';
 
 interface User {
   id: number;
@@ -1428,6 +1427,11 @@ export default function AdminDashboard() {
 
   const handleExportParcels = async (selectedIds: number[] = []) => {
     try {
+      const exportRowsToTemplate = async (rows: any[]) => {
+        const { exportParcelsToTemplate } = await import('../lib/parcelExport');
+        await exportParcelsToTemplate(rows);
+      };
+
       const validSelectedIds = Array.from(new Set(selectedIds.map(Number).filter((id) => Number.isInteger(id) && id > 0)));
       const isLoadedAllFilteredRows = parcelTotalItems > 0 && parcels.length > 0 && parcelTotalItems === parcels.length;
       const loadedRows = isLoadedAllFilteredRows
@@ -1439,7 +1443,7 @@ export default function AdminDashboard() {
       if (loadedRows.length > 0) {
         const exportRows = await buildExportRowsFromLoadedParcels(loadedRows as Array<Parcel & { status_remark?: string | null }>);
         if (exportRows.length > 0) {
-          await exportParcelsToTemplate(exportRows);
+          await exportRowsToTemplate(exportRows);
           message.success(`已导出 ${exportRows.length} 条数据`);
           return;
         }
@@ -1472,7 +1476,7 @@ export default function AdminDashboard() {
         message.warning('当前筛选结果为空，无可导出数据');
         return;
       }
-      await exportParcelsToTemplate(rows);
+      await exportRowsToTemplate(rows);
       message.success(`已导出 ${rows.length} 条数据`);
     } catch (err) {
       setError('导出失败');
