@@ -1,4 +1,4 @@
-﻿import { useEffect, useLayoutEffect, useRef, useState, useCallback, memo } from 'react';
+﻿import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
 import { Button, Card, Checkbox, DatePicker, Form, Image, Input, InputNumber, Modal, Pagination as AntPagination, Popconfirm, Row, Col, Select, Space, Table, Tooltip, Upload, Tag } from 'antd';
 import { ReloadOutlined, EyeOutlined, EditOutlined, DeleteOutlined, InboxOutlined, PlusOutlined, MinusCircleOutlined, FileTextOutlined, PictureOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -180,10 +180,13 @@ export default memo(function ParcelsTab({
       } catch { /* ignore */ }
     })();
   }, []);
-  const logisticsSelectOptions = logisticsOptions.map((o) => ({
-    label: o.code ? `${o.name}（${o.code}）` : o.name,
-    value: o.id,
-  }));
+  const logisticsSelectOptions = useMemo(
+    () => logisticsOptions.map((o) => ({
+      label: o.code ? `${o.name}（${o.code}）` : o.name,
+      value: o.id,
+    })),
+    [logisticsOptions]
+  );
 
   // 《包裹状态字典》：货物态/信息态下拉与标签映射均来自字典（启用项）
   const [statusDict, setStatusDict] = useState<{ status_code: string; status_name: string; status_type: string; status_category: string | null }[]>([]);
@@ -200,23 +203,35 @@ export default memo(function ParcelsTab({
       finally { setStatusDictLoading(false); }
     })();
   }, []);
-  const cargoStatusOptions = statusDict
-    .filter((s) => s.status_type === '货物态')
-    .map((s) => ({ label: s.status_name, value: s.status_code }));
-  const infoStatusOptions = statusDict
-    .filter((s) => s.status_type === '信息态')
-    .map((s) => ({ label: s.status_name, value: s.status_code }));
-  const statusNameMap: Record<string, string> = Object.fromEntries(statusDict.map((s) => [s.status_code, s.status_name]));
-  const statusCategoryMap: Record<string, string> = Object.fromEntries(statusDict.map((s) => [s.status_code, s.status_category || '']));
-  const getStatusName = (code: string | null | undefined, emptyText = ''): string => {
+  const cargoStatusOptions = useMemo(
+    () => statusDict
+      .filter((s) => s.status_type === '货物态')
+      .map((s) => ({ label: s.status_name, value: s.status_code })),
+    [statusDict]
+  );
+  const infoStatusOptions = useMemo(
+    () => statusDict
+      .filter((s) => s.status_type === '信息态')
+      .map((s) => ({ label: s.status_name, value: s.status_code })),
+    [statusDict]
+  );
+  const statusNameMap: Record<string, string> = useMemo(
+    () => Object.fromEntries(statusDict.map((s) => [s.status_code, s.status_name])),
+    [statusDict]
+  );
+  const statusCategoryMap: Record<string, string> = useMemo(
+    () => Object.fromEntries(statusDict.map((s) => [s.status_code, s.status_category || ''])),
+    [statusDict]
+  );
+  const getStatusName = useCallback((code: string | null | undefined, emptyText = ''): string => {
     if (!code) return emptyText;
     if (statusDictLoading) return '加载中...';
     return statusNameMap[code] || '未知状态';
-  };
-  const statusColor = (code: string | null): string => {
+  }, [statusDictLoading, statusNameMap]);
+  const statusColor = useCallback((code: string | null): string => {
     if (!code) return 'default';
     return (statusCategoryMap[code] || '').includes('异常') ? 'red' : 'blue';
-  };
+  }, [statusCategoryMap]);
 
   // 《包裹状态快筛栏》：各货物态/信息态下的包裹数量（全量统计，仅未删除包裹）
   const [statusCounts, setStatusCounts] = useState<{ cargo: { code: string; count: number }[]; info: { code: string; count: number }[] }>({ cargo: [], info: [] });
@@ -233,7 +248,7 @@ export default memo(function ParcelsTab({
         }
       } catch { /* ignore */ }
     })();
-  }, [parcels]);
+  }, [refreshKey]);
 
   // 行内图片预览（列表图片列点击时使用）
   const [rowPreviewOpen, setRowPreviewOpen] = useState(false);
@@ -290,7 +305,7 @@ export default memo(function ParcelsTab({
     fetchStatusLogs(1, logsPageSize);
   };
 
-  const logsColumns: ColumnsType<StatusLog> = [
+  const logsColumns: ColumnsType<StatusLog> = useMemo(() => [
     { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 170, render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '' },
     { title: '包裹ID', dataIndex: 'parcel_id', key: 'parcel_id', width: 80 },
     { title: '运单号', dataIndex: 'tracking_number', key: 'tracking_number', width: 160, render: (v: string | null) => v || '' },
@@ -307,10 +322,10 @@ export default memo(function ParcelsTab({
     { title: '信息态', dataIndex: 'sub_status', key: 'sub_status', width: 120, render: (v: string | null) => getStatusName(v, '') },
     { title: '备注', dataIndex: 'remark', key: 'remark', width: 180, ellipsis: true, render: (v: string | null) => v || '' },
     { title: '操作人', dataIndex: 'operator_name', key: 'operator_name', width: 100, render: (v: string | null) => v || '系统' },
-  ];
+  ], [getStatusName, statusColor]);
 
-  const statusLogsTableColumns = constrainTableColumns(logsColumns);
-  const statusLogsTableScrollX = getConstrainedTableScrollX(statusLogsTableColumns);
+  const statusLogsTableColumns = useMemo(() => constrainTableColumns(logsColumns), [logsColumns]);
+  const statusLogsTableScrollX = useMemo(() => getConstrainedTableScrollX(statusLogsTableColumns), [statusLogsTableColumns]);
 
   const handleInboundSubmit = async () => {
     try {
@@ -434,8 +449,11 @@ export default memo(function ParcelsTab({
   };
 
   // 《包裹状态快筛栏》：切换某个货物态/信息态的多选选中态，并触发筛选
-  const parseStatusIn = (key: 'status__in' | 'sub_status__in'): string[] =>
-    (columnFilters[key] || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const parseStatusIn = useCallback(
+    (key: 'status__in' | 'sub_status__in'): string[] =>
+      (columnFilters[key] || '').split(',').map((s) => s.trim()).filter(Boolean),
+    [columnFilters]
+  );
   const selectedCargoStatuses = parseStatusIn('status__in');
   const selectedInfoStatuses = parseStatusIn('sub_status__in');
   const toggleQuickStatus = (key: 'status__in' | 'sub_status__in', code: string) => {
@@ -448,14 +466,14 @@ export default memo(function ParcelsTab({
     cleanFiltersAndNotify(next, dateFilters);
   };
 
-  const resetFilters = () => {
+  const resetFilters = useCallback(() => {
     setColumnFilters({});
     setLocalColumnFilters({});
     setDateFilters({});
     setResetKey((prev) => prev + 1);
     setSelectedRowKeys([]);
     onColumnFilterChange?.({}, {});
-  };
+  }, [onColumnFilterChange]);
 
   useEffect(() => {
     if (refreshKey !== undefined && refreshKey > 0) {
@@ -463,7 +481,7 @@ export default memo(function ParcelsTab({
     }
   }, [refreshKey]);
 
-  const renderSearchInput = (key: string, placeholder: string) => (
+  const renderSearchInput = useCallback((key: string, placeholder: string) => (
     <Input
       size="small"
       placeholder={`搜索 ${placeholder}`}
@@ -478,9 +496,9 @@ export default memo(function ParcelsTab({
       onClick={(e) => e.stopPropagation()}
       allowClear
     />
-  );
+  ), [columnFilters, handleColumnSearch, localColumnFilters]);
 
-  const renderDateRangeInput = (key: string) => (
+  const renderDateRangeInput = useCallback((key: string) => (
     <div onClick={(e) => e.stopPropagation()}>
       <DatePicker.RangePicker
         size="small"
@@ -492,9 +510,9 @@ export default memo(function ParcelsTab({
         allowClear
       />
     </div>
-  );
+  ), [handleDateSearch, resetKey]);
 
-  const renderDeletedFilter = () => (
+  const renderDeletedFilter = useCallback(() => (
     <Select
       size="small"
       value={columnFilters['__deleted__'] || 'not_deleted'}
@@ -507,32 +525,33 @@ export default memo(function ParcelsTab({
         { label: '全部', value: 'all' },
       ]}
     />
-  );
+  ), [columnFilters, handleColumnSearch]);
 
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const [batchLogisticsModalOpen, setBatchLogisticsModalOpen] = useState(false);
   const [batchLogisticsProviderId, setBatchLogisticsProviderId] = useState<number | undefined>(undefined);
   const [batchAdjustLoading, setBatchAdjustLoading] = useState(false);
-  const visibleRowIds = parcels.map((item) => item.id);
-  const selectedVisibleCount = visibleRowIds.filter((id) => selectedRowKeys.includes(id)).length;
+  const selectedRowKeySet = useMemo(() => new Set(selectedRowKeys), [selectedRowKeys]);
+  const visibleRowIds = useMemo(() => parcels.map((item) => item.id), [parcels]);
+  const selectedVisibleCount = useMemo(() => visibleRowIds.filter((id) => selectedRowKeySet.has(id)).length, [selectedRowKeySet, visibleRowIds]);
   const allSelected = visibleRowIds.length > 0 && selectedVisibleCount === visibleRowIds.length;
   const indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleRowIds.length;
 
-  const handleSelectAll = (checked: boolean) => {
+  const handleSelectAll = useCallback((checked: boolean) => {
     if (checked) {
       setSelectedRowKeys(visibleRowIds);
       return;
     }
     setSelectedRowKeys([]);
-  };
+  }, [visibleRowIds]);
 
-  const handleSelectRow = (id: number, checked: boolean) => {
+  const handleSelectRow = useCallback((id: number, checked: boolean) => {
     if (checked) {
       setSelectedRowKeys((prev) => (prev.includes(id) ? prev : [...prev, id]));
       return;
     }
     setSelectedRowKeys((prev) => prev.filter((key) => key !== id));
-  };
+  }, []);
 
   const handleBatchAdjustLogistics = async () => {
     if (!onBatchUpdateLogisticsProvider || selectedRowKeys.length === 0 || !batchLogisticsProviderId) return;
@@ -549,7 +568,7 @@ export default memo(function ParcelsTab({
     }
   };
 
-  const columns: ColumnsType<Parcel> = [
+  const columns: ColumnsType<Parcel> = useMemo(() => [
     {
       title: '序号',
       key: 'index',
@@ -574,7 +593,7 @@ export default memo(function ParcelsTab({
           render: (_, record, index) => (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '8px' }}>
               <Checkbox
-                checked={selectedRowKeys.includes(record.id)}
+                checked={selectedRowKeySet.has(record.id)}
                 onChange={(e) => handleSelectRow(record.id, e.target.checked)}
                 onClick={(e) => e.stopPropagation()}
               />
@@ -858,18 +877,51 @@ export default memo(function ParcelsTab({
         },
       ],
     },
-  ];
+  ], [
+    allSelected,
+    canDelete,
+    canUpdate,
+    canUpdateStatus,
+    cargoStatusOptions,
+    getStatusName,
+    handleSelectAll,
+    handleSelectRow,
+    indeterminate,
+    onDelete,
+    onUpdateStatus,
+    openEditModal,
+    renderDateRangeInput,
+    renderDeletedFilter,
+    renderSearchInput,
+    resetFilters,
+    selectedRowKeySet,
+    sortDirection,
+    sortKey,
+    statusDictLoading,
+  ]);
 
-  const tableColumns = constrainTableColumns(columns);
-  const tableScrollX = getConstrainedTableScrollX(tableColumns);
+  const tableColumns = useMemo(() => constrainTableColumns(columns), [columns]);
+  const tableScrollX = useMemo(() => getConstrainedTableScrollX(tableColumns), [tableColumns]);
 
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
   // 《包裹状态快筛栏》：按状态字典顺序排列已有包裹的货物态/信息态
-  const cargoOrderIndex = new Map(statusDict.filter((s) => s.status_type === '货物态').map((s, i) => [s.status_code, i] as const));
-  const infoOrderIndex = new Map(statusDict.filter((s) => s.status_type === '信息态').map((s, i) => [s.status_code, i] as const));
-  const sortedCargoCounts = [...statusCounts.cargo].sort((a, b) => (cargoOrderIndex.get(a.code) ?? 999) - (cargoOrderIndex.get(b.code) ?? 999));
-  const sortedInfoCounts = [...statusCounts.info].sort((a, b) => (infoOrderIndex.get(a.code) ?? 999) - (infoOrderIndex.get(b.code) ?? 999));
+  const cargoOrderIndex = useMemo(
+    () => new Map(statusDict.filter((s) => s.status_type === '货物态').map((s, i) => [s.status_code, i] as const)),
+    [statusDict]
+  );
+  const infoOrderIndex = useMemo(
+    () => new Map(statusDict.filter((s) => s.status_type === '信息态').map((s, i) => [s.status_code, i] as const)),
+    [statusDict]
+  );
+  const sortedCargoCounts = useMemo(
+    () => [...statusCounts.cargo].sort((a, b) => (cargoOrderIndex.get(a.code) ?? 999) - (cargoOrderIndex.get(b.code) ?? 999)),
+    [cargoOrderIndex, statusCounts.cargo]
+  );
+  const sortedInfoCounts = useMemo(
+    () => [...statusCounts.info].sort((a, b) => (infoOrderIndex.get(a.code) ?? 999) - (infoOrderIndex.get(b.code) ?? 999)),
+    [infoOrderIndex, statusCounts.info]
+  );
   const renderQuickStatusItem = (code: string, count: number, selected: boolean, onClick: () => void) => (
     <div
       key={code}
