@@ -2008,10 +2008,40 @@ export const getParcelsForExport = async (
       OR p.tracking_number LIKE ?
       OR p.origin LIKE ?
       OR p.destination LIKE ?
+      OR CAST(p.weight AS CHAR) LIKE ?
+      OR CONCAT_WS('*', p.length_cm, p.width_cm, p.height_cm) LIKE ?
+      OR CAST(p.volume AS CHAR) LIKE ?
+      OR p.storage_bin LIKE ?
       OR p.status LIKE ?
+      OR p.sub_status LIKE ?
+      OR p.status_remark LIKE ?
+      OR CAST(p.created_at AS CHAR) LIKE ?
       OR u.username LIKE ?
+      OR lp.name LIKE ?
+      OR EXISTS (SELECT 1 FROM parcel_items pi WHERE pi.parcel_id = p.id AND pi.name LIKE ?)
+      OR EXISTS (SELECT 1 FROM parcel_statuses ps WHERE ps.status_code = p.status AND ps.status_name LIKE ?)
+      OR EXISTS (SELECT 1 FROM parcel_statuses ps2 WHERE ps2.status_code = p.sub_status AND ps2.status_name LIKE ?)
     )`);
-    allParams.push(like, like, like, like, like, like, like);
+    allParams.push(
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like
+    );
   }
 
   if (selectedIds && selectedIds.length > 0) {
@@ -2064,6 +2094,7 @@ export const getParcelsForExport = async (
             (SELECT GROUP_CONCAT(pi.quantity SEPARATOR ',') FROM parcel_items pi WHERE pi.parcel_id = p.id) AS item_quantities
      FROM parcels p
      LEFT JOIN users u ON p.user_id = u.id
+     LEFT JOIN logistics_providers lp ON p.logistics_provider_id = lp.id
      ${whereSql}
      ORDER BY ${orderBy}`,
     allParams
@@ -2081,8 +2112,19 @@ export const searchParcels = async (keyword: string, startDate?: string, endDate
     OR p.tracking_number LIKE ?
     OR p.origin LIKE ?
     OR p.destination LIKE ?
+    OR CAST(p.weight AS CHAR) LIKE ?
+    OR CONCAT_WS('*', p.length_cm, p.width_cm, p.height_cm) LIKE ?
+    OR CAST(p.volume AS CHAR) LIKE ?
+    OR p.storage_bin LIKE ?
     OR p.status LIKE ?
+    OR p.sub_status LIKE ?
+    OR p.status_remark LIKE ?
+    OR CAST(p.created_at AS CHAR) LIKE ?
     OR u.username LIKE ?
+    OR lp.name LIKE ?
+    OR EXISTS (SELECT 1 FROM parcel_items pi WHERE pi.parcel_id = p.id AND pi.name LIKE ?)
+    OR EXISTS (SELECT 1 FROM parcel_statuses ps WHERE ps.status_code = p.status AND ps.status_name LIKE ?)
+    OR EXISTS (SELECT 1 FROM parcel_statuses ps2 WHERE ps2.status_code = p.sub_status AND ps2.status_name LIKE ?)
   )`;
   const allClauses = ['p.deleted_at IS NULL', keywordClause, ...clauses];
   const provParams: any[] = [];
@@ -2106,7 +2148,28 @@ export const searchParcels = async (keyword: string, startDate?: string, endDate
      LEFT JOIN logistics_providers lp ON p.logistics_provider_id = lp.id
      ${whereSql}
      ORDER BY p.created_at DESC`,
-    [like, like, like, like, like, like, like, ...params, ...provParams]
+    [
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      ...params,
+      ...provParams,
+    ]
   );
   return rows as any[];
 };

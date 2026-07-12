@@ -1320,18 +1320,17 @@ function BillsSubTab(props: SubTabProps) {
     {
       key: 'bl_no', title: '提单/班次信息', width: 260, searchable: true,
       render: (_v, record) => {
+        const bindings = parseShippingBillContainerBindings(record);
+        const containerNode = bindings.length > 0
+          ? bindings.map((b) => b.container_no).filter(Boolean).join(' / ')
+          : '—';
         const rows: Array<{ label: string; value: ReactNode }> = [
           { label: '提(运)单ID', value: record.shipping_bill_id || '—' },
           { label: '提单号', value: record.bl_no || '—' },
-          { label: '班(航)名称', value: record.voyage_name || '—' },
+          { label: '集装箱', value: containerNode },
         ];
         const isAgentView = props.actorScope === 'logistics' && isNonOwnedVoyageBill(record);
         const canViewAgentName = props.actorScope === 'logistics' && !isAgentView;
-        if (isAgentView) {
-          rows.push({ label: '航线运营人', value: record.voyage_logistics_provider_name || (record.voyage_logistics_provider_id ? `物流商#${record.voyage_logistics_provider_id}` : '—') });
-        } else if (canViewAgentName) {
-          rows.push({ label: '代理名称', value: record.logistics_provider_name || (record.logistics_provider_id ? `物流商#${record.logistics_provider_id}` : '—') });
-        }
         rows.push({
           label: '货物状态',
           value: record.cargo_status ? <Tag color="processing">{cargoStatusMap[record.cargo_status] || record.cargo_status}</Tag> : '—',
@@ -1352,16 +1351,21 @@ function BillsSubTab(props: SubTabProps) {
       ]),
     },
     {
-      key: 'departure_port', title: '港口及箱信息', width: 300, searchable: true,
+      key: 'departure_port', title: '港口信息', width: 300, searchable: true,
       render: (_v, record) => {
-        const bindings = parseShippingBillContainerBindings(record);
-        const containerNode = bindings.length > 0
-          ? bindings.map((b) => b.container_no).filter(Boolean).join(' / ')
-          : '—';
+        const isAgentView = props.actorScope === 'logistics' && isNonOwnedVoyageBill(record);
+        const canViewAgentName = props.actorScope === 'logistics' && !isAgentView;
+        const operatorNode = isAgentView
+          ? (record.voyage_logistics_provider_name || (record.voyage_logistics_provider_id ? `物流商#${record.voyage_logistics_provider_id}` : '—'))
+          : (canViewAgentName
+            ? (record.logistics_provider_name || (record.logistics_provider_id ? `物流商#${record.logistics_provider_id}` : '—'))
+            : '—');
+        const operatorLabel = canViewAgentName ? '代理' : '航线运营人';
         return renderLabeledFields([
           { label: '起运港', value: record.departure_port || '—' },
           { label: '目的港', value: record.destination_port || '—' },
-          { label: '集装箱', value: containerNode },
+          { label: '班(航)名称', value: record.voyage_name || '—' },
+          { label: operatorLabel, value: operatorNode },
         ]);
       },
     },

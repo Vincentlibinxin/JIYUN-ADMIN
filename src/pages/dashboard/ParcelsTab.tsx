@@ -991,7 +991,7 @@ export default memo(function ParcelsTab({
               if (!val) onReset();
             }}
             onSearch={onSearch}
-            placeholder="搜索包裹：包裹单号、来源、目的地、用户名或状态"
+            placeholder="综合搜索：覆盖当前表格全部列信息"
             style={{ width: 420 }}
             enterButton
           />
