@@ -2711,6 +2711,24 @@ export const batchUpdateParcelsLogisticsProvider = async (
   return result.affectedRows;
 };
 
+export const batchUpdateParcelsCargoStatus = async (
+  ids: number[],
+  targetStatus: string,
+  actorLogisticsProviderId?: number | null
+): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const provClause = (actorLogisticsProviderId !== undefined && actorLogisticsProviderId !== null) ? ' AND logistics_provider_id = ?' : '';
+  const provParams = provClause ? [actorLogisticsProviderId] : [];
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `UPDATE parcels
+     SET status = ?, updated_at = NOW()
+     WHERE id IN (${placeholders}) AND deleted_at IS NULL${provClause}`,
+    [targetStatus, ...ids, ...provParams]
+  );
+  return result.affectedRows;
+};
+
 export const batchDeleteAdmins = async (ids: number[], logisticsProviderId?: number | null): Promise<number> => {
   if (!ids.length) return 0;
   const placeholders = ids.map(() => '?').join(',');

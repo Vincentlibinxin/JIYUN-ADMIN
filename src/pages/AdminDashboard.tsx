@@ -1425,6 +1425,26 @@ export default function AdminDashboard() {
     }
   };
 
+  const batchUpdateParcelsCargoStatus = async (ids: number[], status: string): Promise<boolean> => {
+    try {
+      const response = await adminFetch('/admin/parcels/batch-update-cargo-status', {
+        method: 'POST',
+        body: JSON.stringify({ ids, status }),
+      });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchParcels(parcelPage, parcelPageSize);
+        return true;
+      }
+      const data = await response.json().catch(() => ({}));
+      setError(data.error || '批量修改货物态失败');
+      return false;
+    } catch {
+      setError('批量修改货物态失败');
+      return false;
+    }
+  };
+
   const handleExportParcels = async (selectedIds: number[] = []) => {
     try {
       const exportRowsToTemplate = async (rows: any[]) => {
@@ -2103,7 +2123,8 @@ export default function AdminDashboard() {
               onUpdateStatus={updateParcelStatus}
               onDelete={deleteParcel}
               onBatchDelete={batchDeleteParcels}
-              onBatchUpdateLogisticsProvider={batchUpdateParcelsLogisticsProvider}
+              onBatchUpdateLogisticsProvider={actorScope === 'platform' ? batchUpdateParcelsLogisticsProvider : undefined}
+              onBatchUpdateCargoStatus={batchUpdateParcelsCargoStatus}
               onExport={handleExportParcels}
               onInbound={inboundParcel}
               onEdit={editParcel}

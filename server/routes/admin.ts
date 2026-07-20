@@ -15,6 +15,7 @@ import {
   batchDeleteOrders,
   batchDeleteParcels,
   batchUpdateParcelsLogisticsProvider,
+  batchUpdateParcelsCargoStatus,
   batchDeleteSms,
   batchDeleteUsers,
   createAdmin,
@@ -1567,7 +1568,7 @@ router.post('/parcels/batch-delete', adminAuth, csrfGuard, requirePermission(PER
   res.json({ message: `已删除 ${deleted} 条记录`, deleted });
 });
 
-router.post('/parcels/batch-update-logistics', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
+router.post('/parcels/batch-update-logistics', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE), requirePlatformScope, async (req: AdminRequest, res: Response): Promise<void> => {
   const ids = req.body?.ids;
   const logisticsProviderId = Number(req.body?.logistics_provider_id);
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -1598,6 +1599,34 @@ router.post('/parcels/batch-update-logistics', adminAuth, csrfGuard, requirePerm
 
   const updated = await batchUpdateParcelsLogisticsProvider(numIds, logisticsProviderId, actorProvider);
   res.json({ message: `已更新 ${updated} 条包裹物流商`, updated });
+});
+
+router.post('/parcels/batch-update-cargo-status', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = req.body?.ids;
+  const status = String(req.body?.status || '').trim();
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: '请提供要更新的ID列表' });
+    return;
+  }
+  if (!status) {
+    res.status(400).json({ error: '请选择有效的货物态' });
+    return;
+  }
+  const numIds = ids.map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  if (numIds.length === 0) {
+    res.status(400).json({ error: 'ID列表不合法' });
+    return;
+  }
+
+  const validCargoStatusCodes = await getEnabledParcelStatusCodesByType('货物态');
+  if (!validCargoStatusCodes.has(status)) {
+    res.status(400).json({ error: '货物态不合法' });
+    return;
+  }
+
+  const actorProvider = getActorProviderFilter(req);
+  const updated = await batchUpdateParcelsCargoStatus(numIds, status, actorProvider);
+  res.json({ message: `已更新 ${updated} 条包裹货物态`, updated });
 });
 
 router.get('/admins', adminAuth, requirePermission(PERMISSIONS.ADMIN_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {

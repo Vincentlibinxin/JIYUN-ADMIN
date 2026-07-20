@@ -56,6 +56,7 @@ interface ParcelsTabProps {
   onDelete: (id: number) => void;
   onBatchDelete: (ids: number[]) => void;
   onBatchUpdateLogisticsProvider?: (ids: number[], logisticsProviderId: number) => Promise<boolean>;
+  onBatchUpdateCargoStatus?: (ids: number[], status: string) => Promise<boolean>;
   onExport?: (selectedIds?: number[]) => void | Promise<void>;
   onInbound: (formData: FormData) => Promise<boolean>;
   onEdit: (id: number, formData: FormData) => Promise<boolean>;
@@ -88,6 +89,7 @@ export default memo(function ParcelsTab({
   onDelete,
   onBatchDelete,
   onBatchUpdateLogisticsProvider,
+  onBatchUpdateCargoStatus,
   onExport,
   onInbound,
   onEdit,
@@ -437,12 +439,12 @@ export default memo(function ParcelsTab({
     cleanFiltersAndNotify(newFilters, dateFilters);
   };
 
-  const handleDateSearch = (key: string, dateStrings: [string, string]) => {
+  const handleDateSearch = (key: string, dates: [dayjs.Dayjs | null, dayjs.Dayjs | null] | null) => {
     const newDateFilters = { ...dateFilters };
-    if (!dateStrings || !dateStrings[0]) {
+    if (!dates || !dates[0] || !dates[1]) {
       newDateFilters[key] = null;
     } else {
-      newDateFilters[key] = dateStrings;
+      newDateFilters[key] = [dates[0].format('YYYY-MM-DD'), dates[1].format('YYYY-MM-DD')];
     }
     setDateFilters(newDateFilters);
     cleanFiltersAndNotify(columnFilters, newDateFilters);
@@ -505,7 +507,7 @@ export default memo(function ParcelsTab({
         style={{ width: '100%' }}
         format="MM-DD"
         placeholder={['开始', '结束']}
-        onChange={(_, dateStrings) => handleDateSearch(key, dateStrings)}
+        onChange={(dates) => handleDateSearch(key, dates)}
         key={`date-picker-${key}-${resetKey}`}
         allowClear
       />
@@ -530,7 +532,10 @@ export default memo(function ParcelsTab({
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const [batchLogisticsModalOpen, setBatchLogisticsModalOpen] = useState(false);
   const [batchLogisticsProviderId, setBatchLogisticsProviderId] = useState<number | undefined>(undefined);
-  const [batchAdjustLoading, setBatchAdjustLoading] = useState(false);
+  const [batchCargoStatusModalOpen, setBatchCargoStatusModalOpen] = useState(false);
+  const [batchCargoStatusCode, setBatchCargoStatusCode] = useState<string | undefined>(undefined);
+  const [batchLogisticsAdjustLoading, setBatchLogisticsAdjustLoading] = useState(false);
+  const [batchCargoAdjustLoading, setBatchCargoAdjustLoading] = useState(false);
   const selectedRowKeySet = useMemo(() => new Set(selectedRowKeys), [selectedRowKeys]);
   const visibleRowIds = useMemo(() => parcels.map((item) => item.id), [parcels]);
   const selectedVisibleCount = useMemo(() => visibleRowIds.filter((id) => selectedRowKeySet.has(id)).length, [selectedRowKeySet, visibleRowIds]);
@@ -555,7 +560,7 @@ export default memo(function ParcelsTab({
 
   const handleBatchAdjustLogistics = async () => {
     if (!onBatchUpdateLogisticsProvider || selectedRowKeys.length === 0 || !batchLogisticsProviderId) return;
-    setBatchAdjustLoading(true);
+    setBatchLogisticsAdjustLoading(true);
     try {
       const ok = await onBatchUpdateLogisticsProvider(selectedRowKeys, batchLogisticsProviderId);
       if (ok) {
@@ -564,7 +569,22 @@ export default memo(function ParcelsTab({
         setBatchLogisticsModalOpen(false);
       }
     } finally {
-      setBatchAdjustLoading(false);
+      setBatchLogisticsAdjustLoading(false);
+    }
+  };
+
+  const handleBatchAdjustCargoStatus = async () => {
+    if (!onBatchUpdateCargoStatus || selectedRowKeys.length === 0 || !batchCargoStatusCode) return;
+    setBatchCargoAdjustLoading(true);
+    try {
+      const ok = await onBatchUpdateCargoStatus(selectedRowKeys, batchCargoStatusCode);
+      if (ok) {
+        setSelectedRowKeys([]);
+        setBatchCargoStatusCode(undefined);
+        setBatchCargoStatusModalOpen(false);
+      }
+    } finally {
+      setBatchCargoAdjustLoading(false);
     }
   };
 
@@ -974,6 +994,18 @@ export default memo(function ParcelsTab({
                 批量修改物流商{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
               </Button>
             )}
+            {canUpdate && onBatchUpdateCargoStatus && (
+              <Button
+                type="primary"
+                onClick={() => {
+                  setBatchCargoStatusCode(undefined);
+                  setBatchCargoStatusModalOpen(true);
+                }}
+                disabled={selectedRowKeys.length === 0}
+              >
+                批量修改货物态{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
+              </Button>
+            )}
             {onExport && canExport && (
               <Button type="primary" ghost onClick={() => { void onExport(selectedRowKeys); }}>
                 下载
@@ -1036,12 +1068,12 @@ export default memo(function ParcelsTab({
         rootClassName="detail-modal"
         className="detail-modal"
         onCancel={() => {
-          if (batchAdjustLoading) return;
+          if (batchLogisticsAdjustLoading) return;
           setBatchLogisticsModalOpen(false);
         }}
         onOk={() => void handleBatchAdjustLogistics()}
         centered
-        confirmLoading={batchAdjustLoading}
+        confirmLoading={batchLogisticsAdjustLoading}
         okText="确认修改"
         cancelText="取消"
         okButtonProps={{ disabled: !batchLogisticsProviderId }}
@@ -1057,6 +1089,39 @@ export default memo(function ParcelsTab({
               value={batchLogisticsProviderId}
               options={logisticsSelectOptions}
               onChange={(value) => setBatchLogisticsProviderId(value)}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="批量修改货物态"
+        open={batchCargoStatusModalOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
+        onCancel={() => {
+          if (batchCargoAdjustLoading) return;
+          setBatchCargoStatusModalOpen(false);
+        }}
+        onOk={() => void handleBatchAdjustCargoStatus()}
+        centered
+        confirmLoading={batchCargoAdjustLoading}
+        okText="确认修改"
+        cancelText="取消"
+        okButtonProps={{ disabled: !batchCargoStatusCode }}
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
+      >
+        <Form layout="vertical">
+          <Form.Item label="目标货物态" required>
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="请选择目标货物态"
+              loading={statusDictLoading}
+              value={batchCargoStatusCode}
+              options={cargoStatusOptions}
+              onChange={(value) => setBatchCargoStatusCode(value)}
             />
           </Form.Item>
         </Form>
