@@ -1293,6 +1293,7 @@ export interface RoleWithPermissions {
   name: string;
   scope: RoleScope;
   logistics_provider_id: number | null;
+  logistics_provider_name?: string | null;
   is_system: boolean;
   permissions: PermissionCode[];
   admin_count: number;
@@ -1367,7 +1368,11 @@ export const listRolesWithPermissions = async (scope?: RoleScope, logisticsProvi
   }
   const where = whereClauses.length > 0 ? ` WHERE ${whereClauses.join(' AND ')}` : '';
   const [roles] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, code, name, scope, logistics_provider_id, is_system FROM admin_roles${where} ORDER BY is_system DESC, created_at ASC`,
+    `SELECT r.id, r.code, r.name, r.scope, r.logistics_provider_id, r.is_system, lp.name AS logistics_provider_name
+     FROM admin_roles r
+     LEFT JOIN logistics_providers lp ON lp.id = r.logistics_provider_id
+     ${where.replace(/\bscope\b/g, 'r.scope').replace(/\blogistics_provider_id\b/g, 'r.logistics_provider_id')}
+     ORDER BY r.is_system DESC, r.created_at ASC`,
     args
   );
   const result: RoleWithPermissions[] = [];
@@ -1389,6 +1394,7 @@ export const listRolesWithPermissions = async (scope?: RoleScope, logisticsProvi
       name: r.name,
       scope: (r.scope === 'logistics' ? 'logistics' : 'platform'),
       logistics_provider_id: r.logistics_provider_id === null ? null : Number(r.logistics_provider_id),
+      logistics_provider_name: r.logistics_provider_name || null,
       is_system: !!r.is_system,
       permissions,
       admin_count: adminCount,

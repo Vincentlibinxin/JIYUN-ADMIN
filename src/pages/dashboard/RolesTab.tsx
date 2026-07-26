@@ -11,6 +11,7 @@ interface RoleItem {
   name: string;
   scope: 'platform' | 'logistics';
   logistics_provider_id: number | null;
+  logistics_provider_name?: string | null;
   is_system: boolean;
   permissions: string[];
   admin_count: number;
@@ -571,7 +572,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
                 width: 170,
                 render: (_, record) => {
                   const provider = logisticsOptions.find((item) => item.id === record.logistics_provider_id);
-                  return <span>{provider?.name || `ID: ${record.logistics_provider_id ?? '-'}`}</span>;
+                  return <span>{record.logistics_provider_name || provider?.name || `ID: ${record.logistics_provider_id ?? '-'}`}</span>;
                 },
               },
             ],
