@@ -186,9 +186,10 @@ export default memo(function AdminsTab({
   });
   const [logisticsOptions, setLogisticsOptions] = useState<LogisticsOption[]>([]);
   const [roleNameMap, setRoleNameMap] = useState<Record<string, string>>({
-    admin: '管理员',
-    super_admin: '超级管理员',
+    'platform:0:admin': '管理员',
+    'platform:0:super_admin': '超级管理员',
   });
+  const [roleNamesResolved, setRoleNamesResolved] = useState(false);
 
   const makeRoleOptionValue = (scope: 'platform' | 'logistics', providerId: number | null, code: string): string => {
     return `${scope}:${providerId ?? 0}:${code}`;
@@ -277,6 +278,8 @@ export default memo(function AdminsTab({
         );
       } catch {
         // 读取失败时保留默认角色选项
+      } finally {
+        if (!cancelled) setRoleNamesResolved(true);
       }
     })();
     return () => {
@@ -592,7 +595,7 @@ export default memo(function AdminsTab({
           dataIndex: 'role',
           key: 'role_child',
           width: 130,
-          render: (role: string, record) => roleNameMap[makeRoleIdentityKey(record.role_scope, record.role_logistics_provider_id, role)] || role,
+          render: (role: string, record) => roleNameMap[makeRoleIdentityKey(record.role_scope, record.role_logistics_provider_id, role)] || (roleNamesResolved ? role : '-'),
         },
       ],
     },
@@ -844,7 +847,7 @@ export default memo(function AdminsTab({
             <Descriptions.Item label="账号">{activeAdmin.username}</Descriptions.Item>
             <Descriptions.Item label="电子邮件">{activeAdmin.email}</Descriptions.Item>
             <Descriptions.Item label="角色">
-              {roleNameMap[makeRoleIdentityKey(activeAdmin.role_scope, activeAdmin.role_logistics_provider_id, activeAdmin.role)] || activeAdmin.role}
+              {roleNameMap[makeRoleIdentityKey(activeAdmin.role_scope, activeAdmin.role_logistics_provider_id, activeAdmin.role)] || (roleNamesResolved ? activeAdmin.role : '-')}
             </Descriptions.Item>
             <Descriptions.Item label="角色作用域">{activeAdmin.role_scope === 'logistics' ? '物流商' : '平台'}</Descriptions.Item>
             <Descriptions.Item label="归属物流商">
