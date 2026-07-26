@@ -190,6 +190,7 @@ export default memo(function AdminsTab({
     'platform:0:super_admin': '超级管理员',
   });
   const [roleNamesResolved, setRoleNamesResolved] = useState(false);
+  const [logisticsNamesResolved, setLogisticsNamesResolved] = useState(false);
 
   const makeRoleOptionValue = (scope: 'platform' | 'logistics', providerId: number | null, code: string): string => {
     return `${scope}:${providerId ?? 0}:${code}`;
@@ -201,6 +202,8 @@ export default memo(function AdminsTab({
 
   useEffect(() => {
     let cancelled = false;
+    setRoleNamesResolved(false);
+    setLogisticsNamesResolved(false);
     (async () => {
       try {
         const [platformResp, logisticsResp, logisticsOptionsResp] = await Promise.all([
@@ -279,7 +282,10 @@ export default memo(function AdminsTab({
       } catch {
         // 读取失败时保留默认角色选项
       } finally {
-        if (!cancelled) setRoleNamesResolved(true);
+        if (!cancelled) {
+          setRoleNamesResolved(true);
+          setLogisticsNamesResolved(true);
+        }
       }
     })();
     return () => {
@@ -852,7 +858,7 @@ export default memo(function AdminsTab({
             <Descriptions.Item label="角色作用域">{activeAdmin.role_scope === 'logistics' ? '物流商' : '平台'}</Descriptions.Item>
             <Descriptions.Item label="归属物流商">
               {activeAdmin.logistics_provider_id
-                ? (logisticsOptions.find((item) => item.id === activeAdmin.logistics_provider_id)?.name || `ID: ${activeAdmin.logistics_provider_id}`)
+                ? (logisticsOptions.find((item) => item.id === activeAdmin.logistics_provider_id)?.name || (logisticsNamesResolved ? `ID: ${activeAdmin.logistics_provider_id}` : '-'))
                 : '-'}
             </Descriptions.Item>
             <Descriptions.Item label="状态">{activeAdmin.status}</Descriptions.Item>

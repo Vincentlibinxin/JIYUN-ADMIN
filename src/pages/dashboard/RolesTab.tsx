@@ -183,6 +183,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
   const scopedAllCodes = useMemo(() => visibleGroups.flatMap((g) => g.items.map((i) => i.code)), [visibleGroups]);
   const [roles, setRoles] = useState<RoleItem[]>([]);
   const [logisticsOptions, setLogisticsOptions] = useState<LogisticsOption[]>([]);
+  const [logisticsNamesResolved, setLogisticsNamesResolved] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -230,11 +231,13 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
 
   useEffect(() => {
     const fetchLogisticsOptions = async () => {
+      setLogisticsNamesResolved(false);
       // 物流商账号无 logistics.view 权限，无法读取物流商列表；直接用自身归属信息锁定
       if (isLogisticsActor) {
         if (actorProviderId) {
           setLogisticsOptions([{ id: actorProviderId, name: actorProviderName || `ID: ${actorProviderId}` }]);
         }
+        setLogisticsNamesResolved(true);
         return;
       }
       try {
@@ -245,6 +248,8 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
         setLogisticsOptions(Array.isArray(data?.data) ? data.data : []);
       } catch {
         // 保持页面可用，失败时不阻塞角色管理
+      } finally {
+        setLogisticsNamesResolved(true);
       }
     };
     void fetchLogisticsOptions();
@@ -572,7 +577,7 @@ export default function RolesTab({ canCreate, canUpdate, canDelete, refreshKey, 
                 width: 170,
                 render: (_, record) => {
                   const provider = logisticsOptions.find((item) => item.id === record.logistics_provider_id);
-                  return <span>{record.logistics_provider_name || provider?.name || `ID: ${record.logistics_provider_id ?? '-'}`}</span>;
+                  return <span>{record.logistics_provider_name || provider?.name || (logisticsNamesResolved ? `ID: ${record.logistics_provider_id ?? '-'}` : '-')}</span>;
                 },
               },
             ],

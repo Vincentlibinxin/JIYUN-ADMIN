@@ -1215,6 +1215,7 @@ function BillsSubTab(props: SubTabProps) {
   }>>([]);
   const [containerOptions, setContainerOptions] = useState<Array<{ id: number; container_no: string; container_type: string }>>([]);
   const [cargoStatusOptions, setCargoStatusOptions] = useState<Array<{ status_code: string; status_name: string }>>([]);
+  const [cargoStatusesResolved, setCargoStatusesResolved] = useState(false);
   // 关联班(航)次带出的可选港口（起运港/目的港各自的下拉候选，取班次中以 / 分隔的多个港口）
   const [departurePortOptions, setDeparturePortOptions] = useState<Array<{ label: string; value: string }>>([]);
   const [destinationPortOptions, setDestinationPortOptions] = useState<Array<{ label: string; value: string }>>([]);
@@ -1237,6 +1238,7 @@ function BillsSubTab(props: SubTabProps) {
   const fetchAux = async () => {
     setDeparturePortOptions([]);
     setDestinationPortOptions([]);
+    setCargoStatusesResolved(false);
     try {
       const [vRes, cRes, sRes] = await Promise.all([
         adminFetch('/admin/ship-voyages/options?includeGranted=1'),
@@ -1247,6 +1249,7 @@ function BillsSubTab(props: SubTabProps) {
       if (cRes.ok) { const j = await cRes.json(); setContainerOptions(j.data || []); }
       if (sRes.ok) { const j = await sRes.json(); setCargoStatusOptions(j.data || []); }
     } catch { /* ignore */ }
+    finally { setCargoStatusesResolved(true); }
   };
   useEffect(() => { fetchAux(); }, []);
 
@@ -1333,7 +1336,9 @@ function BillsSubTab(props: SubTabProps) {
         const canViewAgentName = props.actorScope === 'logistics' && !isAgentView;
         rows.push({
           label: '货物状态',
-          value: record.cargo_status ? <Tag color="processing">{cargoStatusMap[record.cargo_status] || record.cargo_status}</Tag> : '—',
+          value: record.cargo_status
+            ? <Tag color="processing">{cargoStatusMap[record.cargo_status] || (cargoStatusesResolved ? record.cargo_status : '加载中...')}</Tag>
+            : '—',
         });
         return renderLabeledFields(rows);
       },
