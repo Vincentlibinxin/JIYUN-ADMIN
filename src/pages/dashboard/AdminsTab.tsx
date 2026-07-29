@@ -14,6 +14,7 @@ interface AdminUser {
   role_scope: 'platform' | 'logistics';
   role_logistics_provider_id: number | null;
   logistics_provider_id: number | null;
+  logistics_provider_name?: string | null;
   status: string;
   last_login: string | null;
   created_at: string;
@@ -606,8 +607,9 @@ export default memo(function AdminsTab({
           width: 130,
           render: (role: string, record) => {
             const resolvedName = (record.role_name || '').trim()
-              || roleNameMap[makeRoleIdentityKey(record.role_scope, record.role_logistics_provider_id, role)];
-            return resolvedName || role || '-';
+              || roleNameMap[makeRoleIdentityKey(record.role_scope, record.role_logistics_provider_id, role)]
+              || (roleNamesResolved ? role : '-');
+            return resolvedName || '-';
           },
         },
       ],
@@ -862,13 +864,13 @@ export default memo(function AdminsTab({
             <Descriptions.Item label="角色">
               {(activeAdmin.role_name || '').trim()
                 || roleNameMap[makeRoleIdentityKey(activeAdmin.role_scope, activeAdmin.role_logistics_provider_id, activeAdmin.role)]
-                || activeAdmin.role
+                || (roleNamesResolved ? activeAdmin.role : '-')
                 || '-'}
             </Descriptions.Item>
             <Descriptions.Item label="角色作用域">{activeAdmin.role_scope === 'logistics' ? '物流商' : '平台'}</Descriptions.Item>
             <Descriptions.Item label="归属物流商">
               {activeAdmin.logistics_provider_id
-                ? (logisticsOptions.find((item) => item.id === activeAdmin.logistics_provider_id)?.name || (logisticsNamesResolved ? `ID: ${activeAdmin.logistics_provider_id}` : '-'))
+                ? ((activeAdmin.logistics_provider_name || '').trim() || logisticsOptions.find((item) => item.id === activeAdmin.logistics_provider_id)?.name || (logisticsNamesResolved ? `ID: ${activeAdmin.logistics_provider_id}` : '-'))
                 : '-'}
             </Descriptions.Item>
             <Descriptions.Item label="状态">{activeAdmin.status}</Descriptions.Item>

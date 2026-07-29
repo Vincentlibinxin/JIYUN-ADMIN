@@ -1337,7 +1337,7 @@ function BillsSubTab(props: SubTabProps) {
         rows.push({
           label: '货物状态',
           value: record.cargo_status
-            ? <Tag color="processing">{cargoStatusMap[record.cargo_status] || (cargoStatusesResolved ? record.cargo_status : '加载中...')}</Tag>
+            ? <Tag color="processing">{(record.cargo_status_name || '').trim() || cargoStatusMap[record.cargo_status] || (cargoStatusesResolved ? record.cargo_status : '加载中...')}</Tag>
             : '—',
         });
         return renderLabeledFields(rows);

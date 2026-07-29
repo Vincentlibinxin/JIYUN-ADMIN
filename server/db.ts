@@ -2479,7 +2479,15 @@ export const getAdminsPaged = async (
   const offset = (safePage - 1) * safeLimit;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, username, email, role, role_scope, role_logistics_provider_id, logistics_provider_id, status, is_system, last_login, created_at, updated_at, deleted_at
+    `SELECT id, username, email, role, role_scope, role_logistics_provider_id, logistics_provider_id, status, is_system, last_login, created_at, updated_at, deleted_at,
+            (SELECT r.name FROM admin_roles r
+               WHERE r.code = admin_users.role
+                 AND r.scope = admin_users.role_scope
+                 AND r.logistics_provider_id <=> admin_users.role_logistics_provider_id
+               LIMIT 1) AS role_name,
+            (SELECT lp.name FROM logistics_providers lp
+               WHERE lp.id = admin_users.logistics_provider_id
+               LIMIT 1) AS logistics_provider_name
      FROM admin_users
      ${whereSql}
      ORDER BY ${orderBy}
@@ -2507,7 +2515,15 @@ export const searchAdmins = async (keyword: string, logisticsProviderId?: number
   const scopeClause = (roleScope === 'platform' || roleScope === 'logistics') ? ' AND role_scope = ?' : '';
   const scopeParams: any[] = scopeClause ? [roleScope] : [];
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT id, username, email, role, role_scope, role_logistics_provider_id, logistics_provider_id, status, is_system, last_login, created_at, updated_at
+    `SELECT id, username, email, role, role_scope, role_logistics_provider_id, logistics_provider_id, status, is_system, last_login, created_at, updated_at,
+            (SELECT r.name FROM admin_roles r
+               WHERE r.code = admin_users.role
+                 AND r.scope = admin_users.role_scope
+                 AND r.logistics_provider_id <=> admin_users.role_logistics_provider_id
+               LIMIT 1) AS role_name,
+            (SELECT lp.name FROM logistics_providers lp
+               WHERE lp.id = admin_users.logistics_provider_id
+               LIMIT 1) AS logistics_provider_name
      FROM admin_users
      WHERE deleted_at IS NULL AND (
        CAST(id AS CHAR) LIKE ?
@@ -4388,7 +4404,8 @@ export const getShippingBillsPaged = async (
             b.description, b.logistics_provider_id, b.created_at, b.updated_at,
         lp.name AS logistics_provider_name, v.voyage_name AS voyage_name,
         v.logistics_provider_id AS voyage_logistics_provider_id,
-        vlp.name AS voyage_logistics_provider_name
+        vlp.name AS voyage_logistics_provider_name,
+        (SELECT ps.status_name FROM parcel_statuses ps WHERE ps.status_code = b.cargo_status LIMIT 1) AS cargo_status_name
      FROM shipping_bills b
      LEFT JOIN logistics_providers lp ON b.logistics_provider_id = lp.id
      LEFT JOIN shipping_voyages v ON b.voyage_id = v.id
@@ -4436,7 +4453,8 @@ export const searchShippingBills = async (keyword: string, providerFilter?: numb
             b.description, b.logistics_provider_id, b.created_at, b.updated_at,
           lp.name AS logistics_provider_name, v.voyage_name AS voyage_name,
           v.logistics_provider_id AS voyage_logistics_provider_id,
-          vlp.name AS voyage_logistics_provider_name
+          vlp.name AS voyage_logistics_provider_name,
+          (SELECT ps.status_name FROM parcel_statuses ps WHERE ps.status_code = b.cargo_status LIMIT 1) AS cargo_status_name
      FROM shipping_bills b
      LEFT JOIN logistics_providers lp ON b.logistics_provider_id = lp.id
      LEFT JOIN shipping_voyages v ON b.voyage_id = v.id
