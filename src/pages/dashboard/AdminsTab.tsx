@@ -10,6 +10,7 @@ interface AdminUser {
   username: string;
   email: string;
   role: string;
+  role_name?: string | null;
   role_scope: 'platform' | 'logistics';
   role_logistics_provider_id: number | null;
   logistics_provider_id: number | null;
@@ -206,22 +207,20 @@ export default memo(function AdminsTab({
     setLogisticsNamesResolved(false);
     (async () => {
       try {
-        const [platformResp, logisticsResp, logisticsOptionsResp] = await Promise.all([
-          adminFetch('/admin/roles?scope=platform'),
-          adminFetch('/admin/roles?scope=logistics'),
-          adminFetch('/admin/logistics/options'),
+        const rolesScope: 'platform' | 'logistics' = (scope === 'logistics' || isLogisticsActor) ? 'logistics' : 'platform';
+        const [rolesResp, logisticsOptionsResp] = await Promise.all([
+          adminFetch(`/admin/roles?scope=${rolesScope}`),
+          (scope === 'logistics' || isLogisticsActor)
+            ? adminFetch('/admin/logistics/options')
+            : Promise.resolve(null),
         ]);
 
         const roleList: any[] = [];
-        if (platformResp.ok) {
-          const data = await platformResp.json();
+        if (rolesResp.ok) {
+          const data = await rolesResp.json();
           roleList.push(...(Array.isArray(data?.roles) ? data.roles : []));
         }
-        if (logisticsResp.ok) {
-          const data = await logisticsResp.json();
-          roleList.push(...(Array.isArray(data?.roles) ? data.roles : []));
-        }
-        if (logisticsOptionsResp.ok) {
+        if (logisticsOptionsResp && logisticsOptionsResp.ok) {
           const data = await logisticsOptionsResp.json();
           setLogisticsOptions(Array.isArray(data?.data) ? data.data : []);
         } else if (isLogisticsActor && actorProviderId) {
@@ -229,7 +228,11 @@ export default memo(function AdminsTab({
           setLogisticsOptions([{ id: actorProviderId, name: actorProviderName || `ID: ${actorProviderId}`, code: actorProviderCode }]);
         }
 
-        if (cancelled || roleList.length === 0) return;
+        if (cancelled) return;
+
+        if (roleList.length === 0) {
+          return;
+        }
 
         // 物流商账号两次请求会返回同一份物流商角色，按作用域+归属+code 去重，避免重复选项
         const dedupedRoles = Array.from(
@@ -601,7 +604,11 @@ export default memo(function AdminsTab({
           dataIndex: 'role',
           key: 'role_child',
           width: 130,
-          render: (role: string, record) => roleNameMap[makeRoleIdentityKey(record.role_scope, record.role_logistics_provider_id, role)] || (roleNamesResolved ? role : '-'),
+          render: (role: string, record) => {
+            const resolvedName = (record.role_name || '').trim()
+              || roleNameMap[makeRoleIdentityKey(record.role_scope, record.role_logistics_provider_id, role)];
+            return resolvedName || role || '-';
+          },
         },
       ],
     },
@@ -853,7 +860,10 @@ export default memo(function AdminsTab({
             <Descriptions.Item label="账号">{activeAdmin.username}</Descriptions.Item>
             <Descriptions.Item label="电子邮件">{activeAdmin.email}</Descriptions.Item>
             <Descriptions.Item label="角色">
-              {roleNameMap[makeRoleIdentityKey(activeAdmin.role_scope, activeAdmin.role_logistics_provider_id, activeAdmin.role)] || (roleNamesResolved ? activeAdmin.role : '-')}
+              {(activeAdmin.role_name || '').trim()
+                || roleNameMap[makeRoleIdentityKey(activeAdmin.role_scope, activeAdmin.role_logistics_provider_id, activeAdmin.role)]
+                || activeAdmin.role
+                || '-'}
             </Descriptions.Item>
             <Descriptions.Item label="角色作用域">{activeAdmin.role_scope === 'logistics' ? '物流商' : '平台'}</Descriptions.Item>
             <Descriptions.Item label="归属物流商">

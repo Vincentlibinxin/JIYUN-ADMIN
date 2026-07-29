@@ -233,6 +233,7 @@ type LoginAttemptState = {
 };
 
 const loginAttempts = new Map<string, LoginAttemptState>();
+const adminSessions = new Map<string, { adminId: number; createdAt: number; lastSeen: number }>();
 
 const parseCookies = (cookieHeader: string | undefined): Record<string, string> => {
   if (!cookieHeader) return {};
@@ -253,6 +254,38 @@ const getRequestIp = (req: Request): string => {
 
 const issueCsrfToken = (): string => {
   return crypto.randomBytes(24).toString('hex');
+};
+
+const createAdminSession = (adminId: number): string => {
+  const sessionId = crypto.randomUUID();
+  adminSessions.set(sessionId, {
+    adminId,
+    createdAt: Date.now(),
+    lastSeen: Date.now(),
+  });
+  return sessionId;
+};
+
+const invalidateAdminSession = (sessionId?: string | null): void => {
+  if (!sessionId) {
+    return;
+  }
+  adminSessions.delete(sessionId);
+};
+
+const getAdminSession = (sessionId?: string | null): { adminId: number } | null => {
+  if (!sessionId) {
+    return null;
+  }
+
+  const session = adminSessions.get(sessionId);
+  if (!session) {
+    return null;
+  }
+
+  session.lastSeen = Date.now();
+  adminSessions.set(sessionId, session);
+  return session;
 };
 
 const setAuthCookies = (res: Response, token: string, csrfToken: string): void => {
@@ -379,6 +412,7 @@ interface AdminRequest extends Request {
   adminPermissions?: PermissionCode[];
   adminScope?: 'platform' | 'logistics';
   adminLogisticsProviderId?: number | null;
+  sessionId?: string;
 }
 
 const adminAuth = (req: AdminRequest, res: Response, next: () => void): void => {
@@ -389,12 +423,20 @@ const adminAuth = (req: AdminRequest, res: Response, next: () => void): void => 
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { adminId: number; type: string };
+    const decoded = jwt.verify(token, JWT_SECRET) as { adminId: number; type: string; sessionId?: string };
     if (decoded.type !== 'admin') {
       res.status(403).json({ error: '权限不足' });
       return;
     }
+
+    const session = getAdminSession(decoded.sessionId);
+    if (!session || session.adminId !== decoded.adminId) {
+      res.status(401).json({ error: '会话无效或已失效' });
+      return;
+    }
+
     req.adminId = decoded.adminId;
+    req.sessionId = decoded.sessionId;
     next();
   } catch {
     res.status(401).json({ error: '令牌无效或已过期' });
@@ -702,7 +744,8 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     clearLoginFailures(loginKey);
     await updateAdminLastLogin(admin.id);
-    const token = jwt.sign({ adminId: admin.id, type: 'admin' }, JWT_SECRET, { expiresIn: '24h' });
+    const sessionId = createAdminSession(admin.id);
+    const token = jwt.sign({ adminId: admin.id, type: 'admin', sessionId }, JWT_SECRET, { expiresIn: '24h' });
     const csrfToken = issueCsrfToken();
     setAuthCookies(res, token, csrfToken);
 
@@ -797,11 +840,21 @@ router.post('/logout', adminAuth, csrfGuard, async (_req: AdminRequest, res: Res
     ip: getRequestIp(_req),
     detail: 'logout_success',
   });
+  invalidateAdminSession(_req.sessionId);
   clearAuthCookies(res);
   res.json({ message: '已登出' });
 });
 
-router.post('/session/clear', async (_req: Request, res: Response): Promise<void> => {
+router.post('/session/clear', async (req: Request, res: Response): Promise<void> => {
+  const token = getRequestToken(req);
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as { sessionId?: string };
+      invalidateAdminSession(decoded.sessionId);
+    } catch {
+      // ignore invalid tokens and just clear cookies
+    }
+  }
   clearAuthCookies(res);
   res.json({ message: '会话已清理' });
 });
