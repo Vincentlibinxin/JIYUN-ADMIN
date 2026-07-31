@@ -102,6 +102,21 @@ import {
   updateAddressBook,
   deleteAddressBook,
   batchDeleteAddressBook,
+  getIdentityDocumentsPaged,
+  searchIdentityDocuments,
+  findDuplicateIdentityDocument,
+  createIdentityDocument,
+  getIdentityDocumentById,
+  updateIdentityDocument,
+  deleteIdentityDocument,
+  batchDeleteIdentityDocuments,
+  getPurchaseOrdersPaged,
+  searchPurchaseOrders,
+  createPurchaseOrder,
+  getPurchaseOrderById,
+  updatePurchaseOrder,
+  deletePurchaseOrder,
+  batchDeletePurchaseOrders,
   SHIPPING_CARRIER_TYPES,
   getShippingRoutesPaged,
   searchShippingRoutes,
@@ -3176,6 +3191,409 @@ router.post('/address-book/batch-delete', adminAuth, csrfGuard, requirePermissio
     }
   }
   const deleted = await batchDeleteAddressBook(allowedIds);
+  res.json({ message: `已删除 ${deleted} 条记录`, deleted });
+});
+
+// ============ 证件管理（绑定会员与物流商） ============
+
+const IDENTITY_DOCUMENT_TYPES = new Set([
+  'CN_RESIDENT_ID',
+  'TW_RESIDENT_ID',
+  'HK_PERMANENT_ID',
+  'MO_PERMANENT_ID',
+  'HK_RESIDENCE_PERMIT',
+  'MO_RESIDENCE_PERMIT',
+]);
+
+const normalizeIdentityDocumentNumber = (value: any): string => String(value ?? '')
+  .trim()
+  .toUpperCase()
+  .replace(/[（]/g, '(')
+  .replace(/[）]/g, ')')
+  .replace(/[\s-]+/g, '');
+
+const isMainlandIdChecksumValid = (value: string): boolean => {
+  if (!/^\d{17}[\dX]$/.test(value)) return false;
+  const weights = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2];
+  const checks = ['1', '0', 'X', '9', '8', '7', '6', '5', '4', '3', '2'];
+  const sum = weights.reduce((total, weight, index) => total + Number(value[index]) * weight, 0);
+  return checks[sum % 11] === value[17];
+};
+
+const isTaiwanIdChecksumValid = (value: string): boolean => {
+  if (!/^[A-Z][12]\d{8}$/.test(value)) return false;
+  const letterCodes = 'ABCDEFGHJKLMNPQRSTUVXYWZIO';
+  const code = letterCodes.indexOf(value[0]) + 10;
+  if (code < 10) return false;
+  let sum = Math.floor(code / 10) + (code % 10) * 9;
+  for (let index = 1; index <= 8; index += 1) {
+    sum += Number(value[index]) * (9 - index);
+  }
+  sum += Number(value[9]);
+  return sum % 10 === 0;
+};
+
+const validateIdentityDocumentNumber = (type: string, value: string): string | null => {
+  if (type === 'CN_RESIDENT_ID') {
+    return isMainlandIdChecksumValid(value) ? null : '大陆居民身份证号码格式或校验位不正确';
+  }
+  if (type === 'TW_RESIDENT_ID') {
+    return isTaiwanIdChecksumValid(value) ? null : '台湾身份证号码格式或校验位不正确';
+  }
+  if (type === 'HK_PERMANENT_ID') {
+    return /^[A-Z]{1,2}\d{6}\([0-9A]\)$/.test(value) ? null : '香港永久性居民身份证格式应为 A123456(7)';
+  }
+  if (type === 'MO_PERMANENT_ID') {
+    return /^[157]\d{6}\(\d\)$/.test(value) ? null : '澳门永久性居民身份证格式应为 1234567(8)';
+  }
+  if (type === 'HK_RESIDENCE_PERMIT') {
+    return value.startsWith('810000') && isMainlandIdChecksumValid(value) ? null : '港澳居民居住证（香港）号码格式或校验位不正确';
+  }
+  if (type === 'MO_RESIDENCE_PERMIT') {
+    return value.startsWith('820000') && isMainlandIdChecksumValid(value) ? null : '港澳居民居住证（澳门）号码格式或校验位不正确';
+  }
+  return '不支持的证件类型';
+};
+
+const parseIdentityDocumentBody = async (
+  req: AdminRequest,
+  res: Response,
+  existingProviderId?: number
+) => {
+  const documentType = String(req.body?.document_type ?? '').trim().toUpperCase();
+  if (!IDENTITY_DOCUMENT_TYPES.has(documentType)) {
+    res.status(400).json({ error: '请选择有效的证件类型' });
+    return null;
+  }
+  const documentNumber = normalizeIdentityDocumentNumber(req.body?.document_number);
+  const numberError = validateIdentityDocumentNumber(documentType, documentNumber);
+  if (numberError) {
+    res.status(400).json({ error: numberError });
+    return null;
+  }
+  const actorProvider = getActorProviderFilter(req);
+  const logisticsProviderId = actorProvider !== null
+    ? (existingProviderId ?? actorProvider)
+    : Number(req.body?.logistics_provider_id);
+  if (!Number.isInteger(logisticsProviderId) || logisticsProviderId <= 0) {
+    res.status(400).json({ error: '请选择物流商' });
+    return null;
+  }
+  const userId = await resolveAddressBookMember(req, res, req.body?.user_id, logisticsProviderId);
+  if (userId === undefined) return null;
+  if (userId === null) {
+    res.status(400).json({ error: '请选择会员' });
+    return null;
+  }
+  const holderName = String(req.body?.holder_name ?? '').trim();
+  if (holderName.length > 128) {
+    res.status(400).json({ error: '持证人姓名不能超过128个字符' });
+    return null;
+  }
+  const remarks = String(req.body?.remarks ?? '').trim();
+  if (remarks.length > 255) {
+    res.status(400).json({ error: '备注不能超过255个字符' });
+    return null;
+  }
+  return {
+    document_type: documentType,
+    document_number: documentNumber,
+    user_id: userId,
+    logistics_provider_id: logisticsProviderId,
+    holder_name: holderName || null,
+    remarks: remarks || null,
+  };
+};
+
+router.get('/identity-documents', adminAuth, requirePermission(PERMISSIONS.IDENTITY_DOCUMENT_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 10));
+  const result = await getIdentityDocumentsPaged(
+    page,
+    limit,
+    String(req.query.sortKey || '').trim() || undefined,
+    String(req.query.sortOrder || '').trim() || undefined,
+    parseJsonQuery<Record<string, string>>(req.query.columnFilters),
+    parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters),
+    getActorProviderFilter(req)
+  );
+  res.json({ data: result.data, pagination: { page, limit, total: result.total, pages: result.pages } });
+});
+
+router.get('/identity-documents/search', adminAuth, requirePermission(PERMISSIONS.IDENTITY_DOCUMENT_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const keyword = String(req.query.q || '').trim();
+  if (!keyword) {
+    res.status(400).json({ error: '搜索关键词不能为空' });
+    return;
+  }
+  const data = await searchIdentityDocuments(keyword, getActorProviderFilter(req));
+  res.json({ data, count: data.length });
+});
+
+router.post('/identity-documents', adminAuth, csrfGuard, requirePermission(PERMISSIONS.IDENTITY_DOCUMENT_CREATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const payload = await parseIdentityDocumentBody(req, res);
+  if (!payload) return;
+  if (await findDuplicateIdentityDocument(payload)) {
+    res.status(409).json({ error: '该证件类型、证件号、会员和物流商的组合已存在' });
+    return;
+  }
+  const document = await createIdentityDocument(payload);
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'identity_document.create',
+    targetType: 'identity_document',
+    targetId: document.id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: `type=${payload.document_type}`,
+  });
+  res.status(201).json({ message: '证件已创建', document });
+});
+
+router.put('/identity-documents/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.IDENTITY_DOCUMENT_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '证件ID不合法' });
+    return;
+  }
+  const existing = await getIdentityDocumentById(id);
+  if (!existing) {
+    res.status(404).json({ error: '证件不存在' });
+    return;
+  }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+  const payload = await parseIdentityDocumentBody(req, res, Number(existing.logistics_provider_id));
+  if (!payload) return;
+  if (await findDuplicateIdentityDocument(payload, id)) {
+    res.status(409).json({ error: '该证件类型、证件号、会员和物流商的组合已存在' });
+    return;
+  }
+  await updateIdentityDocument(id, payload);
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'identity_document.update',
+    targetType: 'identity_document',
+    targetId: id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: 'identity_document_updated',
+  });
+  res.json({ message: '证件已更新', id });
+});
+
+router.delete('/identity-documents/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.IDENTITY_DOCUMENT_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '证件ID不合法' });
+    return;
+  }
+  const existing = await getIdentityDocumentById(id);
+  if (!existing) {
+    res.status(404).json({ error: '证件不存在' });
+    return;
+  }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+  await deleteIdentityDocument(id);
+  res.json({ message: '证件已删除', id });
+});
+
+router.post('/identity-documents/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.IDENTITY_DOCUMENT_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = Array.isArray(req.body?.ids)
+    ? req.body.ids.map(Number).filter((id: number) => Number.isInteger(id) && id > 0)
+    : [];
+  if (!ids.length) {
+    res.status(400).json({ error: '请提供有效的证件ID列表' });
+    return;
+  }
+  const actorProvider = getActorProviderFilter(req);
+  const records = await Promise.all(ids.map((id: number) => getIdentityDocumentById(id)));
+  if (actorProvider !== null && records.some((record) => record && Number(record.logistics_provider_id) !== actorProvider)) {
+    res.status(403).json({ error: '无权删除其他物流商的证件' });
+    return;
+  }
+  const existingIds = records.map((record, index) => record ? ids[index] : null).filter((id): id is number => id !== null);
+  const deleted = await batchDeleteIdentityDocuments(existingIds);
+  res.json({ message: `已删除 ${deleted} 条记录`, deleted });
+});
+
+// ==================== 代购订单 ====================
+
+const PURCHASE_ORDER_STATUSES = new Set(['pending', 'confirmed', 'purchasing', 'purchased', 'completed', 'cancelled']);
+
+const parsePurchaseOrderBody = async (
+  req: AdminRequest,
+  res: Response,
+  existingProviderId?: number
+) => {
+  const actorProvider = getActorProviderFilter(req);
+  const logisticsProviderId = actorProvider !== null
+    ? (existingProviderId ?? actorProvider)
+    : Number(req.body?.logistics_provider_id);
+  if (!Number.isInteger(logisticsProviderId) || logisticsProviderId <= 0) {
+    res.status(400).json({ error: '请选择物流商' });
+    return null;
+  }
+  const userId = await resolveAddressBookMember(req, res, req.body?.user_id, logisticsProviderId);
+  if (userId === undefined) return null;
+  if (userId === null) {
+    res.status(400).json({ error: '请选择会员' });
+    return null;
+  }
+  const rawItems = req.body?.items;
+  if (!Array.isArray(rawItems) || !rawItems.length || rawItems.length > 100) {
+    res.status(400).json({ error: '每个代购订单必须包含1至100个物品' });
+    return null;
+  }
+  const items = [];
+  for (let index = 0; index < rawItems.length; index += 1) {
+    const rawItem = rawItems[index];
+    const itemName = String(rawItem?.item_name ?? '').trim();
+    if (!itemName || itemName.length > 255) {
+      res.status(400).json({ error: `第${index + 1}个物品名称不能为空且不能超过255个字符` });
+      return null;
+    }
+    const quantity = Number(rawItem?.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0 || quantity > 999999) {
+      res.status(400).json({ error: `第${index + 1}个物品数量必须是1至999999之间的整数` });
+      return null;
+    }
+    const description = String(rawItem?.description ?? '').trim();
+    if (description.length > 5000) {
+      res.status(400).json({ error: `第${index + 1}个物品说明不能超过5000个字符` });
+      return null;
+    }
+    const itemUrl = String(rawItem?.item_url ?? '').trim();
+    if (itemUrl.length > 2048) {
+      res.status(400).json({ error: `第${index + 1}个物品链接不能超过2048个字符` });
+      return null;
+    }
+    if (itemUrl) {
+      try {
+        const parsedUrl = new URL(itemUrl);
+        if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('unsupported protocol');
+      } catch {
+        res.status(400).json({ error: `第${index + 1}个物品请输入有效的 http 或 https 链接` });
+        return null;
+      }
+    }
+    items.push({
+      item_name: itemName,
+      quantity,
+      description: description || null,
+      item_url: itemUrl || null,
+    });
+  }
+  const status = String(req.body?.status || 'pending').trim();
+  if (!PURCHASE_ORDER_STATUSES.has(status)) {
+    res.status(400).json({ error: '代购订单状态不合法' });
+    return null;
+  }
+  return {
+    user_id: userId,
+    logistics_provider_id: logisticsProviderId,
+    status,
+    items,
+  };
+};
+
+router.get('/purchase-orders', adminAuth, requirePermission(PERMISSIONS.PURCHASE_ORDER_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 20));
+  const result = await getPurchaseOrdersPaged(
+    page,
+    limit,
+    String(req.query.sortKey || '').trim() || undefined,
+    String(req.query.sortOrder || '').trim() || undefined,
+    getActorProviderFilter(req)
+  );
+  res.json({ data: result.data, pagination: { page, limit, total: result.total, pages: result.pages } });
+});
+
+router.get('/purchase-orders/search', adminAuth, requirePermission(PERMISSIONS.PURCHASE_ORDER_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const keyword = String(req.query.q || '').trim();
+  if (!keyword) {
+    res.status(400).json({ error: '搜索关键词不能为空' });
+    return;
+  }
+  const data = await searchPurchaseOrders(keyword, getActorProviderFilter(req));
+  res.json({ data, count: data.length });
+});
+
+router.post('/purchase-orders', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PURCHASE_ORDER_CREATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const payload = await parsePurchaseOrderBody(req, res);
+  if (!payload) return;
+  const order = await createPurchaseOrder(payload);
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'purchase_order.create',
+    targetType: 'purchase_order',
+    targetId: order.id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: `items=${payload.items.length}`,
+  });
+  res.status(201).json({ message: '代购订单已创建', order });
+});
+
+router.put('/purchase-orders/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PURCHASE_ORDER_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '代购订单ID不合法' });
+    return;
+  }
+  const existing = await getPurchaseOrderById(id);
+  if (!existing) {
+    res.status(404).json({ error: '代购订单不存在' });
+    return;
+  }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+  const payload = await parsePurchaseOrderBody(req, res, Number(existing.logistics_provider_id));
+  if (!payload) return;
+  await updatePurchaseOrder(id, payload);
+  await logAdminAudit({
+    adminId: req.adminId,
+    action: 'purchase_order.update',
+    targetType: 'purchase_order',
+    targetId: id,
+    result: 'success',
+    ip: getRequestIp(req),
+    detail: `status=${payload.status}`,
+  });
+  res.json({ message: '代购订单已更新', id });
+});
+
+router.delete('/purchase-orders/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PURCHASE_ORDER_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: '代购订单ID不合法' });
+    return;
+  }
+  const existing = await getPurchaseOrderById(id);
+  if (!existing) {
+    res.status(404).json({ error: '代购订单不存在' });
+    return;
+  }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+  await deletePurchaseOrder(id);
+  res.json({ message: '代购订单已删除', id });
+});
+
+router.post('/purchase-orders/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PURCHASE_ORDER_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = Array.isArray(req.body?.ids)
+    ? req.body.ids.map(Number).filter((id: number) => Number.isInteger(id) && id > 0)
+    : [];
+  if (!ids.length) {
+    res.status(400).json({ error: '请提供有效的代购订单ID列表' });
+    return;
+  }
+  const actorProvider = getActorProviderFilter(req);
+  const records = await Promise.all(ids.map((id: number) => getPurchaseOrderById(id)));
+  if (actorProvider !== null && records.some((record) => record && Number(record.logistics_provider_id) !== actorProvider)) {
+    res.status(403).json({ error: '无权删除其他物流商的代购订单' });
+    return;
+  }
+  const existingIds = records.map((record, index) => record ? ids[index] : null).filter((id): id is number => id !== null);
+  const deleted = await batchDeletePurchaseOrders(existingIds);
   res.json({ message: `已删除 ${deleted} 条记录`, deleted });
 });
 

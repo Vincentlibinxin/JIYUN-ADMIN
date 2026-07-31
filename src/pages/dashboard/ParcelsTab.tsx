@@ -1050,7 +1050,6 @@ export default memo(function ParcelsTab({
         <div style={{ padding: '8px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', columnGap: 20, rowGap: 10 }}>
           {sortedCargoCounts.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-              <span style={{ fontSize: 12, color: '#8c8c8c', fontWeight: 500, whiteSpace: 'nowrap' }}>货物态</span>
               {sortedCargoCounts.map((s) =>
                 renderQuickStatusItem(s.code, s.count, selectedCargoStatuses.includes(s.code), () => toggleQuickStatus('status__in', s.code)),
               )}

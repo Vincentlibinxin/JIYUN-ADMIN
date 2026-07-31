@@ -35,7 +35,7 @@ interface RolesTabProps {
 }
 
 // 物流商权限可配置的权限分组（其余分组仅平台角色可配置）
-const LOGISTICS_GROUP_NAMES = ['概览', '系统管理员', '会员', '地址簿', '包裹', '订单', '航线运输管理', '物流商角色', '库位管理', '单号库', '标签管理'];
+const LOGISTICS_GROUP_NAMES = ['概览', '系统管理员', '会员', '地址簿', '证件管理', '包裹', '订单', '代购订单', '航线运输管理', '物流商角色', '库位管理', '单号库', '标签管理'];
 
 const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; label: string }> }> = [
   {
@@ -90,6 +90,15 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
     ],
   },
   {
+    group: '证件管理',
+    items: [
+      { code: PERMISSIONS.IDENTITY_DOCUMENT_VIEW, label: '查看证件' },
+      { code: PERMISSIONS.IDENTITY_DOCUMENT_CREATE, label: '新增证件' },
+      { code: PERMISSIONS.IDENTITY_DOCUMENT_UPDATE, label: '修改证件' },
+      { code: PERMISSIONS.IDENTITY_DOCUMENT_DELETE, label: '删除证件' },
+    ],
+  },
+  {
     group: '包裹',
     items: [
       { code: PERMISSIONS.PARCEL_VIEW, label: '查看包裹' },
@@ -106,6 +115,15 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
       { code: PERMISSIONS.ORDER_VIEW, label: '查看订单' },
       { code: PERMISSIONS.ORDER_UPDATE_STATUS, label: '变更订单状态' },
       { code: PERMISSIONS.ORDER_DELETE, label: '删除订单' },
+    ],
+  },
+  {
+    group: '代购订单',
+    items: [
+      { code: PERMISSIONS.PURCHASE_ORDER_VIEW, label: '查看代购订单' },
+      { code: PERMISSIONS.PURCHASE_ORDER_CREATE, label: '新增代购订单' },
+      { code: PERMISSIONS.PURCHASE_ORDER_UPDATE, label: '修改代购订单' },
+      { code: PERMISSIONS.PURCHASE_ORDER_DELETE, label: '删除代购订单' },
     ],
   },
   {

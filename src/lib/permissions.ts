@@ -33,6 +33,11 @@ export const PERMISSIONS = {
   ORDER_UPDATE_STATUS: 'order.update_status',
   ORDER_DELETE: 'order.delete',
 
+  PURCHASE_ORDER_VIEW: 'purchase_order.view',
+  PURCHASE_ORDER_CREATE: 'purchase_order.create',
+  PURCHASE_ORDER_UPDATE: 'purchase_order.update',
+  PURCHASE_ORDER_DELETE: 'purchase_order.delete',
+
   LOGISTICS_VIEW: 'logistics.view',
   LOGISTICS_CREATE: 'logistics.create',
   LOGISTICS_UPDATE: 'logistics.update',
@@ -67,6 +72,11 @@ export const PERMISSIONS = {
   ADDRESS_BOOK_CREATE: 'address_book.create',
   ADDRESS_BOOK_UPDATE: 'address_book.update',
   ADDRESS_BOOK_DELETE: 'address_book.delete',
+
+  IDENTITY_DOCUMENT_VIEW: 'identity_document.view',
+  IDENTITY_DOCUMENT_CREATE: 'identity_document.create',
+  IDENTITY_DOCUMENT_UPDATE: 'identity_document.update',
+  IDENTITY_DOCUMENT_DELETE: 'identity_document.delete',
 
   ROUTE_TRANSPORT_VIEW: 'route_transport.view',
   ROUTE_TRANSPORT_CREATE: 'route_transport.create',

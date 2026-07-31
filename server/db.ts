@@ -705,6 +705,76 @@ export const initDb = async (): Promise<void> => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // 证件管理（绑定会员与物流商）
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS identity_documents (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        document_type VARCHAR(32) NOT NULL,
+        document_number VARCHAR(64) NOT NULL,
+        user_id INT NOT NULL,
+        logistics_provider_id INT NOT NULL,
+        holder_name VARCHAR(128) DEFAULT NULL,
+        remarks VARCHAR(255) DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_identity_document_binding (document_type, document_number, user_id, logistics_provider_id),
+        INDEX idx_identity_document_user (user_id),
+        INDEX idx_identity_document_provider (logistics_provider_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // 代购订单（绑定会员与物流商）
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS purchase_orders (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        logistics_provider_id INT NOT NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'pending',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_purchase_order_user (user_id),
+        INDEX idx_purchase_order_provider (logistics_provider_id),
+        INDEX idx_purchase_order_status (status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS purchase_order_items (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        purchase_order_id INT NOT NULL,
+        item_name VARCHAR(255) NOT NULL,
+        quantity INT NOT NULL DEFAULT 1,
+        description TEXT DEFAULT NULL,
+        item_url VARCHAR(2048) DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_purchase_order_item_order (purchase_order_id),
+        CONSTRAINT fk_purchase_order_item_order
+          FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // 兼容旧版单物品订单：每张旧订单迁移为一条明细，已迁移订单不会重复插入。
+    const [purchaseOrderCols] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'purchase_orders'`
+    );
+    const existingPurchaseOrderCols = new Set((purchaseOrderCols as any[]).map((row: any) => row.COLUMN_NAME));
+    if (existingPurchaseOrderCols.has('item_name')) {
+      await connection.execute(`
+        INSERT INTO purchase_order_items (purchase_order_id, item_name, quantity, description, item_url)
+        SELECT po.id, po.item_name, po.quantity, po.description, po.item_url
+        FROM purchase_orders po
+        WHERE po.item_name IS NOT NULL AND po.item_name <> ''
+          AND NOT EXISTS (
+            SELECT 1 FROM purchase_order_items poi WHERE poi.purchase_order_id = po.id
+          )
+      `);
+    }
+    for (const legacyColumn of ['item_name', 'quantity', 'description', 'item_url']) {
+      if (existingPurchaseOrderCols.has(legacyColumn)) {
+        await connection.execute(`ALTER TABLE purchase_orders DROP COLUMN ${legacyColumn}`);
+      }
+    }
+
     // Migration: ensure address_book 省/市/区县/街道 列存在（老库补齐）
     const [addressBookCols] = await connection.execute<mysql.RowDataPacket[]>(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'address_book'`
@@ -1151,6 +1221,38 @@ export const initDb = async (): Promise<void> => {
       ];
       if (adminRoleId) {
         for (const permissionCode of ADDRESS_BOOK_CODES) {
+          await connection.execute(
+            'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
+            [adminRoleId, 'admin', permissionCode]
+          );
+        }
+      }
+
+      // 幂等回填：确保内置 admin 角色拥有「证件管理」权限。
+      const IDENTITY_DOCUMENT_CODES = [
+        PERMISSIONS.IDENTITY_DOCUMENT_VIEW,
+        PERMISSIONS.IDENTITY_DOCUMENT_CREATE,
+        PERMISSIONS.IDENTITY_DOCUMENT_UPDATE,
+        PERMISSIONS.IDENTITY_DOCUMENT_DELETE,
+      ];
+      if (adminRoleId) {
+        for (const permissionCode of IDENTITY_DOCUMENT_CODES) {
+          await connection.execute(
+            'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
+            [adminRoleId, 'admin', permissionCode]
+          );
+        }
+      }
+
+      // 幂等回填：确保内置 admin 角色拥有「代购订单」权限。
+      const PURCHASE_ORDER_CODES = [
+        PERMISSIONS.PURCHASE_ORDER_VIEW,
+        PERMISSIONS.PURCHASE_ORDER_CREATE,
+        PERMISSIONS.PURCHASE_ORDER_UPDATE,
+        PERMISSIONS.PURCHASE_ORDER_DELETE,
+      ];
+      if (adminRoleId) {
+        for (const permissionCode of PURCHASE_ORDER_CODES) {
           await connection.execute(
             'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
             [adminRoleId, 'admin', permissionCode]
@@ -3662,6 +3764,323 @@ export const batchDeleteAddressBook = async (ids: number[]): Promise<number> => 
     `DELETE FROM address_book WHERE id IN (${placeholders})`,
     ids
   );
+  return result.affectedRows;
+};
+
+// ============ 证件管理（绑定会员与物流商） ============
+
+const IDENTITY_DOCUMENT_SORT_COLUMNS = new Set([
+  'id', 'document_type', 'document_number', 'user_id', 'logistics_provider_id', 'holder_name', 'created_at', 'updated_at',
+]);
+
+export interface IdentityDocumentPayload {
+  document_type: string;
+  document_number: string;
+  user_id: number;
+  logistics_provider_id: number;
+  holder_name?: string | null;
+  remarks?: string | null;
+}
+
+export const getIdentityDocumentsPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>,
+  providerFilter?: number | null
+) => {
+  const orderBy = `d.${toSafeOrderBy(sortKey, sortOrder, IDENTITY_DOCUMENT_SORT_COLUMNS, 'created_at')}`;
+  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, IDENTITY_DOCUMENT_SORT_COLUMNS, 'd.');
+  const allClauses = ['1=1', ...clauses];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    allClauses.push('d.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 10, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT d.id, d.document_type, d.document_number, d.user_id, d.logistics_provider_id,
+            d.holder_name, d.remarks, d.created_at, d.updated_at,
+            lp.name AS logistics_provider_name, u.username AS member_username,
+            u.real_name AS member_real_name, u.phone AS member_phone
+     FROM identity_documents d
+     LEFT JOIN logistics_providers lp ON d.logistics_provider_id = lp.id
+     LEFT JOIN users u ON d.user_id = u.id
+     ${whereSql}
+     ORDER BY ${orderBy}
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
+  );
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) AS count FROM identity_documents d ${whereSql}`,
+    params
+  );
+  const total = Number(countRows?.[0]?.count || 0);
+  return { data: rows as any[], total, pages: Math.max(1, Math.ceil(total / safeLimit)) };
+};
+
+export const searchIdentityDocuments = async (keyword: string, providerFilter?: number | null): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const clauses = [`(
+    CAST(d.id AS CHAR) LIKE ? OR d.document_number LIKE ? OR d.holder_name LIKE ? OR d.remarks LIKE ?
+    OR u.username LIKE ? OR u.real_name LIKE ? OR lp.name LIKE ?
+  )`];
+  const params: any[] = [like, like, like, like, like, like, like];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    clauses.push('d.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT d.id, d.document_type, d.document_number, d.user_id, d.logistics_provider_id,
+            d.holder_name, d.remarks, d.created_at, d.updated_at,
+            lp.name AS logistics_provider_name, u.username AS member_username,
+            u.real_name AS member_real_name, u.phone AS member_phone
+     FROM identity_documents d
+     LEFT JOIN logistics_providers lp ON d.logistics_provider_id = lp.id
+     LEFT JOIN users u ON d.user_id = u.id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY d.created_at DESC
+     LIMIT 500`,
+    params
+  );
+  return rows as any[];
+};
+
+export const findDuplicateIdentityDocument = async (
+  payload: IdentityDocumentPayload,
+  excludeId?: number
+): Promise<any | null> => {
+  const params: any[] = [payload.document_type, payload.document_number, payload.user_id, payload.logistics_provider_id];
+  let excludeSql = '';
+  if (excludeId) {
+    excludeSql = ' AND id <> ?';
+    params.push(excludeId);
+  }
+  return querySingle<any>(
+    `SELECT id FROM identity_documents
+     WHERE document_type = ? AND document_number = ? AND user_id = ? AND logistics_provider_id = ?${excludeSql}
+     LIMIT 1`,
+    params
+  );
+};
+
+export const createIdentityDocument = async (payload: IdentityDocumentPayload) => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `INSERT INTO identity_documents
+      (document_type, document_number, user_id, logistics_provider_id, holder_name, remarks)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [payload.document_type, payload.document_number, payload.user_id, payload.logistics_provider_id, payload.holder_name ?? null, payload.remarks ?? null]
+  );
+  return { id: result.insertId, ...payload };
+};
+
+export const getIdentityDocumentById = async (id: number): Promise<any | null> => querySingle<any>(
+  `SELECT id, document_type, document_number, user_id, logistics_provider_id, holder_name, remarks
+   FROM identity_documents WHERE id = ? LIMIT 1`,
+  [id]
+);
+
+export const updateIdentityDocument = async (id: number, payload: IdentityDocumentPayload): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `UPDATE identity_documents
+     SET document_type = ?, document_number = ?, user_id = ?, logistics_provider_id = ?,
+         holder_name = ?, remarks = ?, updated_at = NOW()
+     WHERE id = ?`,
+    [payload.document_type, payload.document_number, payload.user_id, payload.logistics_provider_id, payload.holder_name ?? null, payload.remarks ?? null, id]
+  );
+  return result.affectedRows > 0;
+};
+
+export const deleteIdentityDocument = async (id: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM identity_documents WHERE id = ?', [id]);
+  return result.affectedRows > 0;
+};
+
+export const batchDeleteIdentityDocuments = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `DELETE FROM identity_documents WHERE id IN (${placeholders})`,
+    ids
+  );
+  return result.affectedRows;
+};
+
+// ============ 代购订单（绑定会员与物流商） ============
+
+const PURCHASE_ORDER_SORT_COLUMNS = new Set([
+  'id', 'user_id', 'logistics_provider_id', 'status', 'created_at', 'updated_at',
+]);
+
+export interface PurchaseOrderItemPayload {
+  item_name: string;
+  quantity: number;
+  description?: string | null;
+  item_url?: string | null;
+}
+
+export interface PurchaseOrderPayload {
+  user_id: number;
+  logistics_provider_id: number;
+  status: string;
+  items: PurchaseOrderItemPayload[];
+}
+
+const PURCHASE_ORDER_SELECT = `
+  SELECT po.id, po.user_id, po.logistics_provider_id, po.status, po.created_at, po.updated_at,
+         lp.name AS logistics_provider_name, u.username AS member_username,
+         u.real_name AS member_real_name, u.phone AS member_phone
+  FROM purchase_orders po
+  LEFT JOIN logistics_providers lp ON po.logistics_provider_id = lp.id
+  LEFT JOIN users u ON po.user_id = u.id`;
+
+const withPurchaseOrderItems = async (orders: any[]): Promise<any[]> => {
+  if (!orders.length) return orders;
+  const orderIds = orders.map((order) => Number(order.id));
+  const placeholders = orderIds.map(() => '?').join(',');
+  const [itemRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, purchase_order_id, item_name, quantity, description, item_url
+     FROM purchase_order_items
+     WHERE purchase_order_id IN (${placeholders})
+     ORDER BY id ASC`,
+    orderIds
+  );
+  const itemsByOrder = new Map<number, any[]>();
+  for (const item of itemRows as any[]) {
+    const orderId = Number(item.purchase_order_id);
+    itemsByOrder.set(orderId, [...(itemsByOrder.get(orderId) || []), item]);
+  }
+  return orders.map((order) => ({ ...order, items: itemsByOrder.get(Number(order.id)) || [] }));
+};
+
+export const getPurchaseOrdersPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  providerFilter?: number | null
+) => {
+  const clauses = ['1=1'];
+  const params: any[] = [];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    clauses.push('po.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const whereSql = `WHERE ${clauses.join(' AND ')}`;
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 20, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+  const orderBy = `po.${toSafeOrderBy(sortKey, sortOrder, PURCHASE_ORDER_SORT_COLUMNS, 'created_at')}`;
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `${PURCHASE_ORDER_SELECT} ${whereSql} ORDER BY ${orderBy} LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
+  );
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) AS count FROM purchase_orders po ${whereSql}`,
+    params
+  );
+  const total = Number(countRows?.[0]?.count || 0);
+  return { data: await withPurchaseOrderItems(rows as any[]), total, pages: Math.max(1, Math.ceil(total / safeLimit)) };
+};
+
+export const searchPurchaseOrders = async (keyword: string, providerFilter?: number | null): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const clauses = [`(CAST(po.id AS CHAR) LIKE ? OR po.status LIKE ? OR u.username LIKE ? OR u.real_name LIKE ? OR lp.name LIKE ?
+    OR EXISTS (
+      SELECT 1 FROM purchase_order_items poi
+      WHERE poi.purchase_order_id = po.id
+        AND (poi.item_name LIKE ? OR poi.description LIKE ? OR poi.item_url LIKE ?)
+    ))`];
+  const params: any[] = [like, like, like, like, like, like, like, like];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    clauses.push('po.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `${PURCHASE_ORDER_SELECT} WHERE ${clauses.join(' AND ')} ORDER BY po.created_at DESC LIMIT 500`,
+    params
+  );
+  return withPurchaseOrderItems(rows as any[]);
+};
+
+export const createPurchaseOrder = async (payload: PurchaseOrderPayload) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [result] = await connection.execute<mysql.ResultSetHeader>(
+      'INSERT INTO purchase_orders (user_id, logistics_provider_id, status) VALUES (?, ?, ?)',
+      [payload.user_id, payload.logistics_provider_id, payload.status]
+    );
+    for (const item of payload.items) {
+      await connection.execute(
+        `INSERT INTO purchase_order_items (purchase_order_id, item_name, quantity, description, item_url)
+         VALUES (?, ?, ?, ?, ?)`,
+        [result.insertId, item.item_name, item.quantity, item.description ?? null, item.item_url ?? null]
+      );
+    }
+    await connection.commit();
+    return { id: result.insertId, ...payload };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+export const getPurchaseOrderById = async (id: number): Promise<any | null> => {
+  const order = await querySingle<any>(
+    'SELECT id, user_id, logistics_provider_id, status FROM purchase_orders WHERE id = ? LIMIT 1',
+    [id]
+  );
+  if (!order) return null;
+  return (await withPurchaseOrderItems([order]))[0];
+};
+
+export const updatePurchaseOrder = async (id: number, payload: PurchaseOrderPayload): Promise<boolean> => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [result] = await connection.execute<mysql.ResultSetHeader>(
+      `UPDATE purchase_orders SET user_id = ?, logistics_provider_id = ?, status = ?, updated_at = NOW() WHERE id = ?`,
+      [payload.user_id, payload.logistics_provider_id, payload.status, id]
+    );
+    if (!result.affectedRows) {
+      await connection.rollback();
+      return false;
+    }
+    await connection.execute('DELETE FROM purchase_order_items WHERE purchase_order_id = ?', [id]);
+    for (const item of payload.items) {
+      await connection.execute(
+        `INSERT INTO purchase_order_items (purchase_order_id, item_name, quantity, description, item_url)
+         VALUES (?, ?, ?, ?, ?)`,
+        [id, item.item_name, item.quantity, item.description ?? null, item.item_url ?? null]
+      );
+    }
+    await connection.commit();
+    return true;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+export const deletePurchaseOrder = async (id: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM purchase_orders WHERE id = ?', [id]);
+  return result.affectedRows > 0;
+};
+
+export const batchDeletePurchaseOrders = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`DELETE FROM purchase_orders WHERE id IN (${placeholders})`, ids);
   return result.affectedRows;
 };
 

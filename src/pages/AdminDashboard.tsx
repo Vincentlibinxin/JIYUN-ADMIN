@@ -16,6 +16,8 @@ import LogisticsTab, { LogisticsProvider, LogisticsPayload } from './dashboard/L
 import StorageBinsTab, { StorageBin, StorageBinPayload } from './dashboard/StorageBinsTab';
 import NumberLibraryTab, { NumberCategory, NumberCategoryPayload } from './dashboard/NumberLibraryTab';
 import AddressBookTab, { AddressBookEntry, AddressBookPayload } from './dashboard/AddressBookTab';
+import IdentityDocumentsTab from './dashboard/IdentityDocumentsTab';
+import PurchaseOrdersTab from './dashboard/PurchaseOrdersTab';
 import RouteTransportTab from './dashboard/RouteTransportTab';
 import RolesTab from './dashboard/RolesTab';
 import ParcelStatusTab from './dashboard/ParcelStatusTab';
@@ -245,12 +247,14 @@ export default function AdminDashboard() {
     if (hasPermission(PERMISSIONS.OVERVIEW_VIEW)) return { menu: 'overview', tab: 'overview' };
     if (hasPermission(PERMISSIONS.PARCEL_VIEW)) return { menu: 'parcels', tab: 'parcels' };
     if (hasPermission(PERMISSIONS.ORDER_VIEW)) return { menu: 'orders', tab: 'orders' };
+    if (hasPermission(PERMISSIONS.PURCHASE_ORDER_VIEW)) return { menu: 'purchase-orders', tab: 'purchase-orders' };
     if (hasPermission(PERMISSIONS.ROUTE_TRANSPORT_VIEW)) return { menu: 'route-transport', tab: 'route-transport' };
     if (hasPermission(PERMISSIONS.SMS_VIEW)) return { menu: 'sms', tab: 'sms' };
     if (hasPermission(PERMISSIONS.LOGISTICS_VIEW)) return { menu: 'logistics', tab: 'logistics' };
     if (hasPermission(PERMISSIONS.STORAGE_BIN_VIEW)) return { menu: 'storage-bins', tab: 'storage-bins' };
     if (hasPermission(PERMISSIONS.USER_VIEW)) return { menu: 'users', tab: 'users' };
     if (hasPermission(PERMISSIONS.ADDRESS_BOOK_VIEW)) return { menu: 'address-book', tab: 'address-book' };
+    if (hasPermission(PERMISSIONS.IDENTITY_DOCUMENT_VIEW)) return { menu: 'identity-documents', tab: 'identity-documents' };
     if (hasPermission(PERMISSIONS.NUMBER_LIB_VIEW)) return { menu: 'number-library', tab: 'number-library' };
     if (systemAdminTabs.length > 0) return { menu: 'admins', tab: systemAdminTabs[0].key };
     return { menu: 'overview', tab: 'overview' };
@@ -2059,6 +2063,17 @@ export default function AdminDashboard() {
             />
           )}
 
+          {/* 代购订单页面 */}
+          {activeTab === 'purchase-orders' && (
+            <PurchaseOrdersTab
+              actorScope={actorScope}
+              canCreate={hasPermission(PERMISSIONS.PURCHASE_ORDER_CREATE)}
+              canUpdate={hasPermission(PERMISSIONS.PURCHASE_ORDER_UPDATE)}
+              canDelete={hasPermission(PERMISSIONS.PURCHASE_ORDER_DELETE)}
+              refreshKey={refreshKey}
+            />
+          )}
+
           {/* 航线运输管理页面 */}
           {activeTab === 'route-transport' && (
             <RouteTransportTab
@@ -2291,6 +2306,17 @@ export default function AdminDashboard() {
                 setAddressDateFilters(df);
                 fetchAddressEntries(1, addressPageSize, addressSort.key, addressSort.direction, cf, df);
               }}
+            />
+          )}
+
+          {/* 证件管理页面 */}
+          {activeTab === 'identity-documents' && (
+            <IdentityDocumentsTab
+              actorScope={actorScope}
+              canCreate={hasPermission(PERMISSIONS.IDENTITY_DOCUMENT_CREATE)}
+              canUpdate={hasPermission(PERMISSIONS.IDENTITY_DOCUMENT_UPDATE)}
+              canDelete={hasPermission(PERMISSIONS.IDENTITY_DOCUMENT_DELETE)}
+              refreshKey={refreshKey}
             />
           )}
           </div>

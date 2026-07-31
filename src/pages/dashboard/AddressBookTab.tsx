@@ -488,18 +488,37 @@ export default memo(function AddressBookTab({
       ],
     },
     {
-      title: '姓名',
+      title: '名称',
       key: 'name',
       width: 140,
       sorter: true,
       sortOrder: sortKey === 'name' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
       children: [
         {
-          title: renderSearchInput('name', '姓名'),
+          title: renderSearchInput('name', '名称'),
           dataIndex: 'name',
           key: 'name_child',
           width: 140,
           ellipsis: true,
+        },
+      ],
+    },
+    {
+      title: '电话',
+      key: 'phone',
+      width: 170,
+      sorter: true,
+      sortOrder: sortKey === 'phone' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
+      children: [
+        {
+          title: renderSearchInput('phone', '电话'),
+          key: 'phone_child',
+          width: 170,
+          ellipsis: true,
+          render: (_, record) => {
+            const dial = REGION_MAP[record.region]?.dialCode || '';
+            return dial ? `${dial} ${record.phone}` : record.phone;
+          },
         },
       ],
     },
@@ -521,25 +540,6 @@ export default memo(function AddressBookTab({
               return r ? <Tag color="blue">{r.label}</Tag> : (record.region || '—');
             }
             return <Tooltip title={text}>{text}</Tooltip>;
-          },
-        },
-      ],
-    },
-    {
-      title: '电话',
-      key: 'phone',
-      width: 170,
-      sorter: true,
-      sortOrder: sortKey === 'phone' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
-      children: [
-        {
-          title: renderSearchInput('phone', '电话'),
-          key: 'phone_child',
-          width: 170,
-          ellipsis: true,
-          render: (_, record) => {
-            const dial = REGION_MAP[record.region]?.dialCode || '';
-            return dial ? `${dial} ${record.phone}` : record.phone;
           },
         },
       ],
@@ -680,7 +680,7 @@ export default memo(function AddressBookTab({
               if (!val) onReset();
             }}
             onSearch={onSearch}
-            placeholder="搜索地址：ID、姓名、电话、地址或会员"
+            placeholder="搜索地址：ID、名称、电话、地址或会员"
             style={{ width: 400 }}
             enterButton
           />
@@ -762,10 +762,10 @@ export default memo(function AddressBookTab({
         <Form form={form} layout="vertical" disabled={isView}>
           <Form.Item
             name="name"
-            label="姓名"
-            rules={[{ required: true, message: '请输入姓名' }]}
+            label="名称"
+            rules={[{ required: true, message: '请输入名称' }]}
           >
-            <Input placeholder="请输入姓名" maxLength={128} />
+            <Input placeholder="请输入名称" maxLength={128} />
           </Form.Item>
 
           <Form.Item
