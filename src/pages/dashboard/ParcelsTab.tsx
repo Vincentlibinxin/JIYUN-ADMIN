@@ -40,6 +40,7 @@ type SortDirection = 'asc' | 'desc';
 interface ParcelsTabProps {
   parcels: Parcel[];
   loading: boolean;
+  actorScope: 'platform' | 'logistics';
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
   onSearch: () => void;
@@ -73,6 +74,7 @@ interface ParcelsTabProps {
 export default memo(function ParcelsTab({
   parcels,
   loading,
+  actorScope,
   searchQuery,
   onSearchQueryChange,
   onSearch,
@@ -141,6 +143,7 @@ export default memo(function ParcelsTab({
   const [fileList, setFileList] = useState<UploadFile[]>([]);
 
   const [editOpen, setEditOpen] = useState(false);
+  const [editMode, setEditMode] = useState<'view' | 'edit'>('edit');
   const [editLoading, setEditLoading] = useState(false);
   const [editForm] = Form.useForm();
   const [editFileList, setEditFileList] = useState<UploadFile[]>([]);
@@ -358,16 +361,21 @@ export default memo(function ParcelsTab({
     }
   };
 
-  const openEditModal = async (record: Parcel) => {
+  const fillEditForm = async (record: Parcel) => {
     setEditingParcel(record);
     const existingUrls = record.images ? record.images.split(',').map(s => s.trim()).filter(Boolean) : [];
     setEditFileList(existingUrls.map((url, i) => ({ uid: `existing-${i}`, name: url.split('/').pop() || `img-${i}`, status: 'done' as const, url })));
     editForm.setFieldsValue({
       tracking_number: record.tracking_number,
+      username: record.username || '',
+      created_at: record.created_at ? dayjs(record.created_at).format('YYYY-MM-DD HH:mm:ss') : '',
+      status_updated_at: record.status_updated_at ? dayjs(record.status_updated_at).format('YYYY-MM-DD HH:mm:ss') : '',
+      estimated_delivery: record.estimated_delivery ? dayjs(record.estimated_delivery).format('YYYY-MM-DD HH:mm:ss') : '',
       weight: record.weight,
       length_cm: record.length_cm,
       width_cm: record.width_cm,
       height_cm: record.height_cm,
+      volume: record.volume,
       origin: record.origin || '',
       destination: record.destination || '',
       status: record.status,
@@ -377,11 +385,22 @@ export default memo(function ParcelsTab({
       logistics_provider_id: record.logistics_provider_id ?? undefined,
       items: [{ name: '', value: 0, quantity: 1 }],
     });
-    setEditOpen(true);
     try {
       const items = await onFetchItems(record.id);
       if (items.length > 0) editForm.setFieldsValue({ items });
     } catch { /* keep default */ }
+  };
+
+  const openViewModal = async (record: Parcel) => {
+    setEditMode('view');
+    await fillEditForm(record);
+    setEditOpen(true);
+  };
+
+  const openEditModal = async (record: Parcel) => {
+    setEditMode('edit');
+    await fillEditForm(record);
+    setEditOpen(true);
   };
 
   const handleEditSubmit = async () => {
@@ -770,21 +789,10 @@ export default memo(function ParcelsTab({
             if (statusDictLoading) {
               return <span style={{ color: '#999' }}>加载中...</span>;
             }
-            const statusOptions = cargoStatusOptions.some((o) => o.value === record.status)
-              ? cargoStatusOptions
-              : [...cargoStatusOptions, { label: getStatusName(record.status, '未知状态'), value: record.status }];
             return (
-              <Select
-                size="small"
-                value={record.status}
-                style={{ width: '100%' }}
-                onChange={(value) => onUpdateStatus(record.id, value)}
-                onClick={(e) => e.stopPropagation()}
-                disabled={!canUpdateStatus}
-                showSearch
-                optionFilterProp="label"
-                options={statusOptions}
-              />
+              <Tag color={statusColor(record.status)}>
+                {getStatusName(record.status, '未知状态')}
+              </Tag>
             );
           },
         },
@@ -821,7 +829,7 @@ export default memo(function ParcelsTab({
         },
       ],
     },
-    {
+    ...(actorScope === 'platform' ? [{
       title: '物流商',
       key: 'logistics_provider',
       width: 150,
@@ -831,10 +839,10 @@ export default memo(function ParcelsTab({
           key: 'logistics_provider_child',
           width: 150,
           ellipsis: true,
-          render: (_, record) => record.logistics_provider_name || '',
+          render: (_: unknown, record: Parcel) => record.logistics_provider_name || '',
         },
       ],
-    },
+    }] : []),
     {
       title: '删除',
       key: '__deleted__',
@@ -873,7 +881,7 @@ export default memo(function ParcelsTab({
           render: (_, record) => (
             <Space size={4}>
               <Tooltip title="查看">
-                <Button size="small" type="text" icon={<EyeOutlined />} />
+                <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => openViewModal(record)} />
               </Tooltip>
               {canUpdate && (
                 <Tooltip title="修改">
@@ -898,18 +906,17 @@ export default memo(function ParcelsTab({
       ],
     },
   ], [
+    actorScope,
     allSelected,
     canDelete,
     canUpdate,
-    canUpdateStatus,
-    cargoStatusOptions,
     getStatusName,
     handleSelectAll,
     handleSelectRow,
     indeterminate,
     onDelete,
-    onUpdateStatus,
     openEditModal,
+    openViewModal,
     renderDateRangeInput,
     renderDeletedFilter,
     renderSearchInput,
@@ -917,6 +924,7 @@ export default memo(function ParcelsTab({
     selectedRowKeySet,
     sortDirection,
     sortKey,
+    statusColor,
     statusDictLoading,
   ]);
 
@@ -1222,153 +1230,205 @@ export default memo(function ParcelsTab({
       </Modal>
 
       <Modal
-        title="编辑包裹"
+        title={editMode === 'view' ? '包裹详情' : '编辑包裹'}
         open={editOpen}
         rootClassName="detail-modal"
-        className="detail-modal parcel-edit-modal"
+        className="detail-modal parcel-detail-modal"
         onCancel={() => { setEditOpen(false); editForm.resetFields(); setEditFileList([]); setEditingParcel(null); }}
-        onOk={handleEditSubmit}
+        onOk={() => { if (editMode === 'view') setEditOpen(false); else void handleEditSubmit(); }}
         centered
-        confirmLoading={editLoading}
-        okText="保存"
+        confirmLoading={editMode === 'edit' ? editLoading : false}
+        okText={editMode === 'view' ? '关闭' : '保存'}
         cancelText="取消"
-        width={720}
+        cancelButtonProps={editMode === 'view' ? { style: { display: 'none' } } : undefined}
+        width={840}
         styles={{ body: { paddingTop: 12, paddingBottom: 8 } }}
         style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
-        <Form form={editForm} layout="vertical" autoComplete="off" size="small" className="compact-form">
-          <Row gutter={8}>
-            <Col span={12}>
-              <Form.Item name="tracking_number" label="包裹单号">
-                <Input disabled />
+        <Form form={editForm} layout="vertical" autoComplete="off" size="small" className="compact-form" disabled={editMode === 'view'}>
+          <div className="parcel-detail-top-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)', gap: 8, marginBottom: 12 }}>
+            <div style={{ marginBottom: 0, padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5' }}>
+              <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#141414' }}>基础信息</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '82px minmax(0, 1fr)', columnGap: 6, rowGap: 6, alignItems: 'center' }}>
+                <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>包裹单号</div>
+                <Form.Item name="tracking_number" style={{ marginBottom: 8 }}>
+                  <Input disabled />
+                </Form.Item>
+
+                <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>会员用户名</div>
+                <Form.Item name="username" style={{ marginBottom: 8 }}>
+                  <Input disabled placeholder="-" />
+                </Form.Item>
+
+                <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>创建时间</div>
+                <Form.Item name="created_at" style={{ marginBottom: 8 }}>
+                  <Input disabled placeholder="-" />
+                </Form.Item>
+
+                {actorScope === 'platform' && (
+                  <>
+                    <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>物流商</div>
+                    <Form.Item name="logistics_provider_id" style={{ marginBottom: 0 }}>
+                      <Select
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                        placeholder="请选择物流商（可选）"
+                        options={logisticsSelectOptions}
+                      />
+                    </Form.Item>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 0, padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5' }}>
+              <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#141414' }}>状态信息</div>
+              <Form.Item name="status" label="货物态" style={{ marginBottom: 8 }}>
+                <Select showSearch optionFilterProp="label" options={cargoStatusOptions} />
               </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="weight" label="重量 (kg)" rules={[{ required: true, message: '请输入重量' }]}>
-                <InputNumber min={0.01} step={0.01} precision={2} style={{ width: '100%' }} placeholder="请输入重量" />
+              <Form.Item name="sub_status" label="信息态" style={{ marginBottom: 8 }}>
+                <Select allowClear showSearch optionFilterProp="label" placeholder="可选" options={infoStatusOptions} />
               </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={8}>
-            <Col span={8}>
-              <Form.Item name="length_cm" label="长 (cm)" rules={[{ required: true, message: '请输入长' }]}>
-                <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="长" />
+              <Form.Item name="status_updated_at" label="状态更新时间" style={{ marginBottom: 8 }}>
+                <Input disabled placeholder="-" />
               </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="width_cm" label="宽 (cm)" rules={[{ required: true, message: '请输入宽' }]}>
-                <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="宽" />
+              <Form.Item name="status_remark" label="状态备注" style={{ marginBottom: 0 }}>
+                <Input.TextArea rows={4} maxLength={255} placeholder="可选，填写异常原因或备注信息" />
               </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="height_cm" label="高 (cm)" rules={[{ required: true, message: '请输入高' }]}>
-                <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="高" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={8}>
-            <Col span={12}>
-              <Form.Item name="origin" label="来源">
-                <Input placeholder="来源" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="destination" label="目的地">
-                <Input placeholder="目的地" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={8}>
-            <Col span={12}>
-              <Form.Item name="status" label="货物态">
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  options={cargoStatusOptions}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="sub_status" label="信息态">
-                <Select
-                  allowClear
-                  showSearch
-                  optionFilterProp="label"
-                  placeholder="可选"
-                  options={infoStatusOptions}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Form.Item name="status_remark" label="状态备注">
-            <Input.TextArea rows={2} maxLength={255} placeholder="可选，填写异常原因或备注信息" />
-          </Form.Item>
-          <Row gutter={8}>
-            <Col span={12}>
-              <Form.Item name="storage_bin" label="库位号">
-                <Input maxLength={64} placeholder="请输入库位号（可选）" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="logistics_provider_id" label="物流商">
-                <Select
-                  allowClear
-                  showSearch
-                  optionFilterProp="label"
-                  placeholder="请选择物流商（可选）"
-                  options={logisticsSelectOptions}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Form.Item label="图片" className="compact-upload">
-            <Upload
-              listType="picture-card"
-              fileList={editFileList}
-              onChange={({ fileList: fl }) => setEditFileList(fl)}
-              onPreview={handleEditPreview}
-              beforeUpload={() => false}
-              accept="image/*"
-              multiple
-            >
-              {editFileList.length >= 10 ? null : (
-                <div>
-                  <PlusOutlined />
-                  <div style={{ marginTop: 4, fontSize: 12 }}>上传</div>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 12, padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5' }}>
+            <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#141414' }}>货物信息</div>
+            <Row gutter={8}>
+              <Col span={6}>
+                <Form.Item name="weight" label="重量 (kg)" rules={[{ required: true, message: '请输入重量' }]} style={{ marginBottom: 8 }}>
+                  <InputNumber min={0.01} step={0.01} precision={2} style={{ width: '100%' }} placeholder="请输入重量" />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="length_cm" label="长 (cm)" rules={[{ required: true, message: '请输入长' }]} style={{ marginBottom: 8 }}>
+                  <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="长" />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="width_cm" label="宽 (cm)" rules={[{ required: true, message: '请输入宽' }]} style={{ marginBottom: 8 }}>
+                  <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="宽" />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="height_cm" label="高 (cm)" rules={[{ required: true, message: '请输入高' }]} style={{ marginBottom: 8 }}>
+                  <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="高" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={8}>
+              <Col span={8}>
+                <Form.Item name="volume" label="体积" style={{ marginBottom: 8 }}>
+                  <InputNumber disabled style={{ width: '100%' }} placeholder="系统计算" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="storage_bin" label="库位号" style={{ marginBottom: 8 }}>
+                  <Input maxLength={64} placeholder="请输入库位号（可选）" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="estimated_delivery" label="预计到达" style={{ marginBottom: 8 }}>
+                  <Input disabled placeholder="-" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={8}>
+              <Col span={12}>
+                <Form.Item name="origin" label="来源" style={{ marginBottom: 8 }}>
+                  <Input placeholder="来源" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="destination" label="目的地" style={{ marginBottom: 0 }}>
+                  <Input placeholder="目的地" />
+                </Form.Item>
+              </Col>
+            </Row>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 8 }}>
+            <div style={{ marginBottom: 0, padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5' }}>
+              <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#141414' }}>图片</div>
+              {editMode === 'view' ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))', gap: 8 }}>
+                  {editFileList.filter((f) => !!f.url).length === 0 && (
+                    <div style={{ color: '#8c8c8c', fontSize: 12 }}>暂无图片</div>
+                  )}
+                  {editFileList.filter((f) => !!f.url).map((f) => (
+                    <Image
+                      key={f.uid}
+                      src={f.url}
+                      width={84}
+                      height={84}
+                      style={{ objectFit: 'cover', borderRadius: 6, border: '1px solid #f0f0f0' }}
+                    />
+                  ))}
                 </div>
-              )}
-            </Upload>
-          </Form.Item>
-          <Form.List
-            name="items"
-            rules={[{ validator: async (_, items) => { if (!items || items.length < 1) throw new Error('至少添加一个物品'); } }]}
-          >
-            {(fields, { add, remove }, { errors }) => (
-              <>
-                <div style={{ marginBottom: 6, fontWeight: 500, fontSize: 13 }}>物品清单</div>
-                {fields.map(({ key, name, ...restField }) => (
-                  <div key={key} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginBottom: 6 }}>
-                    <Form.Item {...restField} name={[name, 'name']} rules={[{ required: true, message: '名称' }]} style={{ flex: 2, marginBottom: 0 }}>
-                      <Input placeholder="物品名称" />
-                    </Form.Item>
-                    <Form.Item {...restField} name={[name, 'value']} rules={[{ required: true, message: '价值' }]} style={{ flex: 1, marginBottom: 0 }}>
-                      <InputNumber min={0} step={0.01} precision={2} style={{ width: '100%' }} placeholder="价值" />
-                    </Form.Item>
-                    <Form.Item {...restField} name={[name, 'quantity']} rules={[{ required: true, message: '数量' }]} style={{ flex: 1, marginBottom: 0 }}>
-                      <InputNumber min={1} step={1} precision={0} style={{ width: '100%' }} placeholder="数量" />
-                    </Form.Item>
-                    {fields.length > 1 && (
-                      <MinusCircleOutlined style={{ marginTop: 6, color: '#ff4d4f', fontSize: 16 }} onClick={() => remove(name)} />
+              ) : (
+                <Form.Item label={null} className="compact-upload" style={{ marginBottom: 0 }}>
+                  <Upload
+                    listType="picture-card"
+                    fileList={editFileList}
+                    onChange={({ fileList: fl }) => setEditFileList(fl)}
+                    onPreview={handleEditPreview}
+                    beforeUpload={() => false}
+                    accept="image/*"
+                    multiple
+                  >
+                    {editFileList.length >= 10 ? null : (
+                      <div>
+                        <PlusOutlined />
+                        <div style={{ marginTop: 4, fontSize: 12 }}>上传</div>
+                      </div>
                     )}
-                  </div>
-                ))}
-                <Button type="dashed" size="small" onClick={() => add({ name: '', value: 0, quantity: 1 })} block icon={<PlusOutlined />}>
-                  添加物品
-                </Button>
-                <Form.ErrorList errors={errors} />
-              </>
-            )}
-          </Form.List>
+                  </Upload>
+                </Form.Item>
+              )}
+            </div>
+
+            <div style={{ marginBottom: 0, padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5' }}>
+              <Form.List
+                name="items"
+                rules={[{ validator: async (_, items) => { if (!items || items.length < 1) throw new Error('至少添加一个物品'); } }]}
+              >
+                {(fields, { add, remove }, { errors }) => (
+                  <>
+                    <div style={{ marginBottom: 6, fontWeight: 700, fontSize: 12, color: '#141414' }}>物品清单</div>
+                    {fields.map(({ key, name, ...restField }) => (
+                      <div key={key} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginBottom: 6 }}>
+                        <Form.Item {...restField} name={[name, 'name']} rules={[{ required: true, message: '名称' }]} style={{ flex: 2, marginBottom: 0 }}>
+                          <Input placeholder="物品名称" />
+                        </Form.Item>
+                        <Form.Item {...restField} name={[name, 'value']} rules={[{ required: true, message: '价值' }]} style={{ flex: 1, marginBottom: 0 }}>
+                          <InputNumber min={0} step={0.01} precision={2} style={{ width: '100%' }} placeholder="价值" />
+                        </Form.Item>
+                        <Form.Item {...restField} name={[name, 'quantity']} rules={[{ required: true, message: '数量' }]} style={{ flex: 1, marginBottom: 0 }}>
+                          <InputNumber min={1} step={1} precision={0} style={{ width: '100%' }} placeholder="数量" />
+                        </Form.Item>
+                        {editMode === 'edit' && fields.length > 1 && (
+                          <MinusCircleOutlined style={{ marginTop: 6, color: '#ff4d4f', fontSize: 16 }} onClick={() => remove(name)} />
+                        )}
+                      </div>
+                    ))}
+                    {editMode === 'edit' && (
+                      <Button type="dashed" size="small" onClick={() => add({ name: '', value: 0, quantity: 1 })} block icon={<PlusOutlined />}>
+                        添加物品
+                      </Button>
+                    )}
+                    <Form.ErrorList errors={errors} />
+                  </>
+                )}
+              </Form.List>
+            </div>
+          </div>
         </Form>
       </Modal>
 

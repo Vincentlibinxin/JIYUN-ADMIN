@@ -25,6 +25,7 @@ type SortDirection = 'asc' | 'desc';
 interface UsersTabProps {
   users: User[];
   loading: boolean;
+  actorScope: 'platform' | 'logistics';
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
   onSearch: () => void;
@@ -49,6 +50,7 @@ interface UsersTabProps {
 export default function UsersTab({
   users,
   loading,
+  actorScope,
   searchQuery,
   onSearchQueryChange,
   onSearch,
@@ -477,7 +479,7 @@ export default function UsersTab({
               <Tooltip title="查看">
                 <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => openView(record)} />
               </Tooltip>
-              {canUpdate && (
+              {canUpdate && actorScope === 'platform' && (
                 <Tooltip title="修改">
                   <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(record)} />
                 </Tooltip>
@@ -501,7 +503,10 @@ export default function UsersTab({
     },
   ];
 
-  const tableColumns = constrainTableColumns(columns);
+  const visibleColumns = actorScope === 'logistics'
+    ? columns.filter((column) => column.key !== 'logistics_provider')
+    : columns;
+  const tableColumns = constrainTableColumns(visibleColumns);
   const tableScrollX = getConstrainedTableScrollX(tableColumns);
 
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
@@ -621,7 +626,9 @@ export default function UsersTab({
             <Descriptions.Item label="电子邮件">{activeUser.email || '-'}</Descriptions.Item>
             <Descriptions.Item label="姓名">{activeUser.real_name || '-'}</Descriptions.Item>
             <Descriptions.Item label="地址">{activeUser.address || '-'}</Descriptions.Item>
-            <Descriptions.Item label="物流商">{activeUser.logistics_provider_name || '-'}</Descriptions.Item>
+            {actorScope === 'platform' && (
+              <Descriptions.Item label="物流商">{activeUser.logistics_provider_name || '-'}</Descriptions.Item>
+            )}
             <Descriptions.Item label="注册日期">{new Date(activeUser.created_at).toLocaleString('zh-CN', { hour12: false })}</Descriptions.Item>
           </Descriptions>
         )}
@@ -630,15 +637,17 @@ export default function UsersTab({
             <Form.Item label="会员">
               <Input value={`${activeUser.username}${activeUser.phone ? `（${activeUser.phone}）` : ''}`} disabled />
             </Form.Item>
-            <Form.Item name="logistics_provider_id" label="物流商">
-              <Select
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                placeholder="请选择物流商（可选）"
-                options={logisticsSelectOptions}
-              />
-            </Form.Item>
+            {actorScope === 'platform' && (
+              <Form.Item name="logistics_provider_id" label="物流商">
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="请选择物流商（可选）"
+                  options={logisticsSelectOptions}
+                />
+              </Form.Item>
+            )}
           </Form>
         )}
       </Modal>

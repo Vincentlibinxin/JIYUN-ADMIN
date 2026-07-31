@@ -31,6 +31,7 @@ type SortDirection = 'asc' | 'desc';
 interface NumberLibraryTabProps {
   categories: NumberCategory[];
   loading: boolean;
+  actorScope: 'platform' | 'logistics';
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
   onSearch: () => void;
@@ -378,6 +379,7 @@ function NumbersModal({ open, categoryId, categoryName, canManage, canDelete, on
 export default function NumberLibraryTab({
   categories,
   loading,
+  actorScope,
   searchQuery,
   onSearchQueryChange,
   onSearch,
@@ -438,7 +440,7 @@ export default function NumberLibraryTab({
     label: o.code ? `${o.name}（${o.code}）` : o.name,
     value: o.id,
   }));
-  const showProviderSelect = providerOptions.length > 0;
+  const showProviderSelect = actorScope === 'platform' && providerOptions.length > 0;
 
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [localColumnFilters, setLocalColumnFilters] = useState<Record<string, string>>({});
@@ -810,7 +812,10 @@ export default function NumberLibraryTab({
     },
   ];
 
-  const categoryTableColumns = constrainTableColumns(columns);
+  const visibleColumns = actorScope === 'logistics'
+    ? columns.filter((column) => column.key !== 'logistics_provider_id')
+    : columns;
+  const categoryTableColumns = constrainTableColumns(visibleColumns);
   const categoryTableScrollX = getConstrainedTableScrollX(categoryTableColumns);
 
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));

@@ -1165,10 +1165,13 @@ router.put('/users/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.USE
   const { logistics_provider_id } = req.body || {};
   if (denyCrossProvider(req, res, await getUserOwnerProviderId(userId))) return;
   try {
+    const actorProviderId = getActorProviderFilter(req);
     const ok = await updateUser(userId, {
-      logistics_provider_id: logistics_provider_id !== undefined && logistics_provider_id !== ''
-        ? (Number(logistics_provider_id) > 0 ? Number(logistics_provider_id) : null)
-        : undefined,
+      logistics_provider_id: actorProviderId ?? (
+        logistics_provider_id !== undefined && logistics_provider_id !== ''
+          ? (Number(logistics_provider_id) > 0 ? Number(logistics_provider_id) : null)
+          : undefined
+      ),
     });
     if (!ok) {
       res.status(404).json({ error: '会员不存在或无可更新内容' });

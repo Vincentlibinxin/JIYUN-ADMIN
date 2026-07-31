@@ -27,6 +27,7 @@ interface LabelTemplatePayload {
 }
 
 interface LabelsTabProps {
+  actorScope: 'platform' | 'logistics';
   canCreate?: boolean;
   canUpdate?: boolean;
   canDelete?: boolean;
@@ -62,7 +63,7 @@ const printLabelHtml = (html: string) => {
   }
 };
 
-export default function LabelsTab({ canCreate, canUpdate, canDelete, refreshKey }: LabelsTabProps) {
+export default function LabelsTab({ actorScope, canCreate, canUpdate, canDelete, refreshKey }: LabelsTabProps) {
   const [items, setItems] = useState<LabelTemplateItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -105,7 +106,7 @@ export default function LabelsTab({ canCreate, canUpdate, canDelete, refreshKey 
     label: o.code ? `${o.name}（${o.code}）` : o.name,
     value: o.id,
   }));
-  const showProviderSelect = providerOptions.length > 0;
+  const showProviderSelect = actorScope === 'platform' && providerOptions.length > 0;
 
   const tableHostRef = useRef<HTMLDivElement>(null);
   const [tableScrollY, setTableScrollY] = useState(240);
@@ -541,7 +542,10 @@ export default function LabelsTab({ canCreate, canUpdate, canDelete, refreshKey 
     },
   ];
 
-  const tableColumns = constrainTableColumns(columns);
+  const visibleColumns = actorScope === 'logistics'
+    ? columns.filter((column) => column.key !== 'logistics_provider')
+    : columns;
+  const tableColumns = constrainTableColumns(visibleColumns);
   const tableScrollX = getConstrainedTableScrollX(tableColumns);
 
   const isSearching = searchQuery.trim().length > 0;

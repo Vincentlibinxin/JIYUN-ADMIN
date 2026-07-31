@@ -57,6 +57,7 @@ type SortDirection = 'asc' | 'desc';
 interface AddressBookTabProps {
   entries: AddressBookEntry[];
   loading: boolean;
+  actorScope: 'platform' | 'logistics';
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
   onSearch: () => void;
@@ -101,6 +102,7 @@ interface MemberOption {
 export default memo(function AddressBookTab({
   entries,
   loading,
+  actorScope,
   searchQuery,
   onSearchQueryChange,
   onSearch,
@@ -174,7 +176,7 @@ export default memo(function AddressBookTab({
     label: o.code ? `${o.name}（${o.code}）` : o.name,
     value: o.id,
   }));
-  const showProviderSelect = providerOptions.length > 0;
+  const showProviderSelect = actorScope === 'platform' && providerOptions.length > 0;
 
   // 会员选择（异步搜索）
   const [memberOptions, setMemberOptions] = useState<MemberOption[]>([]);
@@ -637,7 +639,10 @@ export default memo(function AddressBookTab({
     },
   ];
 
-  const tableColumns = constrainTableColumns(columns);
+  const visibleColumns = actorScope === 'logistics'
+    ? columns.filter((column) => column.key !== 'logistics_provider_id')
+    : columns;
+  const tableColumns = constrainTableColumns(visibleColumns);
   const tableScrollX = getConstrainedTableScrollX(tableColumns);
 
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));

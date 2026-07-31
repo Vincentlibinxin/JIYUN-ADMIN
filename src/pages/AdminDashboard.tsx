@@ -1865,6 +1865,7 @@ export default function AdminDashboard() {
                 )}
                 {activeTab === 'labels' && (
                   <LabelsTab
+                    actorScope={actorScope}
                     canCreate={hasPermission(PERMISSIONS.LABEL_CREATE)}
                     canUpdate={hasPermission(PERMISSIONS.LABEL_UPDATE)}
                     canDelete={hasPermission(PERMISSIONS.LABEL_DELETE)}
@@ -1985,6 +1986,7 @@ export default function AdminDashboard() {
             <UsersTab
               users={users}
               loading={loading}
+              actorScope={actorScope}
               searchQuery={searchQuery}
               onSearchQueryChange={setSearchQuery}
               onSearch={() => searchUsers(1, pageSize, searchQuery)}
@@ -2105,6 +2107,7 @@ export default function AdminDashboard() {
             <ParcelsTab
               parcels={parcels}
               loading={parcelsLoading}
+              actorScope={actorScope}
               searchQuery={parcelSearchQuery}
               onSearchQueryChange={setParcelSearchQuery}
               onSearch={searchParcels}
@@ -2184,6 +2187,7 @@ export default function AdminDashboard() {
             <StorageBinsTab
               bins={storageBins}
               loading={storageBinsLoading}
+              actorScope={actorScope}
               searchQuery={storageBinSearchQuery}
               onSearchQueryChange={setStorageBinSearchQuery}
               onSearch={searchStorageBins}
@@ -2220,6 +2224,7 @@ export default function AdminDashboard() {
             <NumberLibraryTab
               categories={numberCategories}
               loading={numberCategoriesLoading}
+              actorScope={actorScope}
               searchQuery={numberCategorySearchQuery}
               onSearchQueryChange={setNumberCategorySearchQuery}
               onSearch={searchNumberCategories}
@@ -2257,6 +2262,7 @@ export default function AdminDashboard() {
             <AddressBookTab
               entries={addressEntries}
               loading={addressLoading}
+              actorScope={actorScope}
               searchQuery={addressSearchQuery}
               onSearchQueryChange={setAddressSearchQuery}
               onSearch={searchAddressEntries}

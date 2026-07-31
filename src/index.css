@@ -136,7 +136,7 @@ main form details {
   width: 72px !important;
   height: 72px !important;
 }
-.parcel-edit-modal .ant-modal-body {
+.parcel-detail-modal .ant-modal-body {
   max-height: calc(100vh - 200px);
   overflow-y: auto;
 }
@@ -229,6 +229,10 @@ main form details {
 }
 
 @media (max-width: 991px) {
+  .parcel-detail-modal .parcel-detail-top-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
   .shipping-bill-modal .shipping-bill-top-grid {
     grid-template-columns: minmax(0, 1fr) !important;
   }

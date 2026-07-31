@@ -205,8 +205,8 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
           <Dropdown menu={{ items: userDropdownItems }} placement="bottomRight" arrow>
             <div className={styles.userInfo}>
               <div style={{ textAlign: 'right', lineHeight: '1.2' }}>
-                <div className={styles.username}>{`${displayRoleName}:${displayUserName}`}</div>
-                <div className={styles.role}>{displayProviderName}</div>
+                <div className={styles.username}>{displayUserName}</div>
+                <div className={styles.role}>{`${displayProviderName}:${displayRoleName}`}</div>
               </div>
               <UserOutlined style={{ fontSize: '20px', padding: '8px', background: '#f1f5f9', borderRadius: '50%', color: '#64748b' }} />
             </div>
