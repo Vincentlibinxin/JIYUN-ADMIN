@@ -35,7 +35,7 @@ interface RolesTabProps {
 }
 
 // 物流商权限可配置的权限分组（其余分组仅平台角色可配置）
-const LOGISTICS_GROUP_NAMES = ['概览', '系统管理员', '会员', '地址簿', '证件管理', '包裹', '订单', '代购订单', '航线运输管理', '物流商角色', '库位管理', '单号库', '标签管理'];
+const LOGISTICS_GROUP_NAMES = ['概览', '系统管理员', '会员', '地址簿', '证件管理', '包裹', '订单', '代购订单', '商场系统', '航线运输管理', '物流商角色', '库位管理', '单号库', '标签管理', '仓库管理'];
 
 const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; label: string }> }> = [
   {
@@ -76,6 +76,7 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
     group: '会员',
     items: [
       { code: PERMISSIONS.USER_VIEW, label: '查看会员' },
+      { code: PERMISSIONS.USER_CREATE, label: '新增会员' },
       { code: PERMISSIONS.USER_UPDATE, label: '修改会员' },
       { code: PERMISSIONS.USER_DELETE, label: '删除会员' },
     ],
@@ -124,6 +125,15 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
       { code: PERMISSIONS.PURCHASE_ORDER_CREATE, label: '新增代购订单' },
       { code: PERMISSIONS.PURCHASE_ORDER_UPDATE, label: '修改代购订单' },
       { code: PERMISSIONS.PURCHASE_ORDER_DELETE, label: '删除代购订单' },
+    ],
+  },
+  {
+    group: '商场系统',
+    items: [
+      { code: PERMISSIONS.SKU_VIEW, label: '查看SKU' },
+      { code: PERMISSIONS.SKU_CREATE, label: '新增商品与SKU' },
+      { code: PERMISSIONS.SKU_UPDATE, label: '修改商品与SKU' },
+      { code: PERMISSIONS.SKU_DELETE, label: '删除商品与SKU' },
     ],
   },
   {
@@ -186,6 +196,15 @@ const PERMISSION_GROUPS: Array<{ group: string; items: Array<{ code: string; lab
       { code: PERMISSIONS.LABEL_CREATE, label: '新增标签' },
       { code: PERMISSIONS.LABEL_UPDATE, label: '修改标签' },
       { code: PERMISSIONS.LABEL_DELETE, label: '删除标签' },
+    ],
+  },
+  {
+    group: '仓库管理',
+    items: [
+      { code: PERMISSIONS.WAREHOUSE_VIEW, label: '查看仓库' },
+      { code: PERMISSIONS.WAREHOUSE_CREATE, label: '新增仓库' },
+      { code: PERMISSIONS.WAREHOUSE_UPDATE, label: '修改仓库' },
+      { code: PERMISSIONS.WAREHOUSE_DELETE, label: '删除仓库' },
     ],
   },
 ];

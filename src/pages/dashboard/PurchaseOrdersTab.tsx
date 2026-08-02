@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
-import { Button, Card, Form, Input, InputNumber, Modal, Pagination, Popconfirm, Select, Space, Table, Tag, Tooltip, message } from 'antd';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Button, Card, Checkbox, Form, Input, InputNumber, Modal, Pagination, Popconfirm, Select, Space, Table, Tag, Tooltip, message } from 'antd';
 import { DeleteOutlined, EditOutlined, EyeOutlined, LinkOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
-import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
-import type { SorterResult } from 'antd/es/table/interface';
+import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
 import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
 
@@ -71,6 +70,7 @@ interface PurchaseOrdersTabProps {
 }
 
 type ModalMode = 'create' | 'edit' | 'view';
+type SortKey = 'id' | 'user_id' | 'logistics_provider_id' | 'status' | 'created_at' | 'updated_at';
 
 const formatDate = (value?: string | null) => value
   ? new Date(value).toLocaleString('zh-CN', { hour12: false })
@@ -95,15 +95,19 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
-  const [sortKey, setSortKey] = useState('created_at');
+  const [sortKey, setSortKey] = useState<SortKey>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [localColumnFilters, setLocalColumnFilters] = useState<Record<string, string>>({});
   const [providerOptions, setProviderOptions] = useState<ProviderOption[]>([]);
   const [memberOptions, setMemberOptions] = useState<MemberOption[]>([]);
   const [memberSearching, setMemberSearching] = useState(false);
   const memberSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tableHostRef = useRef<HTMLDivElement>(null);
+  const [tableScrollY, setTableScrollY] = useState(240);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>('create');
   const [editing, setEditing] = useState<PurchaseOrder | null>(null);
@@ -114,8 +118,9 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
   const fetchOrders = async (
     nextPage = page,
     nextPageSize = pageSize,
-    nextSortKey = sortKey,
-    nextSortOrder = sortOrder
+    nextSortKey: SortKey = sortKey,
+    nextSortOrder = sortOrder,
+    nextColumnFilters = columnFilters,
   ) => {
     setLoading(true);
     try {
@@ -125,6 +130,7 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
         sortKey: nextSortKey,
         sortOrder: nextSortOrder,
       });
+      if (Object.keys(nextColumnFilters).length) params.set('columnFilters', JSON.stringify(nextColumnFilters));
       const response = await adminFetch(`/admin/purchase-orders?${params.toString()}`);
       if (!response.ok) throw new Error(await responseError(response, '加载代购订单失败'));
       const result = await response.json();
@@ -158,6 +164,21 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
     if (refreshKey) fetchOrders(1, pageSize);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
+
+  useLayoutEffect(() => {
+    const updateTableHeight = () => {
+      const nextHeight = tableHostRef.current?.clientHeight ?? 0;
+      if (nextHeight > 0) setTableScrollY(nextHeight - 86);
+    };
+    updateTableHeight();
+    const observer = new ResizeObserver(updateTableHeight);
+    if (tableHostRef.current) observer.observe(tableHostRef.current);
+    window.addEventListener('resize', updateTableHeight);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateTableHeight);
+    };
+  }, []);
 
   const searchOrders = async (value = searchQuery) => {
     const keyword = value.trim();
@@ -290,31 +311,83 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
     fetchOrders(orders.length <= ids.length && page > 1 ? page - 1 : page, pageSize);
   };
 
+  const handleColumnSearch = (key: string, value: string) => {
+    const next = { ...columnFilters };
+    if (!value) delete next[key];
+    else next[key] = value;
+    setColumnFilters(next);
+    setPage(1);
+    void fetchOrders(1, pageSize, sortKey, sortOrder, next);
+  };
+
+  const renderSearchInput = (key: string, placeholder: string) => (
+    <Input
+      size="small"
+      placeholder={`搜索 ${placeholder}`}
+      value={localColumnFilters[key] !== undefined ? localColumnFilters[key] : (columnFilters[key] || '')}
+      onChange={(event) => {
+        setLocalColumnFilters((previous) => ({ ...previous, [key]: event.target.value }));
+        if (!event.target.value) handleColumnSearch(key, '');
+      }}
+      onPressEnter={(event) => handleColumnSearch(key, (event.target as HTMLInputElement).value)}
+      onClick={(event) => event.stopPropagation()}
+      allowClear
+    />
+  );
+
+  const renderSelectFilter = (key: string, options: Array<{ label: string; value: string }>) => (
+    <Select size="small" value={columnFilters[key] || ''} onChange={(value) => handleColumnSearch(key, value)} onClick={(event) => event.stopPropagation()} style={{ width: '100%' }} options={[{ label: '全部', value: '' }, ...options]} />
+  );
+
+  const resetFilters = () => {
+    setColumnFilters({});
+    setLocalColumnFilters({});
+    setSearchQuery('');
+    setSortKey('created_at');
+    setSortOrder('desc');
+    setSelectedRowKeys([]);
+    setPage(1);
+    void fetchOrders(1, pageSize, 'created_at', 'desc', {});
+  };
+
+  const visibleKeys = orders.map((order) => order.id);
+  const selectedVisibleCount = visibleKeys.filter((key) => selectedRowKeys.includes(key)).length;
+  const allSelected = visibleKeys.length > 0 && selectedVisibleCount === visibleKeys.length;
+  const indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleKeys.length;
+  const sortOrderFor = (key: SortKey) => sortKey === key ? (sortOrder === 'asc' ? 'ascend' : 'descend') : null;
+
   const columns: ColumnsType<PurchaseOrder> = [
-    { title: 'ID', dataIndex: 'id', key: 'id', width: 72, sorter: true, fixed: 'left' },
     {
-      title: '会员', key: 'user_id', width: 170, sorter: true, ellipsis: true,
-      render: (_, record) => <Tooltip title={record.member_phone || undefined}>{memberLabel(record)}</Tooltip>,
+      title: '序号', key: 'index', width: 65, fixed: 'left',
+      children: [{ title: <Checkbox checked={allSelected} indeterminate={indeterminate} onChange={(event) => setSelectedRowKeys(event.target.checked ? visibleKeys : [])} />, key: 'index_child', width: 65, fixed: 'left', render: (_, record, index) => <Space size={8}><Checkbox checked={selectedRowKeys.includes(record.id)} onChange={(event) => setSelectedRowKeys((previous) => event.target.checked ? [...new Set([...previous, record.id])] : previous.filter((key) => key !== record.id))} /><span>{(page - 1) * pageSize + index + 1}</span></Space> }],
+    },
+    {
+      title: '订单号', key: 'id', width: 105, sorter: true, sortOrder: sortOrderFor('id'),
+      children: [{ title: renderSearchInput('id', '订单号'), key: 'id_child', width: 105, render: (_, record) => `#${record.id}` }],
+    },
+    {
+      title: '会员', key: 'user_id', width: 180, sorter: true, sortOrder: sortOrderFor('user_id'),
+      children: [{ title: '', key: 'user_id_child', width: 180, ellipsis: { showTitle: false }, render: (_, record) => <Tooltip title={record.member_phone || undefined}>{memberLabel(record)}</Tooltip> }],
     },
     {
       title: '物品', key: 'items', width: 260, ellipsis: true,
-      render: (_, record) => {
+      children: [{ title: '', key: 'items_child', width: 240, ellipsis: { showTitle: false }, render: (_, record) => {
         const names = record.items.map((item) => item.item_name).join('、');
         return <Tooltip title={names}>{names || '—'}</Tooltip>;
-      },
+      } }],
     },
-    { title: '物品种类', key: 'item_count', width: 90, align: 'right', render: (_, record) => record.items.length },
-    { title: '总数量', key: 'total_quantity', width: 90, align: 'right', render: (_, record) => record.items.reduce((total, item) => total + Number(item.quantity || 0), 0) },
+    { title: '物品种类', key: 'item_count', width: 90, children: [{ title: '', key: 'item_count_child', width: 90, align: 'right', render: (_, record) => record.items.length }] },
+    { title: '总数量', key: 'total_quantity', width: 90, children: [{ title: '', key: 'total_quantity_child', width: 90, align: 'right', render: (_, record) => record.items.reduce((total, item) => total + Number(item.quantity || 0), 0) }] },
     {
-      title: '状态', dataIndex: 'status', key: 'status', width: 100, sorter: true,
-      render: (value: string) => {
-        const status = STATUS_MAP.get(value);
-        return <Tag color={status?.color}>{status?.label || value}</Tag>;
-      },
+      title: '状态', key: 'status', width: 110, sorter: true, sortOrder: sortOrderFor('status'),
+      children: [{ title: renderSelectFilter('status', ORDER_STATUSES.map(({ value, label }) => ({ value, label }))), key: 'status_child', width: 110, render: (_, record) => {
+        const status = STATUS_MAP.get(record.status);
+        return <Tag color={status?.color}>{status?.label || record.status}</Tag>;
+      } }],
     },
     {
       title: '链接', key: 'item_urls', width: 150, align: 'center',
-      render: (_, record) => {
+      children: [{ title: '', key: 'item_urls_child', width: 150, align: 'center', render: (_, record) => {
         const linkedItems = record.items.filter((item) => item.item_url);
         if (!linkedItems.length) return '—';
         return (
@@ -327,14 +400,14 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
             {linkedItems.length > 3 && <span>+{linkedItems.length - 3}</span>}
           </Space>
         );
-      },
+      } }],
     },
-    { title: '物流商', dataIndex: 'logistics_provider_name', key: 'logistics_provider_id', width: 150, sorter: true, ellipsis: true },
-    { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170, sorter: true, render: formatDate },
-    { title: '', key: 'spacer', render: () => null },
+    { title: '物流商', key: 'logistics_provider_id', width: 150, sorter: true, sortOrder: sortOrderFor('logistics_provider_id'), children: [{ title: '', key: 'logistics_provider_id_child', width: 150, ellipsis: { showTitle: false }, render: (_, record) => record.logistics_provider_name || '—' }] },
+    { title: '创建时间', key: 'created_at', width: 180, sorter: true, sortOrder: sortOrderFor('created_at'), children: [{ title: '', key: 'created_at_child', width: 180, render: (_, record) => formatDate(record.created_at) }] },
+    { title: '', key: 'spacer', children: [{ title: '', key: 'spacer_child', render: () => null }] },
     {
       title: '操作', key: 'actions', width: 120, fixed: 'right', align: 'center',
-      render: (_, record) => (
+      children: [{ title: <Tooltip title="重置所有搜索"><Button size="small" icon={<ReloadOutlined />} onClick={resetFilters} /></Tooltip>, key: 'actions_child', width: 120, fixed: 'right', align: 'center', render: (_, record) => (
         <Space size={2}>
           <Tooltip title="查看"><Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openRecord(record, 'view')} /></Tooltip>
           {canUpdate && <Tooltip title="修改"><Button type="text" size="small" icon={<EditOutlined />} onClick={() => openRecord(record, 'edit')} /></Tooltip>}
@@ -344,7 +417,7 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
             </Popconfirm>
           )}
         </Space>
-      ),
+      ) }],
     },
   ];
 
@@ -353,15 +426,6 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
     : columns;
   const tableColumns = constrainTableColumns(visibleColumns);
   const isView = modalMode === 'view';
-
-  const handleTableChange = (_pagination: TablePaginationConfig, _filters: unknown, sorter: SorterResult<PurchaseOrder> | SorterResult<PurchaseOrder>[]) => {
-    if (Array.isArray(sorter) || !sorter.order) return;
-    const nextSortKey = String(sorter.field || sorter.columnKey || 'created_at');
-    const nextSortOrder = sorter.order === 'ascend' ? 'asc' : 'desc';
-    setSortKey(nextSortKey);
-    setSortOrder(nextSortOrder);
-    fetchOrders(1, pageSize, nextSortKey, nextSortOrder);
-  };
 
   return (
     <Card bordered={false} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }} bodyStyle={{ padding: 0, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -386,7 +450,7 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
         <Tooltip title="刷新"><Button icon={<ReloadOutlined />} onClick={() => fetchOrders(page, pageSize)} /></Tooltip>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+      <div ref={tableHostRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <Table<PurchaseOrder>
           rowKey="id"
           loading={loading}
@@ -395,10 +459,23 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
           pagination={false}
           size="small"
           sticky
-          tableLayout="fixed"
-          scroll={{ x: getConstrainedTableScrollX(tableColumns), y: 'calc(100vh - 190px)' }}
-          rowSelection={canDelete ? { selectedRowKeys, onChange: (keys) => setSelectedRowKeys(keys as number[]) } : undefined}
-          onChange={handleTableChange}
+          tableLayout="auto"
+          showSorterTooltip={false}
+          sortDirections={['ascend', 'descend', 'ascend']}
+          scroll={{ x: getConstrainedTableScrollX(tableColumns), y: tableScrollY }}
+          rowClassName={(record) => selectedRowKeys.includes(record.id) ? 'row-selected' : ''}
+          onChange={(_, __, sorter) => {
+            if (Array.isArray(sorter)) return;
+            const nextSortKey = (sorter.columnKey || sorter.field) as SortKey | undefined;
+            if (!nextSortKey || !sorter.order) {
+              setSortKey('created_at'); setSortOrder('desc');
+              void fetchOrders(page, pageSize, 'created_at', 'desc', columnFilters);
+              return;
+            }
+            const nextSortOrder = sorter.order === 'ascend' ? 'asc' : 'desc';
+            setSortKey(nextSortKey); setSortOrder(nextSortOrder);
+            void fetchOrders(page, pageSize, nextSortKey, nextSortOrder, columnFilters);
+          }}
           locale={{ emptyText: searching ? '没有匹配的代购订单' : '没有代购订单' }}
         />
       </div>
@@ -409,11 +486,13 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
           current={page}
           pageSize={pageSize}
           total={total}
-          showSizeChanger
-          showQuickJumper
+          showSizeChanger={!searching}
+          pageSizeOptions={[10, 20, 30, 50, 100]}
+          showQuickJumper={!searching}
           showTotal={(count, range) => `第 ${range[0]}-${range[1]} 条 / 共 ${count} 条`}
           disabled={searching}
-          onChange={(nextPage, nextSize) => fetchOrders(nextPage, nextSize)}
+          onChange={(nextPage, nextSize) => fetchOrders(nextPage, nextSize, sortKey, sortOrder, columnFilters)}
+          onShowSizeChange={(_, nextSize) => fetchOrders(1, nextSize, sortKey, sortOrder, columnFilters)}
         />
       </div>
 

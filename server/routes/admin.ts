@@ -55,6 +55,8 @@ import {
   getSmsPaged,
   getUsersPaged,
   searchUsersPaged,
+  createUser,
+  findUserUniqueConflict,
   updateUser,
   updateAdminAccount,
   logAdminAudit,
@@ -99,6 +101,7 @@ import {
   searchAddressBook,
   createAddressBook,
   getAddressBookById,
+  getAddressBookOptions,
   updateAddressBook,
   deleteAddressBook,
   batchDeleteAddressBook,
@@ -117,6 +120,14 @@ import {
   updatePurchaseOrder,
   deletePurchaseOrder,
   batchDeletePurchaseOrders,
+  getMallProductsPaged,
+  searchMallProducts,
+  findDuplicateMallProductCode,
+  createMallProduct,
+  getMallProductById,
+  updateMallProduct,
+  deleteMallProduct,
+  batchDeleteMallProducts,
   SHIPPING_CARRIER_TYPES,
   getShippingRoutesPaged,
   searchShippingRoutes,
@@ -163,6 +174,14 @@ import {
   updateLabelTemplate,
   deleteLabelTemplate,
   batchDeleteLabelTemplates,
+  getWarehousesPaged,
+  searchWarehouses,
+  findDuplicateWarehouse,
+  createWarehouse,
+  getWarehouseById,
+  updateWarehouse,
+  deleteWarehouse,
+  batchDeleteWarehouses,
   getParcelStatusesPaged,
   searchParcelStatuses,
   getParcelStatusById,
@@ -1175,18 +1194,96 @@ router.get('/users/search', adminAuth, requirePermission(PERMISSIONS.USER_VIEW),
   });
 });
 
+router.post('/users', adminAuth, csrfGuard, requirePermission(PERMISSIONS.USER_CREATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const { username, phone, email, real_name, address, logistics_provider_id } = req.body || {};
+  const normalizedUsername = String(username || '').trim();
+  const normalizedPhone = String(phone || '').trim() || null;
+  const normalizedEmail = String(email || '').trim().toLowerCase() || null;
+  const normalizedRealName = String(real_name || '').trim() || null;
+  const normalizedAddress = String(address || '').trim() || null;
+  if (!normalizedUsername || normalizedUsername.length > 64) {
+    res.status(400).json({ error: '用户名不能为空且不能超过64个字符' });
+    return;
+  }
+  if (normalizedPhone && normalizedPhone.length > 32) {
+    res.status(400).json({ error: '手机不能超过32个字符' });
+    return;
+  }
+  if (normalizedEmail && (normalizedEmail.length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail))) {
+    res.status(400).json({ error: '电子邮件格式不正确' });
+    return;
+  }
+  if ((normalizedRealName?.length || 0) > 255 || (normalizedAddress?.length || 0) > 255) {
+    res.status(400).json({ error: '姓名或地址不能超过255个字符' });
+    return;
+  }
+  const actorProviderId = getActorProviderFilter(req);
+  const targetProviderId = actorProviderId ?? Number(logistics_provider_id);
+  if (!Number.isInteger(targetProviderId) || targetProviderId <= 0 || !await getLogisticsProviderNameById(targetProviderId)) {
+    res.status(400).json({ error: '请选择有效的物流商' });
+    return;
+  }
+  try {
+    const created = await createUser({
+      username: normalizedUsername,
+      phone: normalizedPhone,
+      email: normalizedEmail,
+      real_name: normalizedRealName,
+      address: normalizedAddress,
+      logistics_provider_id: targetProviderId,
+    });
+    res.status(201).json({ message: '会员创建成功', data: created });
+  } catch (err: any) {
+    console.error('[创建会员失败]', err);
+    if (err?.code === 'ER_DUP_ENTRY') {
+      res.status(409).json({ error: '同一物流商下用户名、手机、电子邮件或识别码不能重复' });
+      return;
+    }
+    res.status(500).json({ error: '创建失败，请稍后重试' });
+  }
+});
+
 router.put('/users/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.USER_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
   const userId = Number(req.params.id);
-  const { logistics_provider_id } = req.body || {};
-  if (denyCrossProvider(req, res, await getUserOwnerProviderId(userId))) return;
+  const { username, phone, email, logistics_provider_id } = req.body || {};
+  const currentProviderId = await getUserOwnerProviderId(userId);
+  if (denyCrossProvider(req, res, currentProviderId)) return;
   try {
     const actorProviderId = getActorProviderFilter(req);
+    const targetProviderId = actorProviderId ?? (
+      logistics_provider_id !== undefined && logistics_provider_id !== ''
+        ? (Number(logistics_provider_id) > 0 ? Number(logistics_provider_id) : null)
+        : currentProviderId
+    );
+    const normalizedUsername = username !== undefined ? String(username).trim() : undefined;
+    const normalizedPhone = phone !== undefined ? String(phone).trim() || null : undefined;
+    const normalizedEmail = email !== undefined ? String(email).trim().toLowerCase() || null : undefined;
+    if (normalizedUsername !== undefined && (!normalizedUsername || normalizedUsername.length > 64)) {
+      res.status(400).json({ error: '用户名不能为空且不能超过64个字符' });
+      return;
+    }
+    if (normalizedPhone && normalizedPhone.length > 32) {
+      res.status(400).json({ error: '手机不能超过32个字符' });
+      return;
+    }
+    if (normalizedEmail && (normalizedEmail.length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail))) {
+      res.status(400).json({ error: '电子邮件格式不正确' });
+      return;
+    }
+    const uniqueValues = {
+      username: normalizedUsername,
+      phone: normalizedPhone,
+      email: normalizedEmail,
+    };
+    const conflict = await findUserUniqueConflict(userId, targetProviderId, uniqueValues);
+    if (conflict) {
+      const labels = { username: '用户名', phone: '手机', email: '电子邮件', recognition_code: '识别码' };
+      res.status(409).json({ error: `同一物流商下${labels[conflict]}不能重复` });
+      return;
+    }
     const ok = await updateUser(userId, {
-      logistics_provider_id: actorProviderId ?? (
-        logistics_provider_id !== undefined && logistics_provider_id !== ''
-          ? (Number(logistics_provider_id) > 0 ? Number(logistics_provider_id) : null)
-          : undefined
-      ),
+      ...uniqueValues,
+      logistics_provider_id: targetProviderId,
     });
     if (!ok) {
       res.status(404).json({ error: '会员不存在或无可更新内容' });
@@ -1195,6 +1292,10 @@ router.put('/users/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.USE
     res.json({ message: '修改成功' });
   } catch (err: any) {
     console.error('[修改会员失败]', err);
+    if (err?.code === 'ER_DUP_ENTRY') {
+      res.status(409).json({ error: '同一物流商下用户名、手机、电子邮件或识别码不能重复' });
+      return;
+    }
     res.status(500).json({ error: '修改失败，请稍后重试' });
   }
 });
@@ -1414,6 +1515,17 @@ router.get('/parcels/status-counts', adminAuth, requirePermission(PERMISSIONS.PA
   res.json(data);
 });
 
+router.get('/parcels/address-options', adminAuth, requirePermission(PERMISSIONS.PARCEL_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const actorProvider = getActorProviderFilter(req);
+  const providerId = actorProvider !== null ? actorProvider : Number(req.query.logistics_provider_id);
+  if (!Number.isInteger(providerId) || providerId <= 0) {
+    res.json({ data: [] });
+    return;
+  }
+  const data = await getAddressBookOptions(providerId);
+  res.json({ data });
+});
+
 router.patch('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE_STATUS), async (req: AdminRequest, res: Response): Promise<void> => {
   const status = String(req.body?.status || '').trim();
   const cargoStatusCodes = await getEnabledParcelStatusCodesByType('货物态');
@@ -1466,7 +1578,7 @@ const parcelUpload = multer({
 });
 
 router.post('/parcels/inbound', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_CREATE), parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
-  const { tracking_number, weight, length_cm, width_cm, height_cm, shelf_location, storage_bin, logistics_provider_id, items: itemsJson } = req.body;
+  const { tracking_number, weight, length_cm, width_cm, height_cm, shelf_location, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, items: itemsJson } = req.body;
   if (!tracking_number || typeof tracking_number !== 'string' || !tracking_number.trim()) {
     res.status(400).json({ error: '包裹单号不能为空' });
     return;
@@ -1508,6 +1620,19 @@ router.post('/parcels/inbound', adminAuth, csrfGuard, requirePermission(PERMISSI
     : (logistics_provider_id !== undefined && logistics_provider_id !== ''
       ? (Number(logistics_provider_id) > 0 ? Number(logistics_provider_id) : null)
       : undefined);
+  const resolveParcelAddressId = async (rawId: any): Promise<number | null | undefined> => {
+    if (rawId === undefined || rawId === null || rawId === '') return null;
+    const addressId = Number(rawId);
+    if (!Number.isInteger(addressId) || addressId <= 0 || !resolvedProviderId) return undefined;
+    const address = await getAddressBookById(addressId);
+    return address && Number(address.logistics_provider_id) === Number(resolvedProviderId) ? addressId : undefined;
+  };
+  const resolvedSenderAddressId = await resolveParcelAddressId(sender_address_id);
+  const resolvedRecipientAddressId = await resolveParcelAddressId(recipient_address_id);
+  if (resolvedSenderAddressId === undefined || resolvedRecipientAddressId === undefined) {
+    res.status(400).json({ error: '发货人或收货人地址不属于所选物流商' });
+    return;
+  }
   try {
     const insertId = await createParcelInbound({
       tracking_number: tracking_number.trim(),
@@ -1520,6 +1645,8 @@ router.post('/parcels/inbound', adminAuth, csrfGuard, requirePermission(PERMISSI
       shelf_location: typeof shelf_location === 'string' ? shelf_location.trim() || undefined : undefined,
       storage_bin: typeof storage_bin === 'string' ? storage_bin.trim() || undefined : undefined,
       logistics_provider_id: resolvedProviderId,
+      sender_address_id: resolvedSenderAddressId,
+      recipient_address_id: resolvedRecipientAddressId,
       items: items.map(it => ({ name: it.name.trim(), value: it.value, quantity: it.quantity })),
     });
     res.json({ message: '入库成功', parcelId: insertId });
@@ -1539,7 +1666,7 @@ router.get('/parcels/:id/items', adminAuth, requirePermission(PERMISSIONS.PARCEL
 router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE), parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
   const parcelId = Number(req.params.id);
   if (denyCrossProvider(req, res, await getParcelOwnerProviderId(parcelId))) return;
-  const { weight, length_cm, width_cm, height_cm, origin, destination, status, sub_status, status_remark, storage_bin, items: itemsJson, existing_images, logistics_provider_id } = req.body;
+  const { weight, length_cm, width_cm, height_cm, origin, destination, status, sub_status, status_remark, storage_bin, items: itemsJson, existing_images, logistics_provider_id, sender_address_id, recipient_address_id } = req.body;
   const w = Number(weight);
   const l = Number(length_cm);
   const wi = Number(width_cm);
@@ -1589,6 +1716,19 @@ router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.P
     : (logistics_provider_id !== undefined && logistics_provider_id !== ''
       ? (Number(logistics_provider_id) > 0 ? Number(logistics_provider_id) : null)
       : undefined);
+  const resolveEditAddressId = async (rawId: any): Promise<number | null | undefined> => {
+    if (rawId === undefined || rawId === null || rawId === '') return null;
+    const addressId = Number(rawId);
+    if (!Number.isInteger(addressId) || addressId <= 0 || !editProviderId) return undefined;
+    const address = await getAddressBookById(addressId);
+    return address && Number(address.logistics_provider_id) === Number(editProviderId) ? addressId : undefined;
+  };
+  const editSenderAddressId = await resolveEditAddressId(sender_address_id);
+  const editRecipientAddressId = await resolveEditAddressId(recipient_address_id);
+  if (editSenderAddressId === undefined || editRecipientAddressId === undefined) {
+    res.status(400).json({ error: '发货人或收货人地址不属于所选物流商' });
+    return;
+  }
   try {
     const ok = await updateParcel(parcelId, {
       weight: w,
@@ -1604,6 +1744,8 @@ router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.P
       images: allImages || undefined,
       storage_bin: typeof storage_bin === 'string' ? storage_bin.trim() : undefined,
       logistics_provider_id: editProviderId,
+      sender_address_id: editSenderAddressId,
+      recipient_address_id: editRecipientAddressId,
       items: items.map(it => ({ name: it.name.trim(), value: it.value, quantity: it.quantity })),
     });
     if (!ok) {
@@ -3499,11 +3641,13 @@ const parsePurchaseOrderBody = async (
 router.get('/purchase-orders', adminAuth, requirePermission(PERMISSIONS.PURCHASE_ORDER_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 20));
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
   const result = await getPurchaseOrdersPaged(
     page,
     limit,
     String(req.query.sortKey || '').trim() || undefined,
     String(req.query.sortOrder || '').trim() || undefined,
+    columnFilters,
     getActorProviderFilter(req)
   );
   res.json({ data: result.data, pagination: { page, limit, total: result.total, pages: result.pages } });
@@ -3595,6 +3739,219 @@ router.post('/purchase-orders/batch-delete', adminAuth, csrfGuard, requirePermis
   const existingIds = records.map((record, index) => record ? ids[index] : null).filter((id): id is number => id !== null);
   const deleted = await batchDeletePurchaseOrders(existingIds);
   res.json({ message: `已删除 ${deleted} 条记录`, deleted });
+});
+
+// ==================== 商场系统 - SKU管理 ====================
+
+const parseMallProductBody = (req: AdminRequest, res: Response, existingProviderId?: number) => {
+  const actorProvider = getActorProviderFilter(req);
+  const logisticsProviderId = actorProvider !== null
+    ? (existingProviderId ?? actorProvider)
+    : Number(req.body?.logistics_provider_id);
+  if (!Number.isInteger(logisticsProviderId) || logisticsProviderId <= 0) {
+    res.status(400).json({ error: '请选择物流商' });
+    return null;
+  }
+  const productName = String(req.body?.product_name ?? '').trim();
+  const productCode = String(req.body?.product_code ?? '').trim();
+  const categoryName = String(req.body?.category_name ?? '').trim();
+  const unitName = String(req.body?.unit_name ?? '件').trim();
+  const mainImageUrl = String(req.body?.main_image_url ?? '').trim();
+  const description = String(req.body?.description ?? '').trim();
+  if (!productName || productName.length > 255) {
+    res.status(400).json({ error: '商品名称不能为空且不能超过255个字符' });
+    return null;
+  }
+  if (!productCode || productCode.length > 64) {
+    res.status(400).json({ error: '商品货号不能为空且不能超过64个字符' });
+    return null;
+  }
+  if (categoryName.length > 128 || !unitName || unitName.length > 32 || description.length > 10000) {
+    res.status(400).json({ error: '商品类目、单位或说明长度不合法' });
+    return null;
+  }
+  for (const [label, value] of [['商品主图', mainImageUrl]] as const) {
+    if (value.length > 2048) {
+      res.status(400).json({ error: `${label}链接不能超过2048个字符` });
+      return null;
+    }
+    if (value) {
+      try {
+        const parsedUrl = new URL(value);
+        if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('unsupported protocol');
+      } catch {
+        res.status(400).json({ error: `${label}请输入有效的 http 或 https 链接` });
+        return null;
+      }
+    }
+  }
+
+  const rawDimensions = req.body?.spec_dimensions;
+  if (!Array.isArray(rawDimensions) || !rawDimensions.length || rawDimensions.length > 3) {
+    res.status(400).json({ error: '请设置1至3个规格维度' });
+    return null;
+  }
+  const dimensionNames = new Set<string>();
+  const specDimensions: Array<{ name: string; values: string[] }> = [];
+  for (let index = 0; index < rawDimensions.length; index += 1) {
+    const name = String(rawDimensions[index]?.name ?? '').trim();
+    const values = Array.isArray(rawDimensions[index]?.values)
+      ? rawDimensions[index].values.map((value: unknown) => String(value).trim()).filter(Boolean)
+      : [];
+    if (!name || name.length > 32 || dimensionNames.has(name)) {
+      res.status(400).json({ error: `第${index + 1}个规格名称为空、重复或超过32个字符` });
+      return null;
+    }
+    if (!values.length || values.length > 20 || values.some((value: string) => value.length > 64) || new Set(values).size !== values.length) {
+      res.status(400).json({ error: `规格“${name}”需包含1至20个不重复且不超过64字符的规格值` });
+      return null;
+    }
+    dimensionNames.add(name);
+    specDimensions.push({ name, values });
+  }
+
+  const rawSkus = req.body?.skus;
+  const expectedCount = specDimensions.reduce((count, dimension) => count * dimension.values.length, 1);
+  if (!Array.isArray(rawSkus) || rawSkus.length !== expectedCount || rawSkus.length > 500) {
+    res.status(400).json({ error: `SKU组合应为${expectedCount}条且不能超过500条` });
+    return null;
+  }
+  const skuCodes = new Set<string>();
+  const signatures = new Set<string>();
+  const skus = [];
+  for (let index = 0; index < rawSkus.length; index += 1) {
+    const rawSku = rawSkus[index];
+    const skuCode = String(rawSku?.sku_code ?? '').trim();
+    const specValues = rawSku?.spec_values && typeof rawSku.spec_values === 'object' ? rawSku.spec_values : {};
+    if (!skuCode || skuCode.length > 128 || skuCodes.has(skuCode)) {
+      res.status(400).json({ error: `第${index + 1}条SKU编码为空、重复或超过128个字符` });
+      return null;
+    }
+    const normalizedSpecValues: Record<string, string> = {};
+    for (const dimension of specDimensions) {
+      const value = String(specValues[dimension.name] ?? '').trim();
+      if (!dimension.values.includes(value)) {
+        res.status(400).json({ error: `第${index + 1}条SKU的规格“${dimension.name}”不合法` });
+        return null;
+      }
+      normalizedSpecValues[dimension.name] = value;
+    }
+    const signature = specDimensions.map((dimension) => `${dimension.name}:${normalizedSpecValues[dimension.name]}`).join('|');
+    if (signatures.has(signature)) {
+      res.status(400).json({ error: `SKU规格组合“${signature}”重复` });
+      return null;
+    }
+    const price = Number(rawSku?.price);
+    const stock = Number(rawSku?.stock);
+    const imageUrl = String(rawSku?.image_url ?? '').trim();
+    if (!Number.isFinite(price) || price < 0 || price > 9999999999.99 || !Number.isInteger(stock) || stock < 0 || stock > 999999999) {
+      res.status(400).json({ error: `第${index + 1}条SKU的价格或库存不合法` });
+      return null;
+    }
+    if (imageUrl.length > 2048) {
+      res.status(400).json({ error: `第${index + 1}条SKU图片链接不能超过2048个字符` });
+      return null;
+    }
+    if (imageUrl) {
+      try {
+        const parsedUrl = new URL(imageUrl);
+        if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('unsupported protocol');
+      } catch {
+        res.status(400).json({ error: `第${index + 1}条SKU图片链接不合法` });
+        return null;
+      }
+    }
+    skuCodes.add(skuCode);
+    signatures.add(signature);
+    skus.push({ sku_code: skuCode, spec_values: normalizedSpecValues, spec_signature: signature, price, stock, image_url: imageUrl || null, is_enabled: rawSku?.is_enabled !== false });
+  }
+  return {
+    product_name: productName,
+    product_code: productCode,
+    category_name: categoryName || null,
+    unit_name: unitName,
+    main_image_url: mainImageUrl || null,
+    description: description || null,
+    spec_dimensions: specDimensions,
+    is_enabled: req.body?.is_enabled !== false,
+    logistics_provider_id: logisticsProviderId,
+    skus,
+  };
+};
+
+router.get('/mall-products', adminAuth, requirePermission(PERMISSIONS.SKU_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 20));
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
+  const result = await getMallProductsPaged(page, limit, String(req.query.sortKey || '').trim() || undefined, String(req.query.sortOrder || '').trim() || undefined, columnFilters, getActorProviderFilter(req));
+  res.json({ data: result.data, pagination: { page, limit, total: result.total, pages: result.pages } });
+});
+
+router.get('/mall-products/search', adminAuth, requirePermission(PERMISSIONS.SKU_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const keyword = String(req.query.q || '').trim();
+  if (!keyword) { res.status(400).json({ error: '搜索关键词不能为空' }); return; }
+  const data = await searchMallProducts(keyword, getActorProviderFilter(req));
+  res.json({ data, count: data.length });
+});
+
+router.get('/mall-products/:id', adminAuth, requirePermission(PERMISSIONS.SKU_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) { res.status(400).json({ error: '商品ID不合法' }); return; }
+  const product = await getMallProductById(id);
+  if (!product) { res.status(404).json({ error: '商品不存在' }); return; }
+  if (denyCrossProvider(req, res, product.logistics_provider_id)) return;
+  res.json({ data: product });
+});
+
+router.post('/mall-products', adminAuth, csrfGuard, requirePermission(PERMISSIONS.SKU_CREATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const payload = parseMallProductBody(req, res);
+  if (!payload) return;
+  if (await findDuplicateMallProductCode(payload.product_code, payload.logistics_provider_id)) {
+    res.status(409).json({ error: '该物流商下已存在相同商品货号' });
+    return;
+  }
+  const product = await createMallProduct(payload);
+  res.status(201).json({ message: '商品与SKU已创建', product });
+});
+
+router.put('/mall-products/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.SKU_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) { res.status(400).json({ error: '商品ID不合法' }); return; }
+  const existing = await getMallProductById(id);
+  if (!existing) { res.status(404).json({ error: '商品不存在' }); return; }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+  const payload = parseMallProductBody(req, res, Number(existing.logistics_provider_id));
+  if (!payload) return;
+  if (await findDuplicateMallProductCode(payload.product_code, payload.logistics_provider_id, id)) {
+    res.status(409).json({ error: '该物流商下已存在相同商品货号' });
+    return;
+  }
+  await updateMallProduct(id, payload);
+  res.json({ message: '商品与SKU已更新', id });
+});
+
+router.delete('/mall-products/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.SKU_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) { res.status(400).json({ error: '商品ID不合法' }); return; }
+  const existing = await getMallProductById(id);
+  if (!existing) { res.status(404).json({ error: '商品不存在' }); return; }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+  await deleteMallProduct(id);
+  res.json({ message: '商品已删除', id });
+});
+
+router.post('/mall-products/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.SKU_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter((id: number) => Number.isInteger(id) && id > 0) : [];
+  if (!ids.length) { res.status(400).json({ error: '请提供有效的商品ID列表' }); return; }
+  const actorProvider = getActorProviderFilter(req);
+  const records = await Promise.all(ids.map((id: number) => getMallProductById(id)));
+  if (actorProvider !== null && records.some((record) => record && Number(record.logistics_provider_id) !== actorProvider)) {
+    res.status(403).json({ error: '无权删除其他物流商的商品' });
+    return;
+  }
+  const existingIds = records.map((record, index) => record ? ids[index] : null).filter((id): id is number => id !== null);
+  const deleted = await batchDeleteMallProducts(existingIds);
+  res.json({ message: `已删除 ${deleted} 个商品`, deleted });
 });
 
 // ==================== 航线运输管理 ====================
@@ -4553,6 +4910,107 @@ router.post('/labels/batch-delete', adminAuth, csrfGuard, requirePermission(PERM
     }
   }
   const deleted = await batchDeleteLabelTemplates(allowedIds);
+  res.json({ message: `已删除 ${deleted} 条记录`, deleted });
+});
+
+// ============ 系统设置 - 仓库管理（按物流商归属） ============
+
+const parseWarehouseBody = (body: Record<string, any>, res: Response) => {
+  const recipient_name = String(body.recipient_name ?? '').trim();
+  const contact_phone = String(body.contact_phone ?? '').trim();
+  const address = String(body.address ?? '').trim();
+  if (!recipient_name || !contact_phone || !address) {
+    res.status(400).json({ error: '收货人名称、联系电话和地址均为必填项' });
+    return null;
+  }
+  if (recipient_name.length > 128 || contact_phone.length > 32 || address.length > 255) {
+    res.status(400).json({ error: '字段内容超过允许长度' });
+    return null;
+  }
+  return {
+    recipient_name,
+    contact_phone,
+    address,
+    is_enabled: body.is_enabled === undefined ? true : Boolean(body.is_enabled),
+  };
+};
+
+const resolveRequiredWarehouseProvider = (req: AdminRequest, res: Response, fallback?: number) => {
+  const actorProvider = getActorProviderFilter(req);
+  const providerId = actorProvider !== null ? actorProvider : Number(req.body?.logistics_provider_id ?? fallback);
+  if (!Number.isInteger(providerId) || providerId <= 0) {
+    res.status(400).json({ error: '物流商不能为空' });
+    return null;
+  }
+  return providerId;
+};
+
+router.get('/warehouses', adminAuth, requirePermission(PERMISSIONS.WAREHOUSE_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 20));
+  const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
+  const result = await getWarehousesPaged(page, limit, String(req.query.sortKey || '') || undefined, String(req.query.sortOrder || '') || undefined, columnFilters, getActorProviderFilter(req));
+  res.json({ data: result.data, pagination: { page, limit, total: result.total, pages: result.pages } });
+});
+
+router.get('/warehouses/search', adminAuth, requirePermission(PERMISSIONS.WAREHOUSE_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const keyword = String(req.query.q || '').trim();
+  if (!keyword) { res.status(400).json({ error: '搜索关键词不能为空' }); return; }
+  const data = await searchWarehouses(keyword, getActorProviderFilter(req));
+  res.json({ data, count: data.length });
+});
+
+router.post('/warehouses', adminAuth, csrfGuard, requirePermission(PERMISSIONS.WAREHOUSE_CREATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const fields = parseWarehouseBody(req.body || {}, res);
+  const providerId = resolveRequiredWarehouseProvider(req, res);
+  if (!fields || !providerId) return;
+  const payload = { ...fields, logistics_provider_id: providerId };
+  if (await findDuplicateWarehouse(payload)) { res.status(409).json({ error: '相同收货人、联系电话、地址和物流商的仓库已存在' }); return; }
+  const warehouse = await createWarehouse(payload);
+  await logAdminAudit({ adminId: req.adminId, action: 'warehouse.create', targetType: 'warehouse', targetId: warehouse.id, result: 'success', ip: getRequestIp(req), detail: `recipient_name=${fields.recipient_name}` });
+  res.status(201).json({ message: '仓库已创建', warehouse: { id: warehouse.id } });
+});
+
+router.put('/warehouses/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.WAREHOUSE_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) { res.status(400).json({ error: '仓库ID不合法' }); return; }
+  const existing = await getWarehouseById(id);
+  if (!existing) { res.status(404).json({ error: '仓库不存在' }); return; }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+  const fields = parseWarehouseBody(req.body || {}, res);
+  const providerId = resolveRequiredWarehouseProvider(req, res, existing.logistics_provider_id);
+  if (!fields || !providerId) return;
+  const payload = { ...fields, logistics_provider_id: providerId };
+  if (await findDuplicateWarehouse(payload, id)) { res.status(409).json({ error: '相同收货人、联系电话、地址和物流商的仓库已存在' }); return; }
+  await updateWarehouse(id, payload);
+  await logAdminAudit({ adminId: req.adminId, action: 'warehouse.update', targetType: 'warehouse', targetId: id, result: 'success', ip: getRequestIp(req), detail: 'warehouse_updated' });
+  res.json({ message: '仓库已更新', id });
+});
+
+router.delete('/warehouses/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.WAREHOUSE_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const id = toId(req.params.id);
+  if (!id) { res.status(400).json({ error: '仓库ID不合法' }); return; }
+  const existing = await getWarehouseById(id);
+  if (!existing) { res.status(404).json({ error: '仓库不存在' }); return; }
+  if (denyCrossProvider(req, res, existing.logistics_provider_id)) return;
+  await deleteWarehouse(id);
+  res.json({ message: '仓库已删除', id });
+});
+
+router.post('/warehouses/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.WAREHOUSE_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter((id: number) => Number.isInteger(id) && id > 0) : [];
+  if (!ids.length) { res.status(400).json({ error: '请提供有效的ID列表' }); return; }
+  const actorProvider = getActorProviderFilter(req);
+  let allowedIds = ids;
+  if (actorProvider !== null) {
+    const checked = await Promise.all(ids.map(async (id: number) => {
+      const warehouse = await getWarehouseById(id);
+      return warehouse && Number(warehouse.logistics_provider_id) === actorProvider ? id : null;
+    }));
+    allowedIds = checked.filter((id): id is number => id !== null);
+  }
+  if (!allowedIds.length) { res.status(403).json({ error: '无权删除其他物流商的仓库' }); return; }
+  const deleted = await batchDeleteWarehouses(allowedIds);
   res.json({ message: `已删除 ${deleted} 条记录`, deleted });
 });
 

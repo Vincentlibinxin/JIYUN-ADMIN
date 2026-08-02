@@ -21,6 +21,7 @@ import {
   GlobalOutlined,
   ReloadOutlined,
   NodeIndexOutlined,
+  ShopOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { useAuth } from '../../lib/auth';
@@ -67,7 +68,7 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
 
   const currentLangLabel = langOptions.find((item) => item.key === lang)?.label || 'Language';
   const hasSystemAdminAccess = hasPermission(PERMISSIONS.ADMIN_VIEW) || hasPermission(PERMISSIONS.ROLE_PLATFORM_VIEW) || hasPermission(PERMISSIONS.ROLE_LOGISTICS_VIEW);
-  const hasSystemSettingsAccess = hasPermission(PERMISSIONS.PARCEL_STATUS_VIEW) || hasPermission(PERMISSIONS.LABEL_VIEW);
+  const hasSystemSettingsAccess = hasPermission(PERMISSIONS.PARCEL_STATUS_VIEW) || hasPermission(PERMISSIONS.LABEL_VIEW) || hasPermission(PERMISSIONS.WAREHOUSE_VIEW);
 
   const menuItems = ([
     { key: 'overview', icon: <DashboardOutlined />, label: t('menu.overview'), perm: PERMISSIONS.OVERVIEW_VIEW },
@@ -82,6 +83,7 @@ export default function AdminLayout({ children, activeMenu, onMenuClick, onRefre
     { key: 'address-book', icon: <ContactsOutlined />, label: t('menu.addressBook'), perm: PERMISSIONS.ADDRESS_BOOK_VIEW },
     { key: 'identity-documents', icon: <IdcardOutlined />, label: t('menu.identityDocuments'), perm: PERMISSIONS.IDENTITY_DOCUMENT_VIEW },
     { key: 'number-library', icon: <BarcodeOutlined />, label: t('menu.numberLibrary'), perm: PERMISSIONS.NUMBER_LIB_VIEW },
+    { key: 'mall', icon: <ShopOutlined />, label: t('menu.mall'), perm: PERMISSIONS.SKU_VIEW },
     { key: 'system', icon: <SettingOutlined />, label: t('menu.system'), perm: null },
     { key: 'admins', icon: <SafetyCertificateOutlined />, label: t('menu.admins'), perm: null },
   ] as Array<{ key: string; icon: React.ReactNode; label: string; perm: PermissionCode | null }>)

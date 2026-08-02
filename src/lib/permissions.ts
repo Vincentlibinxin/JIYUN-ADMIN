@@ -19,6 +19,7 @@ export const PERMISSIONS = {
   ROLE_LOGISTICS_DELETE: 'role.logistics.delete',
 
   USER_VIEW: 'user.view',
+  USER_CREATE: 'user.create',
   USER_UPDATE: 'user.update',
   USER_DELETE: 'user.delete',
 
@@ -37,6 +38,11 @@ export const PERMISSIONS = {
   PURCHASE_ORDER_CREATE: 'purchase_order.create',
   PURCHASE_ORDER_UPDATE: 'purchase_order.update',
   PURCHASE_ORDER_DELETE: 'purchase_order.delete',
+
+  SKU_VIEW: 'sku.view',
+  SKU_CREATE: 'sku.create',
+  SKU_UPDATE: 'sku.update',
+  SKU_DELETE: 'sku.delete',
 
   LOGISTICS_VIEW: 'logistics.view',
   LOGISTICS_CREATE: 'logistics.create',
@@ -67,6 +73,11 @@ export const PERMISSIONS = {
   LABEL_CREATE: 'label.create',
   LABEL_UPDATE: 'label.update',
   LABEL_DELETE: 'label.delete',
+
+  WAREHOUSE_VIEW: 'warehouse.view',
+  WAREHOUSE_CREATE: 'warehouse.create',
+  WAREHOUSE_UPDATE: 'warehouse.update',
+  WAREHOUSE_DELETE: 'warehouse.delete',
 
   ADDRESS_BOOK_VIEW: 'address_book.view',
   ADDRESS_BOOK_CREATE: 'address_book.create',

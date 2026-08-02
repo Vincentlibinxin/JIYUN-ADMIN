@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, Card, Input, Pagination as AntPagination, Popconfirm, Select, Space, Table, Tooltip, DatePicker, Checkbox, Modal, Form, Descriptions, message } from 'antd';
-import { ReloadOutlined, DeleteOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons';
+import { ReloadOutlined, DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
 import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
@@ -10,6 +10,7 @@ interface User {
   username: string;
   phone: string | null;
   email: string | null;
+  recognition_code: string | null;
   real_name: string | null;
   address: string | null;
   logistics_provider_id: number | null;
@@ -19,8 +20,25 @@ interface User {
   deleted_at?: string | null;
 }
 
-type UserSortKey = 'id' | 'username' | 'phone' | 'email' | 'real_name' | 'address' | 'created_at' | 'updated_at';
+type UserSortKey = 'id' | 'username' | 'phone' | 'email' | 'recognition_code' | 'real_name' | 'address' | 'created_at' | 'updated_at';
 type SortDirection = 'asc' | 'desc';
+
+interface UserUpdatePayload {
+  username: string;
+  phone: string | null;
+  email: string | null;
+  recognition_code: string | null;
+  logistics_provider_id: number | null;
+}
+
+interface UserCreatePayload {
+  username: string;
+  phone: string | null;
+  email: string | null;
+  real_name: string | null;
+  address: string | null;
+  logistics_provider_id: number | null;
+}
 
 interface UsersTabProps {
   users: User[];
@@ -32,7 +50,9 @@ interface UsersTabProps {
   onReset: () => void;
   onDelete: (id: number) => void;
   onBatchDelete: (ids: number[]) => void;
-  onUpdate?: (id: number, payload: { logistics_provider_id: number | null }) => Promise<boolean>;
+  onCreate?: (payload: UserCreatePayload) => Promise<{ ok: boolean; recognitionCode?: string; error?: string }>;
+  onUpdate?: (id: number, payload: UserUpdatePayload) => Promise<{ ok: boolean; error?: string }>;
+  canCreate?: boolean;
   canDelete?: boolean;
   canUpdate?: boolean;
   currentPage: number;
@@ -57,7 +77,9 @@ export default function UsersTab({
   onReset,
   onDelete,
   onBatchDelete,
+  onCreate,
   onUpdate,
+  canCreate,
   canDelete,
   canUpdate,
   currentPage,
@@ -94,7 +116,7 @@ export default function UsersTab({
 
   // 查看/修改弹窗
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState<'view' | 'edit'>('view');
+  const [modalMode, setModalMode] = useState<'create' | 'view' | 'edit'>('view');
   const [activeUser, setActiveUser] = useState<User | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [editForm] = Form.useForm();
@@ -104,25 +126,58 @@ export default function UsersTab({
     setModalMode('view');
     setModalOpen(true);
   };
+  const openCreate = () => {
+    setActiveUser(null);
+    setModalMode('create');
+    editForm.resetFields();
+    setModalOpen(true);
+  };
   const openEdit = (record: User) => {
     setActiveUser(record);
     setModalMode('edit');
-    editForm.setFieldsValue({ logistics_provider_id: record.logistics_provider_id ?? undefined });
+    editForm.setFieldsValue({
+      username: record.username,
+      phone: record.phone,
+      email: record.email,
+      recognition_code: record.recognition_code,
+      logistics_provider_id: record.logistics_provider_id ?? undefined,
+    });
     setModalOpen(true);
   };
   const handleModalSubmit = async () => {
-    if (!activeUser || !onUpdate) return;
     const values = await editForm.validateFields();
     setSubmitting(true);
     try {
-      const ok = await onUpdate(activeUser.id, {
+      if (modalMode === 'create' && onCreate) {
+        const result = await onCreate({
+          username: values.username.trim(),
+          phone: values.phone?.trim() || null,
+          email: values.email?.trim() || null,
+          real_name: values.real_name?.trim() || null,
+          address: values.address?.trim() || null,
+          logistics_provider_id: values.logistics_provider_id != null ? Number(values.logistics_provider_id) : null,
+        });
+        if (result.ok) {
+          message.success(`新增成功，识别码：${result.recognitionCode}`);
+          setModalOpen(false);
+        } else {
+          message.error(result.error || '新增失败');
+        }
+        return;
+      }
+      if (!activeUser || !onUpdate) return;
+      const result = await onUpdate(activeUser.id, {
+        username: values.username.trim(),
+        phone: values.phone?.trim() || null,
+        email: values.email?.trim() || null,
+        recognition_code: values.recognition_code?.trim().toUpperCase() || null,
         logistics_provider_id: values.logistics_provider_id != null ? Number(values.logistics_provider_id) : null,
       });
-      if (ok) {
+      if (result.ok) {
         message.success('修改成功');
         setModalOpen(false);
       } else {
-        message.error('修改失败');
+        message.error(result.error || '修改失败');
       }
     } finally {
       setSubmitting(false);
@@ -359,6 +414,22 @@ export default function UsersTab({
       ]
     },
     {
+      title: '识别码',
+      key: 'recognition_code',
+      width: 130,
+      sorter: true,
+      sortOrder: sortKey === 'recognition_code' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
+      children: [
+        {
+          title: renderSearchInput('recognition_code', '识别码'),
+          dataIndex: 'recognition_code',
+          key: 'recognition_code_child',
+          width: 130,
+          render: (value: string | null) => value || '',
+        }
+      ]
+    },
+    {
       title: '姓名',
       key: 'real_name',
       width: 140,
@@ -479,7 +550,7 @@ export default function UsersTab({
               <Tooltip title="查看">
                 <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => openView(record)} />
               </Tooltip>
-              {canUpdate && actorScope === 'platform' && (
+              {canUpdate && (
                 <Tooltip title="修改">
                   <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(record)} />
                 </Tooltip>
@@ -515,6 +586,11 @@ export default function UsersTab({
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
       <div style={{ padding: '6px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
         <div style={{ flex: '0 0 auto' }}>
+          {canCreate && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} style={{ marginRight: 8 }}>
+              新增会员
+            </Button>
+          )}
           {canDelete && (
             <Popconfirm
               title={`确定删除选中的 ${selectedRowKeys.length} 条记录？`}
@@ -539,7 +615,7 @@ export default function UsersTab({
               if (!val) onReset();
             }}
             onSearch={onSearch}
-            placeholder="搜索会员：账号、手机或电子邮箱"
+            placeholder="搜索会员：用户名、手机、电子邮件或识别码"
             style={{ width: 400 }}
             enterButton
           />
@@ -605,14 +681,14 @@ export default function UsersTab({
       </div>
 
       <Modal
-        title={modalMode === 'view' ? '会员详情' : '修改会员物流商'}
+        title={modalMode === 'view' ? '会员详情' : modalMode === 'create' ? '新增会员' : '修改会员'}
         open={modalOpen}
         rootClassName="detail-modal"
         className="detail-modal"
         onCancel={() => setModalOpen(false)}
-        onOk={modalMode === 'edit' ? handleModalSubmit : () => setModalOpen(false)}
+        onOk={modalMode !== 'view' ? handleModalSubmit : () => setModalOpen(false)}
         centered
-        okText={modalMode === 'edit' ? '保存' : '关闭'}
+        okText={modalMode !== 'view' ? '保存' : '关闭'}
         cancelText="取消"
         confirmLoading={submitting}
         cancelButtonProps={modalMode === 'view' ? { style: { display: 'none' } } : undefined}
@@ -624,6 +700,7 @@ export default function UsersTab({
             <Descriptions.Item label="用户名">{activeUser.username}</Descriptions.Item>
             <Descriptions.Item label="手机">{activeUser.phone || '-'}</Descriptions.Item>
             <Descriptions.Item label="电子邮件">{activeUser.email || '-'}</Descriptions.Item>
+            <Descriptions.Item label="识别码">{activeUser.recognition_code || '-'}</Descriptions.Item>
             <Descriptions.Item label="姓名">{activeUser.real_name || '-'}</Descriptions.Item>
             <Descriptions.Item label="地址">{activeUser.address || '-'}</Descriptions.Item>
             {actorScope === 'platform' && (
@@ -632,15 +709,39 @@ export default function UsersTab({
             <Descriptions.Item label="注册日期">{new Date(activeUser.created_at).toLocaleString('zh-CN', { hour12: false })}</Descriptions.Item>
           </Descriptions>
         )}
-        {activeUser && modalMode === 'edit' && (
+        {modalMode !== 'view' && (
           <Form form={editForm} layout="vertical">
-            <Form.Item label="会员">
-              <Input value={`${activeUser.username}${activeUser.phone ? `（${activeUser.phone}）` : ''}`} disabled />
+            <Form.Item name="username" label="用户名" rules={[{ required: true, message: '请输入用户名' }, { max: 64, message: '不能超过64个字符' }]}>
+              <Input placeholder="请输入用户名" />
             </Form.Item>
+            <Form.Item name="phone" label="手机" rules={[{ max: 32, message: '不能超过32个字符' }]}>
+              <Input placeholder="请输入手机（选填）" />
+            </Form.Item>
+            <Form.Item name="email" label="电子邮件" rules={[{ type: 'email', message: '电子邮件格式不正确' }, { max: 255, message: '不能超过255个字符' }]}>
+              <Input placeholder="请输入电子邮件（选填）" />
+            </Form.Item>
+            {modalMode === 'create' && (
+              <>
+                <Form.Item name="real_name" label="姓名" rules={[{ max: 255, message: '不能超过255个字符' }]}>
+                  <Input placeholder="请输入姓名（选填）" />
+                </Form.Item>
+                <Form.Item name="address" label="地址" rules={[{ max: 255, message: '不能超过255个字符' }]}>
+                  <Input placeholder="请输入地址（选填）" />
+                </Form.Item>
+                <Form.Item label="识别码">
+                  <Input value="保存后由系统自动生成" disabled />
+                </Form.Item>
+              </>
+            )}
+            {modalMode === 'edit' && (
+              <Form.Item name="recognition_code" label="识别码">
+                <Input disabled />
+              </Form.Item>
+            )}
             {actorScope === 'platform' && (
-              <Form.Item name="logistics_provider_id" label="物流商">
+              <Form.Item name="logistics_provider_id" label="物流商" rules={modalMode === 'create' ? [{ required: true, message: '请选择物流商' }] : undefined}>
                 <Select
-                  allowClear
+                  allowClear={modalMode !== 'create'}
                   showSearch
                   optionFilterProp="label"
                   placeholder="请选择物流商（可选）"

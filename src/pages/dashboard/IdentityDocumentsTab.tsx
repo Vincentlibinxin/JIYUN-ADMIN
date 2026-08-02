@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, Card, Checkbox, Form, Input, Modal, Pagination, Popconfirm, Select, Space, Table, Tag, Tooltip, message } from 'antd';
 import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
-import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
-import type { SorterResult } from 'antd/es/table/interface';
+import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
 import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
 
@@ -65,6 +64,7 @@ interface IdentityDocumentsTabProps {
 }
 
 type ModalMode = 'create' | 'edit' | 'view';
+type SortKey = 'id' | 'document_type' | 'document_number' | 'user_id' | 'holder_name' | 'logistics_provider_id' | 'created_at';
 
 const formatMember = (record: Pick<IdentityDocument, 'user_id' | 'member_username' | 'member_real_name'>) => {
   if (record.member_real_name) return `${record.member_real_name}（${record.member_username || ''}）`;
@@ -90,16 +90,20 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
-  const [sortKey, setSortKey] = useState('created_at');
+  const [sortKey, setSortKey] = useState<SortKey>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [localColumnFilters, setLocalColumnFilters] = useState<Record<string, string>>({});
 
   const [providerOptions, setProviderOptions] = useState<ProviderOption[]>([]);
   const [memberOptions, setMemberOptions] = useState<MemberOption[]>([]);
   const [memberSearching, setMemberSearching] = useState(false);
   const memberSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tableHostRef = useRef<HTMLDivElement>(null);
+  const [tableScrollY, setTableScrollY] = useState(240);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>('create');
@@ -112,8 +116,9 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
   const fetchDocuments = async (
     nextPage = page,
     nextPageSize = pageSize,
-    nextSortKey = sortKey,
-    nextSortOrder = sortOrder
+    nextSortKey: SortKey = sortKey,
+    nextSortOrder = sortOrder,
+    nextColumnFilters = columnFilters,
   ) => {
     setLoading(true);
     try {
@@ -123,6 +128,7 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
         sortKey: nextSortKey,
         sortOrder: nextSortOrder,
       });
+      if (Object.keys(nextColumnFilters).length) params.set('columnFilters', JSON.stringify(nextColumnFilters));
       const response = await adminFetch(`/admin/identity-documents?${params.toString()}`);
       if (!response.ok) throw new Error(await getResponseError(response, '加载证件失败'));
       const result = await response.json();
@@ -151,6 +157,21 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
 
   useEffect(() => () => {
     if (memberSearchTimer.current) clearTimeout(memberSearchTimer.current);
+  }, []);
+
+  useLayoutEffect(() => {
+    const updateTableHeight = () => {
+      const nextHeight = tableHostRef.current?.clientHeight ?? 0;
+      if (nextHeight > 0) setTableScrollY(nextHeight - 86);
+    };
+    updateTableHeight();
+    const observer = new ResizeObserver(updateTableHeight);
+    if (tableHostRef.current) observer.observe(tableHostRef.current);
+    window.addEventListener('resize', updateTableHeight);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateTableHeight);
+    };
   }, []);
 
   useEffect(() => {
@@ -280,25 +301,88 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
     fetchDocuments(documents.length <= ids.length && page > 1 ? page - 1 : page, pageSize);
   };
 
+  const handleColumnSearch = (key: string, value: string) => {
+    const next = { ...columnFilters };
+    if (!value) delete next[key];
+    else next[key] = value;
+    setColumnFilters(next);
+    setPage(1);
+    void fetchDocuments(1, pageSize, sortKey, sortOrder, next);
+  };
+
+  const renderSearchInput = (key: string, placeholder: string) => (
+    <Input
+      size="small"
+      placeholder={`搜索 ${placeholder}`}
+      value={localColumnFilters[key] !== undefined ? localColumnFilters[key] : (columnFilters[key] || '')}
+      onChange={(event) => {
+        setLocalColumnFilters((previous) => ({ ...previous, [key]: event.target.value }));
+        if (!event.target.value) handleColumnSearch(key, '');
+      }}
+      onPressEnter={(event) => handleColumnSearch(key, (event.target as HTMLInputElement).value)}
+      onClick={(event) => event.stopPropagation()}
+      allowClear
+    />
+  );
+
+  const renderSelectFilter = (key: string, options: Array<{ label: string; value: string }>) => (
+    <Select size="small" value={columnFilters[key] || ''} onChange={(value) => handleColumnSearch(key, value)} onClick={(event) => event.stopPropagation()} style={{ width: '100%' }} options={[{ label: '全部', value: '' }, ...options]} />
+  );
+
+  const resetFilters = () => {
+    setColumnFilters({});
+    setLocalColumnFilters({});
+    setSearchQuery('');
+    setSortKey('created_at');
+    setSortOrder('desc');
+    setSelectedRowKeys([]);
+    setPage(1);
+    void fetchDocuments(1, pageSize, 'created_at', 'desc', {});
+  };
+
+  const visibleKeys = documents.map((document) => document.id);
+  const selectedVisibleCount = visibleKeys.filter((key) => selectedRowKeys.includes(key)).length;
+  const allSelected = visibleKeys.length > 0 && selectedVisibleCount === visibleKeys.length;
+  const indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleKeys.length;
+  const sortOrderFor = (key: SortKey) => sortKey === key ? (sortOrder === 'asc' ? 'ascend' : 'descend') : null;
+
   const columns: ColumnsType<IdentityDocument> = [
-    { title: 'ID', dataIndex: 'id', key: 'id', width: 72, sorter: true, fixed: 'left' },
     {
-      title: '证件类型', dataIndex: 'document_type', key: 'document_type', width: 180, sorter: true,
-      render: (value: string) => <Tag color="blue">{DOCUMENT_TYPE_MAP.get(value) || value}</Tag>,
+      title: '序号', key: 'index', width: 65, fixed: 'left',
+      children: [{ title: <Checkbox checked={allSelected} indeterminate={indeterminate} onChange={(event) => setSelectedRowKeys(event.target.checked ? visibleKeys : [])} />, key: 'index_child', width: 65, fixed: 'left', render: (_, record, index) => <Space size={8}><Checkbox checked={selectedRowKeys.includes(record.id)} onChange={(event) => setSelectedRowKeys((previous) => event.target.checked ? [...new Set([...previous, record.id])] : previous.filter((key) => key !== record.id))} /><span>{(page - 1) * pageSize + index + 1}</span></Space> }],
     },
-    { title: '证件号', dataIndex: 'document_number', key: 'document_number', width: 190, sorter: true, ellipsis: true },
     {
-      title: '会员', key: 'user_id', width: 160, sorter: true, ellipsis: true,
-      render: (_, record) => <Tooltip title={record.member_phone || undefined}>{formatMember(record)}</Tooltip>,
+      title: '证件类型', key: 'document_type', width: 190, sorter: true, sortOrder: sortOrderFor('document_type'),
+      children: [{ title: renderSelectFilter('document_type', DOCUMENT_TYPES.map(({ value, label }) => ({ value, label }))), key: 'document_type_child', width: 190, render: (_, record) => <Tag color="blue">{DOCUMENT_TYPE_MAP.get(record.document_type) || record.document_type}</Tag> }],
     },
-    { title: '持证人姓名', dataIndex: 'holder_name', key: 'holder_name', width: 130, sorter: true, ellipsis: true, render: (value) => value || '—' },
-    { title: '物流商', dataIndex: 'logistics_provider_name', key: 'logistics_provider_id', width: 150, sorter: true, ellipsis: true },
-    { title: '备注', dataIndex: 'remarks', key: 'remarks', width: 200, ellipsis: true, render: (value) => value || '—' },
-    { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170, sorter: true, render: formatDate },
-    { title: '', key: 'spacer', render: () => null },
+    {
+      title: '证件号', key: 'document_number', width: 190, sorter: true, sortOrder: sortOrderFor('document_number'),
+      children: [{ title: renderSearchInput('document_number', '证件号'), key: 'document_number_child', width: 190, ellipsis: { showTitle: false }, render: (_, record) => <Tooltip title={record.document_number}>{record.document_number}</Tooltip> }],
+    },
+    {
+      title: '会员', key: 'user_id', width: 170, sorter: true, sortOrder: sortOrderFor('user_id'),
+      children: [{ title: '', key: 'user_id_child', width: 170, ellipsis: { showTitle: false }, render: (_, record) => <Tooltip title={record.member_phone || undefined}>{formatMember(record)}</Tooltip> }],
+    },
+    {
+      title: '持证人姓名', key: 'holder_name', width: 140, sorter: true, sortOrder: sortOrderFor('holder_name'),
+      children: [{ title: renderSearchInput('holder_name', '持证人'), key: 'holder_name_child', width: 140, ellipsis: { showTitle: false }, render: (_, record) => record.holder_name || '—' }],
+    },
+    {
+      title: '物流商', key: 'logistics_provider_id', width: 150, sorter: true, sortOrder: sortOrderFor('logistics_provider_id'),
+      children: [{ title: '', key: 'logistics_provider_id_child', width: 150, ellipsis: { showTitle: false }, render: (_, record) => record.logistics_provider_name || '—' }],
+    },
+    {
+      title: '备注', key: 'remarks', width: 200,
+      children: [{ title: renderSearchInput('remarks', '备注'), key: 'remarks_child', width: 200, ellipsis: { showTitle: false }, render: (_, record) => <Tooltip title={record.remarks || undefined}>{record.remarks || '—'}</Tooltip> }],
+    },
+    {
+      title: '创建时间', key: 'created_at', width: 180, sorter: true, sortOrder: sortOrderFor('created_at'),
+      children: [{ title: '', key: 'created_at_child', width: 180, render: (_, record) => formatDate(record.created_at) }],
+    },
+    { title: '', key: 'spacer', children: [{ title: '', key: 'spacer_child', render: () => null }] },
     {
       title: '操作', key: 'actions', width: 120, fixed: 'right', align: 'center',
-      render: (_, record) => (
+      children: [{ title: <Tooltip title="重置所有搜索"><Button size="small" icon={<ReloadOutlined />} onClick={resetFilters} /></Tooltip>, key: 'actions_child', width: 120, fixed: 'right', align: 'center', render: (_, record) => (
         <Space size={2}>
           <Tooltip title="查看"><Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openRecord(record, 'view')} /></Tooltip>
           {canUpdate && <Tooltip title="修改"><Button type="text" size="small" icon={<EditOutlined />} onClick={() => openRecord(record, 'edit')} /></Tooltip>}
@@ -308,7 +392,7 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
             </Popconfirm>
           )}
         </Space>
-      ),
+      ) }],
     },
   ];
 
@@ -319,17 +403,8 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
   const isView = modalMode === 'view';
   const currentType = DOCUMENT_TYPES.find((item) => item.value === selectedType);
 
-  const handleTableChange = (_pagination: TablePaginationConfig, _filters: unknown, sorter: SorterResult<IdentityDocument> | SorterResult<IdentityDocument>[]) => {
-    if (Array.isArray(sorter) || !sorter.order) return;
-    const nextSortKey = String(sorter.field || sorter.columnKey || 'created_at');
-    const nextSortOrder = sorter.order === 'ascend' ? 'asc' : 'desc';
-    setSortKey(nextSortKey);
-    setSortOrder(nextSortOrder);
-    fetchDocuments(1, pageSize, nextSortKey, nextSortOrder);
-  };
-
   return (
-    <Card bordered={false} style={{ flex: 1, minHeight: 0 }} bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }}>
+    <Card bordered={false} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }} bodyStyle={{ padding: 0, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '6px 16px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', gap: 12 }}>
         {canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增证件</Button>}
         {canDelete && (
@@ -351,7 +426,7 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
         <Tooltip title="刷新"><Button icon={<ReloadOutlined />} onClick={() => fetchDocuments(page, pageSize)} /></Tooltip>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+      <div ref={tableHostRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <Table<IdentityDocument>
           rowKey="id"
           loading={loading}
@@ -360,10 +435,23 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
           pagination={false}
           size="small"
           sticky
-          tableLayout="fixed"
-          scroll={{ x: getConstrainedTableScrollX(tableColumns), y: 'calc(100vh - 190px)' }}
-          rowSelection={canDelete ? { selectedRowKeys, onChange: (keys) => setSelectedRowKeys(keys as number[]) } : undefined}
-          onChange={handleTableChange}
+          tableLayout="auto"
+          showSorterTooltip={false}
+          sortDirections={['ascend', 'descend', 'ascend']}
+          scroll={{ x: getConstrainedTableScrollX(tableColumns), y: tableScrollY }}
+          rowClassName={(record) => selectedRowKeys.includes(record.id) ? 'row-selected' : ''}
+          onChange={(_, __, sorter) => {
+            if (Array.isArray(sorter)) return;
+            const nextSortKey = (sorter.columnKey || sorter.field) as SortKey | undefined;
+            if (!nextSortKey || !sorter.order) {
+              setSortKey('created_at'); setSortOrder('desc');
+              void fetchDocuments(page, pageSize, 'created_at', 'desc', columnFilters);
+              return;
+            }
+            const nextSortOrder = sorter.order === 'ascend' ? 'asc' : 'desc';
+            setSortKey(nextSortKey); setSortOrder(nextSortOrder);
+            void fetchDocuments(page, pageSize, nextSortKey, nextSortOrder, columnFilters);
+          }}
           locale={{ emptyText: searching ? '没有匹配的证件' : '没有证件记录' }}
         />
       </div>
@@ -374,11 +462,13 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
           current={page}
           pageSize={pageSize}
           total={total}
-          showSizeChanger
-          showQuickJumper
+          showSizeChanger={!searching}
+          pageSizeOptions={[10, 20, 30, 50, 100]}
+          showQuickJumper={!searching}
           showTotal={(count, range) => `第 ${range[0]}-${range[1]} 条 / 共 ${count} 条`}
           disabled={searching}
-          onChange={(nextPage, nextSize) => fetchDocuments(nextPage, nextSize)}
+          onChange={(nextPage, nextSize) => fetchDocuments(nextPage, nextSize, sortKey, sortOrder, columnFilters)}
+          onShowSizeChange={(_, nextSize) => fetchDocuments(1, nextSize, sortKey, sortOrder, columnFilters)}
         />
       </div>
 

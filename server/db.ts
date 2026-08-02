@@ -1,4 +1,5 @@
 ﻿import bcrypt from 'bcryptjs';
+import { randomInt, randomBytes } from 'crypto';
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
 import { ALL_PERMISSION_CODES, DEFAULT_ROLE_PERMISSIONS, LOGISTICS_ALLOWED_PERMISSIONS, PERMISSIONS, type PermissionCode } from './permissions';
@@ -16,6 +17,21 @@ const pool = mysql.createPool({
   connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 10),
   dateStrings: true,
 });
+
+const RECOGNITION_CODE_CHARS = '37AEFHJKMPRTWXY';
+const RECOGNITION_CODE_WEIGHTS = [2, 3, 5, 7, 11];
+
+const generateRecognitionCode = (): string => {
+  let body = '';
+  for (let index = 0; index < 5; index += 1) {
+    body += RECOGNITION_CODE_CHARS[randomInt(RECOGNITION_CODE_CHARS.length)];
+  }
+  const checksum = body.split('').reduce(
+    (sum, char, index) => sum + RECOGNITION_CODE_CHARS.indexOf(char) * RECOGNITION_CODE_WEIGHTS[index],
+    0
+  ) % RECOGNITION_CODE_CHARS.length;
+  return `${body}${RECOGNITION_CODE_CHARS[checksum]}`;
+};
 
 const querySingle = async <T>(sql: string, params: unknown[] = []): Promise<T | null> => {
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(sql, params);
@@ -297,15 +313,20 @@ export const initDb = async (): Promise<void> => {
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        username VARCHAR(64) UNIQUE NOT NULL,
+        username VARCHAR(64) NOT NULL,
         password VARCHAR(255) NOT NULL,
-        phone VARCHAR(32) UNIQUE,
+        phone VARCHAR(32),
         email VARCHAR(255),
+        recognition_code VARCHAR(6) NOT NULL,
         real_name VARCHAR(255),
         address VARCHAR(255),
         logistics_provider_id INT DEFAULT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_users_provider_username (logistics_provider_id, username),
+        UNIQUE KEY uq_users_provider_phone (logistics_provider_id, phone),
+        UNIQUE KEY uq_users_provider_email (logistics_provider_id, email),
+        UNIQUE KEY uq_users_provider_recognition_code (logistics_provider_id, recognition_code)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
@@ -316,6 +337,50 @@ export const initDb = async (): Promise<void> => {
     const existingUserCols = new Set((userCols as any[]).map((r: any) => r.COLUMN_NAME));
     if (!existingUserCols.has('logistics_provider_id')) {
       await connection.execute(`ALTER TABLE users ADD COLUMN logistics_provider_id INT DEFAULT NULL AFTER address`);
+    }
+    if (!existingUserCols.has('recognition_code')) {
+      await connection.execute(`ALTER TABLE users ADD COLUMN recognition_code VARCHAR(6) DEFAULT NULL AFTER email`);
+    }
+    const [usersMissingRecognitionCode] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT id FROM users WHERE recognition_code IS NULL OR recognition_code = '' FOR UPDATE`
+    );
+    const [assignedRecognitionCodes] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT recognition_code FROM users WHERE recognition_code IS NOT NULL AND recognition_code <> ''`
+    );
+    const usedRecognitionCodes = new Set(assignedRecognitionCodes.map((row) => String(row.recognition_code)));
+    for (const row of usersMissingRecognitionCode) {
+      let recognitionCode: string;
+      do {
+        recognitionCode = generateRecognitionCode();
+      } while (usedRecognitionCodes.has(recognitionCode));
+      usedRecognitionCodes.add(recognitionCode);
+      await connection.execute('UPDATE users SET recognition_code = ? WHERE id = ?', [recognitionCode, row.id]);
+    }
+    await connection.execute(`ALTER TABLE users MODIFY COLUMN recognition_code VARCHAR(6) NOT NULL`);
+
+    const [userIndexRows] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT INDEX_NAME, NON_UNIQUE, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) AS columns_list
+       FROM INFORMATION_SCHEMA.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+       GROUP BY INDEX_NAME, NON_UNIQUE`
+    );
+    const userIndexes = userIndexRows as Array<{ INDEX_NAME: string; NON_UNIQUE: number; columns_list: string }>;
+    for (const index of userIndexes) {
+      if (Number(index.NON_UNIQUE) === 0 && (index.columns_list === 'username' || index.columns_list === 'phone')) {
+        await connection.execute(`ALTER TABLE users DROP INDEX \`${index.INDEX_NAME.replace(/`/g, '``')}\``);
+      }
+    }
+    const existingUserIndexNames = new Set(userIndexes.map((index) => index.INDEX_NAME));
+    const requiredUserIndexes = [
+      ['uq_users_provider_username', 'username'],
+      ['uq_users_provider_phone', 'phone'],
+      ['uq_users_provider_email', 'email'],
+      ['uq_users_provider_recognition_code', 'recognition_code'],
+    ] as const;
+    for (const [indexName, columnName] of requiredUserIndexes) {
+      if (!existingUserIndexNames.has(indexName)) {
+        await connection.execute(`ALTER TABLE users ADD UNIQUE KEY \`${indexName}\` (logistics_provider_id, \`${columnName}\`)`);
+      }
     }
 
     await connection.execute(`
@@ -543,6 +608,12 @@ export const initDb = async (): Promise<void> => {
     if (!existingCols.has('logistics_provider_id')) {
       await connection.execute(`ALTER TABLE parcels ADD COLUMN logistics_provider_id INT DEFAULT NULL AFTER shelf_location`);
     }
+    if (!existingCols.has('sender_address_id')) {
+      await connection.execute(`ALTER TABLE parcels ADD COLUMN sender_address_id INT DEFAULT NULL AFTER logistics_provider_id`);
+    }
+    if (!existingCols.has('recipient_address_id')) {
+      await connection.execute(`ALTER TABLE parcels ADD COLUMN recipient_address_id INT DEFAULT NULL AFTER sender_address_id`);
+    }
 
     // Add indexes for status columns if not exist
     const [parcelIndexes] = await connection.execute<mysql.RowDataPacket[]>(
@@ -554,6 +625,12 @@ export const initDb = async (): Promise<void> => {
     }
     if (!existingIndexes.has('idx_parcels_sub_status')) {
       await connection.execute(`ALTER TABLE parcels ADD INDEX idx_parcels_sub_status (sub_status)`);
+    }
+    if (!existingIndexes.has('idx_parcels_sender_address')) {
+      await connection.execute(`ALTER TABLE parcels ADD INDEX idx_parcels_sender_address (sender_address_id)`);
+    }
+    if (!existingIndexes.has('idx_parcels_recipient_address')) {
+      await connection.execute(`ALTER TABLE parcels ADD INDEX idx_parcels_recipient_address (recipient_address_id)`);
     }
 
     // Parcel status change logs
@@ -684,6 +761,30 @@ export const initDb = async (): Promise<void> => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // 系统设置 - 仓库管理（四字段组合唯一）
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS warehouses (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        recipient_name VARCHAR(128) NOT NULL,
+        contact_phone VARCHAR(32) NOT NULL,
+        address VARCHAR(255) NOT NULL,
+        logistics_provider_id INT NOT NULL,
+        is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_warehouse_binding (recipient_name, contact_phone, address, logistics_provider_id),
+        INDEX idx_warehouse_provider (logistics_provider_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    const [warehouseCols] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'warehouses'`
+    );
+    const existingWarehouseCols = new Set((warehouseCols as any[]).map((row: any) => row.COLUMN_NAME));
+    if (!existingWarehouseCols.has('is_enabled')) {
+      await connection.execute(`ALTER TABLE warehouses ADD COLUMN is_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER logistics_provider_id`);
+    }
+
     // 地址簿（按物流商归属，可选关联会员）
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS address_book (
@@ -750,6 +851,48 @@ export const initDb = async (): Promise<void> => {
         INDEX idx_purchase_order_item_order (purchase_order_id),
         CONSTRAINT fk_purchase_order_item_order
           FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // 商场系统商品与SKU（1688式多规格结构）
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS mall_products (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        product_name VARCHAR(255) NOT NULL,
+        product_code VARCHAR(64) NOT NULL,
+        category_name VARCHAR(128) DEFAULT NULL,
+        unit_name VARCHAR(32) NOT NULL DEFAULT '件',
+        main_image_url VARCHAR(2048) DEFAULT NULL,
+        description TEXT DEFAULT NULL,
+        spec_dimensions JSON NOT NULL,
+        is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        logistics_provider_id INT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_mall_product_code_provider (product_code, logistics_provider_id),
+        INDEX idx_mall_product_provider (logistics_provider_id),
+        INDEX idx_mall_product_enabled (is_enabled)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS mall_skus (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        product_id INT NOT NULL,
+        sku_code VARCHAR(128) NOT NULL,
+        spec_values JSON NOT NULL,
+        spec_signature VARCHAR(512) NOT NULL,
+        price DECIMAL(12,2) NOT NULL DEFAULT 0,
+        stock INT NOT NULL DEFAULT 0,
+        image_url VARCHAR(2048) DEFAULT NULL,
+        is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_mall_sku_signature (product_id, spec_signature),
+        UNIQUE KEY uk_mall_sku_code (product_id, sku_code),
+        INDEX idx_mall_sku_product (product_id),
+        CONSTRAINT fk_mall_sku_product
+          FOREIGN KEY (product_id) REFERENCES mall_products(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
@@ -1148,6 +1291,13 @@ export const initDb = async (): Promise<void> => {
         }
       }
 
+      if (adminRoleId) {
+        await connection.execute(
+          'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
+          [adminRoleId, 'admin', PERMISSIONS.USER_CREATE]
+        );
+      }
+
       // 幂等回填：确保内置 admin 角色拥有「系统设置 - 包裹状态字典」权限（平台专属）。
       const PARCEL_STATUS_CODES = [
         PERMISSIONS.PARCEL_STATUS_VIEW,
@@ -1212,6 +1362,22 @@ export const initDb = async (): Promise<void> => {
         }
       }
 
+      // 幂等回填：确保内置 admin 角色拥有「系统设置 - 仓库管理」权限。
+      const WAREHOUSE_CODES = [
+        PERMISSIONS.WAREHOUSE_VIEW,
+        PERMISSIONS.WAREHOUSE_CREATE,
+        PERMISSIONS.WAREHOUSE_UPDATE,
+        PERMISSIONS.WAREHOUSE_DELETE,
+      ];
+      if (adminRoleId) {
+        for (const permissionCode of WAREHOUSE_CODES) {
+          await connection.execute(
+            'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
+            [adminRoleId, 'admin', permissionCode]
+          );
+        }
+      }
+
       // 幂等回填：确保内置 admin 角色拥有「地址簿」权限（新增模块，历史库需补齐）。
       const ADDRESS_BOOK_CODES = [
         PERMISSIONS.ADDRESS_BOOK_VIEW,
@@ -1253,6 +1419,22 @@ export const initDb = async (): Promise<void> => {
       ];
       if (adminRoleId) {
         for (const permissionCode of PURCHASE_ORDER_CODES) {
+          await connection.execute(
+            'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
+            [adminRoleId, 'admin', permissionCode]
+          );
+        }
+      }
+
+      // 幂等回填：确保内置 admin 角色拥有「商场系统 - SKU管理」权限。
+      const SKU_CODES = [
+        PERMISSIONS.SKU_VIEW,
+        PERMISSIONS.SKU_CREATE,
+        PERMISSIONS.SKU_UPDATE,
+        PERMISSIONS.SKU_DELETE,
+      ];
+      if (adminRoleId) {
+        for (const permissionCode of SKU_CODES) {
           await connection.execute(
             'INSERT IGNORE INTO admin_role_permissions (role_id, role, permission_code) VALUES (?, ?, ?)',
             [adminRoleId, 'admin', permissionCode]
@@ -1623,7 +1805,7 @@ export const updateAdminLastLogin = async (adminId: number): Promise<void> => {
   await pool.execute('UPDATE admin_users SET last_login = NOW() WHERE id = ?', [adminId]);
 };
 
-const USERS_SORT_COLUMNS = new Set(['id', 'username', 'phone', 'email', 'real_name', 'address', 'created_at', 'updated_at']);
+const USERS_SORT_COLUMNS = new Set(['id', 'username', 'phone', 'email', 'recognition_code', 'real_name', 'address', 'created_at', 'updated_at']);
 
 export const getUsersPaged = async (
   page: number,
@@ -1662,7 +1844,7 @@ export const getUsersPaged = async (
   const offset = (safePage - 1) * safeLimit;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT u.id, u.username, u.phone, u.email, u.real_name, u.address,
+    `SELECT u.id, u.username, u.phone, u.email, u.recognition_code, u.real_name, u.address,
             u.logistics_provider_id, lp.name AS logistics_provider_name,
             u.created_at, u.updated_at, u.deleted_at
      FROM users u
@@ -1698,15 +1880,15 @@ export const searchUsersPaged = async (keyword: string, page: number, limit: num
     limit,
     async (safeLimit, offset) => {
       const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-        `SELECT u.id, u.username, u.phone, u.email, u.real_name, u.address,
+        `SELECT u.id, u.username, u.phone, u.email, u.recognition_code, u.real_name, u.address,
                 u.logistics_provider_id, lp.name AS logistics_provider_name,
                 u.created_at, u.updated_at
          FROM users u
          LEFT JOIN logistics_providers lp ON u.logistics_provider_id = lp.id
-         WHERE u.deleted_at IS NULL AND (u.username LIKE ? OR u.phone LIKE ? OR u.email LIKE ? OR u.real_name LIKE ?)${provClause}
+         WHERE u.deleted_at IS NULL AND (u.username LIKE ? OR u.phone LIKE ? OR u.email LIKE ? OR u.recognition_code LIKE ? OR u.real_name LIKE ?)${provClause}
          ORDER BY ${orderBy}
          LIMIT ${safeLimit} OFFSET ${offset}`,
-        [like, like, like, like, ...provParams]
+        [like, like, like, like, like, ...provParams]
       );
       return rows as any[];
     },
@@ -1714,17 +1896,91 @@ export const searchUsersPaged = async (keyword: string, page: number, limit: num
       const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
         `SELECT COUNT(*) as count
          FROM users u
-         WHERE u.deleted_at IS NULL AND (u.username LIKE ? OR u.phone LIKE ? OR u.email LIKE ? OR u.real_name LIKE ?)${provClause}`,
-        [like, like, like, like, ...provParams]
+         WHERE u.deleted_at IS NULL AND (u.username LIKE ? OR u.phone LIKE ? OR u.email LIKE ? OR u.recognition_code LIKE ? OR u.real_name LIKE ?)${provClause}`,
+        [like, like, like, like, like, ...provParams]
       );
       return Number(countRows?.[0]?.count || 0);
     }
   );
 };
 
-export const updateUser = async (userId: number, payload: { logistics_provider_id?: number | null }): Promise<boolean> => {
+export type UserUniqueField = 'username' | 'phone' | 'email' | 'recognition_code';
+
+export const createUser = async (payload: {
+  username: string;
+  phone: string | null;
+  email: string | null;
+  real_name: string | null;
+  address: string | null;
+  logistics_provider_id: number;
+}): Promise<{ id: number; recognition_code: string }> => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const passwordHash = await bcrypt.hash(randomBytes(32).toString('hex'), 10);
+    let recognitionCode: string;
+    for (;;) {
+      recognitionCode = generateRecognitionCode();
+      const [rows] = await connection.execute<mysql.RowDataPacket[]>(
+        'SELECT id FROM users WHERE recognition_code = ? LIMIT 1',
+        [recognitionCode]
+      );
+      if (rows.length === 0) break;
+    }
+    const [result] = await connection.execute<mysql.ResultSetHeader>(
+      `INSERT INTO users
+       (username, password, phone, email, recognition_code, real_name, address, logistics_provider_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [payload.username, passwordHash, payload.phone, payload.email, recognitionCode, payload.real_name, payload.address, payload.logistics_provider_id]
+    );
+    await connection.commit();
+    return { id: result.insertId, recognition_code: recognitionCode };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+export const findUserUniqueConflict = async (
+  userId: number,
+  logisticsProviderId: number | null,
+  values: Partial<Record<UserUniqueField, string | null>>
+): Promise<UserUniqueField | null> => {
+  const [currentRows] = await pool.execute<mysql.RowDataPacket[]>(
+    'SELECT username, phone, email, recognition_code FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+    [userId]
+  );
+  const current = currentRows[0] as Partial<Record<UserUniqueField, string | null>> | undefined;
+  if (!current) return null;
+  for (const field of ['username', 'phone', 'email', 'recognition_code'] as const) {
+    const value = values[field] !== undefined ? values[field] : current[field];
+    if (!value) continue;
+    const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+      `SELECT id FROM users WHERE logistics_provider_id <=> ? AND \`${field}\` = ? AND id <> ? LIMIT 1`,
+      [logisticsProviderId, value, userId]
+    );
+    if (rows.length > 0) return field;
+  }
+  return null;
+};
+
+export const updateUser = async (userId: number, payload: {
+  username?: string;
+  phone?: string | null;
+  email?: string | null;
+  recognition_code?: string | null;
+  logistics_provider_id?: number | null;
+}): Promise<boolean> => {
   const sets: string[] = ['updated_at = NOW()'];
   const params: any[] = [];
+  for (const field of ['username', 'phone', 'email', 'recognition_code'] as const) {
+    if (payload[field] !== undefined) {
+      sets.push(`\`${field}\` = ?`);
+      params.push(payload[field]);
+    }
+  }
   if (payload.logistics_provider_id !== undefined) {
     sets.push('logistics_provider_id = ?');
     params.push(payload.logistics_provider_id || null);
@@ -2004,12 +2260,20 @@ export const getParcelsPaged = async (
             p.status, p.sub_status, p.status_remark, p.status_updated_at,
             p.estimated_delivery, p.created_at, p.deleted_at,
             p.logistics_provider_id, lp.name AS logistics_provider_name,
+          p.sender_address_id, sender.name AS sender_name, sender.phone AS sender_phone,
+          sender.region AS sender_region, sender.province AS sender_province, sender.city AS sender_city,
+          sender.district AS sender_district, sender.street AS sender_street, sender.address AS sender_address,
+          p.recipient_address_id, recipient.name AS recipient_name, recipient.phone AS recipient_phone,
+          recipient.region AS recipient_region, recipient.province AS recipient_province, recipient.city AS recipient_city,
+          recipient.district AS recipient_district, recipient.street AS recipient_street, recipient.address AS recipient_address,
             u.username AS username,
             (SELECT pi.name FROM parcel_items pi WHERE pi.parcel_id = p.id ORDER BY pi.id LIMIT 1) AS first_item_name,
             (SELECT COUNT(*) FROM parcel_items pi WHERE pi.parcel_id = p.id) AS item_count
      FROM parcels p
      LEFT JOIN users u ON p.user_id = u.id
      LEFT JOIN logistics_providers lp ON p.logistics_provider_id = lp.id
+    LEFT JOIN address_book sender ON p.sender_address_id = sender.id
+    LEFT JOIN address_book recipient ON p.recipient_address_id = recipient.id
      ${whereSql}
      ORDER BY ${orderBy}
      LIMIT ${safeLimit} OFFSET ${offset}`,
@@ -2244,16 +2508,24 @@ export const searchParcels = async (keyword: string, startDate?: string, endDate
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
-            p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images,
+          p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images, p.storage_bin,
             p.status, p.sub_status, p.status_remark, p.status_updated_at,
             p.estimated_delivery, p.created_at,
             p.logistics_provider_id, lp.name AS logistics_provider_name,
+          p.sender_address_id, sender.name AS sender_name, sender.phone AS sender_phone,
+          sender.region AS sender_region, sender.province AS sender_province, sender.city AS sender_city,
+          sender.district AS sender_district, sender.street AS sender_street, sender.address AS sender_address,
+          p.recipient_address_id, recipient.name AS recipient_name, recipient.phone AS recipient_phone,
+          recipient.region AS recipient_region, recipient.province AS recipient_province, recipient.city AS recipient_city,
+          recipient.district AS recipient_district, recipient.street AS recipient_street, recipient.address AS recipient_address,
             u.username AS username,
             (SELECT pi.name FROM parcel_items pi WHERE pi.parcel_id = p.id ORDER BY pi.id LIMIT 1) AS first_item_name,
             (SELECT COUNT(*) FROM parcel_items pi WHERE pi.parcel_id = p.id) AS item_count
      FROM parcels p
      LEFT JOIN users u ON p.user_id = u.id
      LEFT JOIN logistics_providers lp ON p.logistics_provider_id = lp.id
+    LEFT JOIN address_book sender ON p.sender_address_id = sender.id
+    LEFT JOIN address_book recipient ON p.recipient_address_id = recipient.id
      ${whereSql}
      ORDER BY p.created_at DESC`,
     [
@@ -2348,9 +2620,11 @@ export const createParcelInbound = async (payload: {
   shelf_location?: string;
   storage_bin?: string;
   logistics_provider_id?: number | null;
+  sender_address_id?: number | null;
+  recipient_address_id?: number | null;
   items: { name: string; value: number; quantity: number }[];
 }): Promise<number> => {
-  const { tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, storage_bin, logistics_provider_id, items } = payload;
+  const { tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, items } = payload;
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -2367,19 +2641,19 @@ export const createParcelInbound = async (payload: {
       parcelId = existing[0].id;
       await conn.execute(
         `UPDATE parcels SET weight = ?, length_cm = ?, width_cm = ?, height_cm = ?, volume = ?,
-         images = ?, shelf_location = ?, storage_bin = ?, logistics_provider_id = ?, status = 'warehoused', status_updated_at = NOW(),
+         images = ?, shelf_location = ?, storage_bin = ?, logistics_provider_id = ?, sender_address_id = ?, recipient_address_id = ?, status = 'warehoused', status_updated_at = NOW(),
          deleted_at = NULL, updated_at = NOW()
          WHERE id = ?`,
-        [weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, storage_bin || null, logistics_provider_id || null, parcelId]
+        [weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, storage_bin || null, logistics_provider_id || null, sender_address_id || null, recipient_address_id || null, parcelId]
       );
       // Remove old items, will re-insert below
       await conn.execute('DELETE FROM parcel_items WHERE parcel_id = ?', [parcelId]);
     } else {
       // Insert new parcel
       const [result] = await conn.execute<mysql.ResultSetHeader>(
-        `INSERT INTO parcels (tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, storage_bin, logistics_provider_id, origin, destination, status, status_updated_at, user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 'warehoused', NOW(), NULL)`,
-        [tracking_number, weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, storage_bin || null, logistics_provider_id || null]
+        `INSERT INTO parcels (tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, origin, destination, status, status_updated_at, user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 'warehoused', NOW(), NULL)`,
+        [tracking_number, weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, storage_bin || null, logistics_provider_id || null, sender_address_id || null, recipient_address_id || null]
       );
       parcelId = result.insertId;
     }
@@ -2427,9 +2701,11 @@ export const updateParcel = async (parcelId: number, payload: {
   images?: string;
   storage_bin?: string;
   logistics_provider_id?: number | null;
+  sender_address_id?: number | null;
+  recipient_address_id?: number | null;
   items: { name: string; value: number; quantity: number }[];
 }): Promise<boolean> => {
-  const { weight, length_cm, width_cm, height_cm, volume, origin, destination, status, sub_status, status_remark, images, storage_bin, logistics_provider_id, items } = payload;
+  const { weight, length_cm, width_cm, height_cm, volume, origin, destination, status, sub_status, status_remark, images, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, items } = payload;
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -2443,6 +2719,8 @@ export const updateParcel = async (parcelId: number, payload: {
     if (images !== undefined) { sets.push('images = ?'); params.push(images || null); }
     if (storage_bin !== undefined) { sets.push('storage_bin = ?'); params.push(storage_bin || null); }
     if (logistics_provider_id !== undefined) { sets.push('logistics_provider_id = ?'); params.push(logistics_provider_id || null); }
+    if (sender_address_id !== undefined) { sets.push('sender_address_id = ?'); params.push(sender_address_id || null); }
+    if (recipient_address_id !== undefined) { sets.push('recipient_address_id = ?'); params.push(recipient_address_id || null); }
     params.push(parcelId);
     const [result] = await conn.execute<mysql.ResultSetHeader>(
       `UPDATE parcels SET ${sets.join(', ')} WHERE id = ?`,
@@ -3701,6 +3979,18 @@ export const searchAddressBook = async (keyword: string, providerFilter?: number
   return rows as any[];
 };
 
+export const getAddressBookOptions = async (providerId: number): Promise<any[]> => {
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, name, region, province, city, district, street, phone, address, logistics_provider_id
+     FROM address_book
+     WHERE logistics_provider_id = ?
+     ORDER BY name ASC, id DESC
+     LIMIT 500`,
+    [providerId]
+  );
+  return rows as any[];
+};
+
 export const createAddressBook = async (payload: AddressBookPayload) => {
   const [result] = await pool.execute<mysql.ResultSetHeader>(
     `INSERT INTO address_book (name, region, province, city, district, street, phone, address, user_id, logistics_provider_id)
@@ -3770,7 +4060,7 @@ export const batchDeleteAddressBook = async (ids: number[]): Promise<number> => 
 // ============ 证件管理（绑定会员与物流商） ============
 
 const IDENTITY_DOCUMENT_SORT_COLUMNS = new Set([
-  'id', 'document_type', 'document_number', 'user_id', 'logistics_provider_id', 'holder_name', 'created_at', 'updated_at',
+  'id', 'document_type', 'document_number', 'user_id', 'logistics_provider_id', 'holder_name', 'remarks', 'created_at', 'updated_at',
 ]);
 
 export interface IdentityDocumentPayload {
@@ -3963,10 +4253,12 @@ export const getPurchaseOrdersPaged = async (
   limit: number,
   sortKey?: string,
   sortOrder?: string,
+  columnFilters?: Record<string, string>,
   providerFilter?: number | null
 ) => {
-  const clauses = ['1=1'];
-  const params: any[] = [];
+  const { clauses: filterClauses, params: filterParams } = buildColumnFilters(columnFilters, undefined, PURCHASE_ORDER_SORT_COLUMNS, 'po.');
+  const params: any[] = [...filterParams];
+  const clauses = ['1=1', ...filterClauses];
   if (providerFilter !== null && providerFilter !== undefined) {
     clauses.push('po.logistics_provider_id = ?');
     params.push(providerFilter);
@@ -4081,6 +4373,196 @@ export const batchDeletePurchaseOrders = async (ids: number[]): Promise<number> 
   if (!ids.length) return 0;
   const placeholders = ids.map(() => '?').join(',');
   const [result] = await pool.execute<mysql.ResultSetHeader>(`DELETE FROM purchase_orders WHERE id IN (${placeholders})`, ids);
+  return result.affectedRows;
+};
+
+// ============ 商场系统 - SKU管理 ============
+
+const MALL_PRODUCT_SORT_COLUMNS = new Set([
+  'id', 'product_name', 'product_code', 'category_name', 'unit_name', 'is_enabled', 'logistics_provider_id', 'created_at', 'updated_at',
+]);
+
+export interface MallSkuPayload {
+  sku_code: string;
+  spec_values: Record<string, string>;
+  spec_signature: string;
+  price: number;
+  stock: number;
+  image_url?: string | null;
+  is_enabled: boolean;
+}
+
+export interface MallProductPayload {
+  product_name: string;
+  product_code: string;
+  category_name?: string | null;
+  unit_name: string;
+  main_image_url?: string | null;
+  description?: string | null;
+  spec_dimensions: Array<{ name: string; values: string[] }>;
+  is_enabled: boolean;
+  logistics_provider_id: number;
+  skus: MallSkuPayload[];
+}
+
+const MALL_PRODUCT_SELECT = `
+  SELECT mp.id, mp.product_name, mp.product_code, mp.category_name, mp.unit_name,
+         mp.main_image_url, mp.description, mp.spec_dimensions, mp.is_enabled,
+         mp.logistics_provider_id, mp.created_at, mp.updated_at,
+         lp.name AS logistics_provider_name,
+         COUNT(ms.id) AS sku_count, COALESCE(SUM(ms.stock), 0) AS total_stock,
+         MIN(ms.price) AS min_price, MAX(ms.price) AS max_price
+  FROM mall_products mp
+  LEFT JOIN logistics_providers lp ON mp.logistics_provider_id = lp.id
+  LEFT JOIN mall_skus ms ON mp.id = ms.product_id`;
+
+const parseJsonColumn = <T>(value: unknown, fallback: T): T => {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'object') return value as T;
+  try { return JSON.parse(String(value)) as T; } catch { return fallback; }
+};
+
+const normalizeMallProduct = (product: any) => ({
+  ...product,
+  sku_count: Number(product.sku_count || 0),
+  total_stock: Number(product.total_stock || 0),
+  min_price: product.min_price === null ? null : Number(product.min_price),
+  max_price: product.max_price === null ? null : Number(product.max_price),
+  spec_dimensions: parseJsonColumn(product.spec_dimensions, []),
+});
+
+export const getMallProductsPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  providerFilter?: number | null
+) => {
+  const { clauses: filterClauses, params: filterParams } = buildColumnFilters(columnFilters, undefined, MALL_PRODUCT_SORT_COLUMNS, 'mp.');
+  const params: any[] = [...filterParams];
+  const clauses = ['1=1', ...filterClauses];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    clauses.push('mp.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 20, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+  const whereSql = `WHERE ${clauses.join(' AND ')}`;
+  const orderBy = `mp.${toSafeOrderBy(sortKey, sortOrder, MALL_PRODUCT_SORT_COLUMNS, 'created_at')}`;
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `${MALL_PRODUCT_SELECT} ${whereSql} GROUP BY mp.id ORDER BY ${orderBy} LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
+  );
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(`SELECT COUNT(*) AS count FROM mall_products mp ${whereSql}`, params);
+  const total = Number(countRows?.[0]?.count || 0);
+  return { data: (rows as any[]).map(normalizeMallProduct), total, pages: Math.max(1, Math.ceil(total / safeLimit)) };
+};
+
+export const searchMallProducts = async (keyword: string, providerFilter?: number | null): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const clauses = [`(mp.product_name LIKE ? OR mp.product_code LIKE ? OR mp.category_name LIKE ? OR lp.name LIKE ?
+    OR EXISTS (SELECT 1 FROM mall_skus sku WHERE sku.product_id = mp.id AND (sku.sku_code LIKE ? OR sku.spec_signature LIKE ?)))`];
+  const params: any[] = [like, like, like, like, like, like];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    clauses.push('mp.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `${MALL_PRODUCT_SELECT} WHERE ${clauses.join(' AND ')} GROUP BY mp.id ORDER BY mp.created_at DESC LIMIT 500`,
+    params
+  );
+  return (rows as any[]).map(normalizeMallProduct);
+};
+
+export const findDuplicateMallProductCode = async (productCode: string, logisticsProviderId: number, excludeId?: number): Promise<boolean> => {
+  const params: any[] = [productCode, logisticsProviderId];
+  let sql = 'SELECT id FROM mall_products WHERE product_code = ? AND logistics_provider_id = ?';
+  if (excludeId) {
+    sql += ' AND id <> ?';
+    params.push(excludeId);
+  }
+  sql += ' LIMIT 1';
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(sql, params);
+  return rows.length > 0;
+};
+
+const insertMallSkus = async (connection: mysql.PoolConnection, productId: number, skus: MallSkuPayload[]) => {
+  for (const sku of skus) {
+    await connection.execute(
+      `INSERT INTO mall_skus (product_id, sku_code, spec_values, spec_signature, price, stock, image_url, is_enabled)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [productId, sku.sku_code, JSON.stringify(sku.spec_values), sku.spec_signature, sku.price, sku.stock, sku.image_url ?? null, sku.is_enabled ? 1 : 0]
+    );
+  }
+};
+
+export const createMallProduct = async (payload: MallProductPayload) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [result] = await connection.execute<mysql.ResultSetHeader>(
+      `INSERT INTO mall_products (product_name, product_code, category_name, unit_name, main_image_url, description, spec_dimensions, is_enabled, logistics_provider_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [payload.product_name, payload.product_code, payload.category_name ?? null, payload.unit_name, payload.main_image_url ?? null, payload.description ?? null, JSON.stringify(payload.spec_dimensions), payload.is_enabled ? 1 : 0, payload.logistics_provider_id]
+    );
+    await insertMallSkus(connection, result.insertId, payload.skus);
+    await connection.commit();
+    return { id: result.insertId, ...payload };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+export const getMallProductById = async (id: number): Promise<any | null> => {
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(`${MALL_PRODUCT_SELECT} WHERE mp.id = ? GROUP BY mp.id LIMIT 1`, [id]);
+  if (!rows.length) return null;
+  const product = normalizeMallProduct(rows[0]);
+  const [skuRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, product_id, sku_code, spec_values, spec_signature, price, stock, image_url, is_enabled, created_at, updated_at
+     FROM mall_skus WHERE product_id = ? ORDER BY id ASC`,
+    [id]
+  );
+  return {
+    ...product,
+    skus: (skuRows as any[]).map((sku) => ({ ...sku, price: Number(sku.price), stock: Number(sku.stock), spec_values: parseJsonColumn(sku.spec_values, {}) })),
+  };
+};
+
+export const updateMallProduct = async (id: number, payload: MallProductPayload): Promise<boolean> => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [result] = await connection.execute<mysql.ResultSetHeader>(
+      `UPDATE mall_products SET product_name = ?, product_code = ?, category_name = ?, unit_name = ?, main_image_url = ?, description = ?, spec_dimensions = ?, is_enabled = ?, logistics_provider_id = ?, updated_at = NOW() WHERE id = ?`,
+      [payload.product_name, payload.product_code, payload.category_name ?? null, payload.unit_name, payload.main_image_url ?? null, payload.description ?? null, JSON.stringify(payload.spec_dimensions), payload.is_enabled ? 1 : 0, payload.logistics_provider_id, id]
+    );
+    if (!result.affectedRows) { await connection.rollback(); return false; }
+    await connection.execute('DELETE FROM mall_skus WHERE product_id = ?', [id]);
+    await insertMallSkus(connection, id, payload.skus);
+    await connection.commit();
+    return true;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+export const deleteMallProduct = async (id: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM mall_products WHERE id = ?', [id]);
+  return result.affectedRows > 0;
+};
+
+export const batchDeleteMallProducts = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`DELETE FROM mall_products WHERE id IN (${placeholders})`, ids);
   return result.affectedRows;
 };
 
@@ -5138,6 +5620,119 @@ export const batchDeleteLabelTemplates = async (ids: number[]): Promise<number> 
     `DELETE FROM label_templates WHERE id IN (${placeholders})`,
     ids
   );
+  return result.affectedRows;
+};
+
+// ============ 系统设置 - 仓库管理（按物流商归属） ============
+
+const WAREHOUSE_SORT_COLUMNS = new Set([
+  'id', 'recipient_name', 'contact_phone', 'address', 'logistics_provider_id', 'is_enabled', 'created_at', 'updated_at',
+]);
+
+export interface WarehousePayload {
+  recipient_name: string;
+  contact_phone: string;
+  address: string;
+  logistics_provider_id: number;
+  is_enabled: boolean;
+}
+
+export const getWarehousesPaged = async (
+  page: number,
+  limit: number,
+  sortKey?: string,
+  sortOrder?: string,
+  columnFilters?: Record<string, string>,
+  providerFilter?: number | null
+) => {
+  const orderBy = `w.${toSafeOrderBy(sortKey, sortOrder, WAREHOUSE_SORT_COLUMNS, 'created_at')}`;
+  const { clauses, params } = buildColumnFilters(columnFilters, undefined, WAREHOUSE_SORT_COLUMNS, 'w.');
+  const allClauses = ['1=1', ...clauses];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    allClauses.push('w.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const whereSql = `WHERE ${allClauses.join(' AND ')}`;
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 20, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT w.id, w.recipient_name, w.contact_phone, w.address, w.logistics_provider_id, w.is_enabled,
+            w.created_at, w.updated_at, lp.name AS logistics_provider_name
+     FROM warehouses w
+     INNER JOIN logistics_providers lp ON w.logistics_provider_id = lp.id
+     ${whereSql} ORDER BY ${orderBy} LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
+  );
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) AS count FROM warehouses w ${whereSql}`,
+    params
+  );
+  const total = Number(countRows?.[0]?.count || 0);
+  return { data: rows as any[], total, pages: Math.max(1, Math.ceil(total / safeLimit)) };
+};
+
+export const searchWarehouses = async (keyword: string, providerFilter?: number | null): Promise<any[]> => {
+  const like = `%${keyword}%`;
+  const clauses = ['(w.recipient_name LIKE ? OR w.contact_phone LIKE ? OR w.address LIKE ? OR lp.name LIKE ?)'];
+  const params: any[] = [like, like, like, like];
+  if (providerFilter !== null && providerFilter !== undefined) {
+    clauses.push('w.logistics_provider_id = ?');
+    params.push(providerFilter);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT w.id, w.recipient_name, w.contact_phone, w.address, w.logistics_provider_id, w.is_enabled,
+            w.created_at, w.updated_at, lp.name AS logistics_provider_name
+     FROM warehouses w INNER JOIN logistics_providers lp ON w.logistics_provider_id = lp.id
+     WHERE ${clauses.join(' AND ')} ORDER BY w.created_at DESC`,
+    params
+  );
+  return rows as any[];
+};
+
+export const findDuplicateWarehouse = async (payload: WarehousePayload, excludeId?: number): Promise<boolean> => {
+  const params: any[] = [payload.recipient_name, payload.contact_phone, payload.address, payload.logistics_provider_id];
+  const excludeClause = excludeId ? ' AND id <> ?' : '';
+  if (excludeId) params.push(excludeId);
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id FROM warehouses
+     WHERE recipient_name = ? AND contact_phone = ? AND address = ? AND logistics_provider_id = ?${excludeClause}
+     LIMIT 1`,
+    params
+  );
+  return rows.length > 0;
+};
+
+export const createWarehouse = async (payload: WarehousePayload) => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `INSERT INTO warehouses (recipient_name, contact_phone, address, logistics_provider_id, is_enabled) VALUES (?, ?, ?, ?, ?)`,
+    [payload.recipient_name, payload.contact_phone, payload.address, payload.logistics_provider_id, payload.is_enabled ? 1 : 0]
+  );
+  return { id: result.insertId, ...payload };
+};
+
+export const getWarehouseById = async (id: number): Promise<any | null> => querySingle<any>(
+  'SELECT id, logistics_provider_id FROM warehouses WHERE id = ? LIMIT 1',
+  [id]
+);
+
+export const updateWarehouse = async (id: number, payload: WarehousePayload): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `UPDATE warehouses SET recipient_name = ?, contact_phone = ?, address = ?, logistics_provider_id = ?, is_enabled = ?, updated_at = NOW() WHERE id = ?`,
+    [payload.recipient_name, payload.contact_phone, payload.address, payload.logistics_provider_id, payload.is_enabled ? 1 : 0, id]
+  );
+  return result.affectedRows > 0;
+};
+
+export const deleteWarehouse = async (id: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>('DELETE FROM warehouses WHERE id = ?', [id]);
+  return result.affectedRows > 0;
+};
+
+export const batchDeleteWarehouses = async (ids: number[]): Promise<number> => {
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await pool.execute<mysql.ResultSetHeader>(`DELETE FROM warehouses WHERE id IN (${placeholders})`, ids);
   return result.affectedRows;
 };
 

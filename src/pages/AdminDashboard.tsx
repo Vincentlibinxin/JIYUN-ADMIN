@@ -18,16 +18,19 @@ import NumberLibraryTab, { NumberCategory, NumberCategoryPayload } from './dashb
 import AddressBookTab, { AddressBookEntry, AddressBookPayload } from './dashboard/AddressBookTab';
 import IdentityDocumentsTab from './dashboard/IdentityDocumentsTab';
 import PurchaseOrdersTab from './dashboard/PurchaseOrdersTab';
+import SkuManagementTab from './dashboard/SkuManagementTab';
 import RouteTransportTab from './dashboard/RouteTransportTab';
 import RolesTab from './dashboard/RolesTab';
 import ParcelStatusTab from './dashboard/ParcelStatusTab';
 import LabelsTab from './dashboard/LabelsTab';
+import WarehousesTab from './dashboard/WarehousesTab';
 
 interface User {
   id: number;
   username: string;
   phone: string | null;
   email: string | null;
+  recognition_code: string | null;
   real_name: string | null;
   address: string | null;
   created_at: string;
@@ -172,7 +175,7 @@ export default function AdminDashboard() {
   const [addressPage, setAddressPage] = useState(1);
   const [addressPageSize, setAddressPageSize] = useState(50);
   const [addressTotalItems, setAddressTotalItems] = useState(0);
-  const [userSort, setUserSort] = useState<SortConfig<'id' | 'username' | 'phone' | 'email' | 'real_name' | 'address' | 'created_at' | 'updated_at'>>({ key: 'created_at', direction: 'desc' });
+  const [userSort, setUserSort] = useState<SortConfig<'id' | 'username' | 'phone' | 'email' | 'recognition_code' | 'real_name' | 'address' | 'created_at' | 'updated_at'>>({ key: 'created_at', direction: 'desc' });
   const [orderSort, setOrderSort] = useState<SortConfig<'id' | 'user_id' | 'total_amount' | 'status' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [smsSort, setSmsSort] = useState<SortConfig<'id' | 'phone' | 'code' | 'verified' | 'expires_at' | 'created_at'>>({ key: 'created_at', direction: 'desc' });
   const [parcelSort, setParcelSort] = useState<SortConfig<'id' | 'user_id' | 'tracking_number' | 'origin' | 'destination' | 'weight' | 'length_cm' | 'width_cm' | 'height_cm' | 'volume' | 'status' | 'estimated_delivery' | 'created_at' | 'username'>>({ key: 'created_at', direction: 'desc' });
@@ -220,9 +223,15 @@ export default function AdminDashboard() {
 
   const hasParcelStatusView = hasPermission(PERMISSIONS.PARCEL_STATUS_VIEW);
   const hasLabelView = hasPermission(PERMISSIONS.LABEL_VIEW);
+  const hasWarehouseView = hasPermission(PERMISSIONS.WAREHOUSE_VIEW);
   const systemSettingsTabs = [
     hasParcelStatusView ? { key: 'parcel-status', label: '包裹状态字典' } : null,
     hasLabelView ? { key: 'labels', label: '标签管理' } : null,
+    hasWarehouseView ? { key: 'warehouses', label: '仓库管理' } : null,
+  ].filter(Boolean) as Array<{ key: string; label: string }>;
+
+  const mallTabs = [
+    hasPermission(PERMISSIONS.SKU_VIEW) ? { key: 'sku-management', label: 'SKU管理' } : null,
   ].filter(Boolean) as Array<{ key: string; label: string }>;
 
   const handleMenuClick = useCallback((key: string) => {
@@ -238,9 +247,14 @@ export default function AdminDashboard() {
       setActiveTab(nextTab);
       return;
     }
+    if (key === 'mall') {
+      setActiveMenu('mall');
+      setActiveTab(mallTabs[0]?.key ?? 'sku-management');
+      return;
+    }
     setActiveMenu(key);
     setActiveTab(key);
-  }, [hasAdminView, hasParcelStatusView, hasLabelView]);
+  }, [hasAdminView, hasParcelStatusView, hasLabelView, hasWarehouseView]);
 
   // 计算登录后默认落地页：物流商等无「概览」权限的账号不显示首页，跳转到第一个可访问页面
   const resolveLandingTab = (): { menu: string; tab: string } => {
@@ -256,6 +270,7 @@ export default function AdminDashboard() {
     if (hasPermission(PERMISSIONS.ADDRESS_BOOK_VIEW)) return { menu: 'address-book', tab: 'address-book' };
     if (hasPermission(PERMISSIONS.IDENTITY_DOCUMENT_VIEW)) return { menu: 'identity-documents', tab: 'identity-documents' };
     if (hasPermission(PERMISSIONS.NUMBER_LIB_VIEW)) return { menu: 'number-library', tab: 'number-library' };
+    if (hasPermission(PERMISSIONS.SKU_VIEW)) return { menu: 'mall', tab: 'sku-management' };
     if (systemAdminTabs.length > 0) return { menu: 'admins', tab: systemAdminTabs[0].key };
     return { menu: 'overview', tab: 'overview' };
   };
@@ -1310,22 +1325,50 @@ export default function AdminDashboard() {
     }
   };
 
-  const updateUser = async (id: number, payload: { logistics_provider_id: number | null }): Promise<boolean> => {
+  const createUser = async (payload: {
+    username: string;
+    phone: string | null;
+    email: string | null;
+    real_name: string | null;
+    address: string | null;
+    logistics_provider_id: number | null;
+  }): Promise<{ ok: boolean; recognitionCode?: string; error?: string }> => {
+    try {
+      const response = await adminFetch('/admin/users', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (!ensureAuthorized(response)) return { ok: false };
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) return { ok: false, error: data.error || '新增会员失败' };
+      fetchUsers(1);
+      return { ok: true, recognitionCode: data.data?.recognition_code };
+    } catch {
+      return { ok: false, error: '新增会员失败' };
+    }
+  };
+
+  const updateUser = async (id: number, payload: {
+    username: string;
+    phone: string | null;
+    email: string | null;
+    recognition_code: string | null;
+    logistics_provider_id: number | null;
+  }): Promise<{ ok: boolean; error?: string }> => {
     try {
       const response = await adminFetch(`/admin/users/${id}`, {
         method: 'PUT',
         body: JSON.stringify(payload),
       });
-      if (!ensureAuthorized(response)) return false;
+      if (!ensureAuthorized(response)) return { ok: false };
       if (response.ok) {
         fetchUsers(currentPage);
-        return true;
+        return { ok: true };
       }
-      setError('修改会员失败');
-      return false;
+      const data = await response.json().catch(() => ({}));
+      return { ok: false, error: data.error || '修改会员失败' };
     } catch {
-      setError('修改失败');
-      return false;
+      return { ok: false, error: '修改失败' };
     }
   };
 
@@ -1836,7 +1879,33 @@ export default function AdminDashboard() {
           {messageContextHolder}
           <div key={refreshKey} style={{ display: 'contents' }}>
 
-          {(activeTab === 'parcel-status' || activeTab === 'labels') && (
+          {activeTab === 'sku-management' && (
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+              <div style={{ padding: '0 12px', borderBottom: '1px solid #eef2f6', background: '#f8fafc', flexShrink: 0 }}>
+                <Tabs
+                  activeKey={activeTab}
+                  size="small"
+                  items={mallTabs}
+                  onChange={(key) => {
+                    setActiveMenu('mall');
+                    setActiveTab(key);
+                  }}
+                  tabBarStyle={{ margin: 0, padding: '0 4px' }}
+                />
+              </div>
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                <SkuManagementTab
+                  actorScope={actorScope}
+                  canCreate={hasPermission(PERMISSIONS.SKU_CREATE)}
+                  canUpdate={hasPermission(PERMISSIONS.SKU_UPDATE)}
+                  canDelete={hasPermission(PERMISSIONS.SKU_DELETE)}
+                  refreshKey={refreshKey}
+                />
+              </div>
+            </div>
+          )}
+
+          {(activeTab === 'parcel-status' || activeTab === 'labels' || activeTab === 'warehouses') && (
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
               <div
                 style={{
@@ -1873,6 +1942,15 @@ export default function AdminDashboard() {
                     canCreate={hasPermission(PERMISSIONS.LABEL_CREATE)}
                     canUpdate={hasPermission(PERMISSIONS.LABEL_UPDATE)}
                     canDelete={hasPermission(PERMISSIONS.LABEL_DELETE)}
+                    refreshKey={refreshKey}
+                  />
+                )}
+                {activeTab === 'warehouses' && (
+                  <WarehousesTab
+                    actorScope={actorScope}
+                    canCreate={hasPermission(PERMISSIONS.WAREHOUSE_CREATE)}
+                    canUpdate={hasPermission(PERMISSIONS.WAREHOUSE_UPDATE)}
+                    canDelete={hasPermission(PERMISSIONS.WAREHOUSE_DELETE)}
                     refreshKey={refreshKey}
                   />
                 )}
@@ -2002,7 +2080,9 @@ export default function AdminDashboard() {
               }}
               onDelete={deleteUser}
               onBatchDelete={batchDeleteUsers}
+              onCreate={createUser}
               onUpdate={updateUser}
+              canCreate={hasPermission(PERMISSIONS.USER_CREATE)}
               canDelete={hasPermission(PERMISSIONS.USER_DELETE)}
               canUpdate={hasPermission(PERMISSIONS.USER_UPDATE)}
               currentPage={currentPage}

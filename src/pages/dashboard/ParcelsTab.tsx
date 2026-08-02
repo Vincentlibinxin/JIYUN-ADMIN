@@ -29,6 +29,24 @@ interface Parcel {
   username: string | null;
   logistics_provider_id: number | null;
   logistics_provider_name: string | null;
+  sender_address_id: number | null;
+  sender_name: string | null;
+  sender_phone: string | null;
+  sender_region: string | null;
+  sender_province: string | null;
+  sender_city: string | null;
+  sender_district: string | null;
+  sender_street: string | null;
+  sender_address: string | null;
+  recipient_address_id: number | null;
+  recipient_name: string | null;
+  recipient_phone: string | null;
+  recipient_region: string | null;
+  recipient_province: string | null;
+  recipient_city: string | null;
+  recipient_district: string | null;
+  recipient_street: string | null;
+  recipient_address: string | null;
   first_item_name: string | null;
   item_count: number;
   deleted_at?: string | null;
@@ -193,6 +211,59 @@ export default memo(function ParcelsTab({
     [logisticsOptions]
   );
 
+  interface AddressOption {
+    id: number;
+    name: string;
+    region: string;
+    province: string | null;
+    city: string | null;
+    district: string | null;
+    street: string | null;
+    phone: string;
+    address: string;
+  }
+  const [inboundAddressOptions, setInboundAddressOptions] = useState<AddressOption[]>([]);
+  const [editAddressOptions, setEditAddressOptions] = useState<AddressOption[]>([]);
+  const [addressOptionsLoading, setAddressOptionsLoading] = useState(false);
+  const inboundProviderId = Form.useWatch('logistics_provider_id', inboundForm);
+  const editProviderId = Form.useWatch('logistics_provider_id', editForm);
+  const formatAddressLabel = useCallback((entry: AddressOption) => {
+    const regionPath = [entry.province, entry.city, entry.district, entry.street].filter(Boolean).join('');
+    return `${entry.name} · ${entry.phone} · ${regionPath}${entry.address}`;
+  }, []);
+  const toAddressSelectOptions = useCallback((entries: AddressOption[]) => (
+    entries.map((entry) => ({ value: entry.id, label: formatAddressLabel(entry) }))
+  ), [formatAddressLabel]);
+
+  useEffect(() => {
+    const isInbound = inboundOpen;
+    const isEdit = editOpen;
+    if (!isInbound && !isEdit) return;
+    const providerId = isInbound ? inboundProviderId : editProviderId;
+    if (actorScope === 'platform' && !providerId) {
+      if (isInbound) setInboundAddressOptions([]);
+      if (isEdit) setEditAddressOptions([]);
+      return;
+    }
+    let cancelled = false;
+    setAddressOptionsLoading(true);
+    const query = providerId ? `?logistics_provider_id=${providerId}` : '';
+    adminFetch(`/admin/parcels/address-options${query}`)
+      .then(async (response) => response.ok ? response.json() : { data: [] })
+      .then((json) => {
+        if (cancelled) return;
+        const entries = Array.isArray(json.data) ? json.data : [];
+        if (isInbound) setInboundAddressOptions(entries);
+        if (isEdit) setEditAddressOptions(entries);
+      })
+      .catch(() => {
+        if (isInbound) setInboundAddressOptions([]);
+        if (isEdit) setEditAddressOptions([]);
+      })
+      .finally(() => { if (!cancelled) setAddressOptionsLoading(false); });
+    return () => { cancelled = true; };
+  }, [actorScope, editOpen, editProviderId, inboundOpen, inboundProviderId]);
+
   // 《包裹状态字典》：货物态/信息态下拉与标签映射均来自字典（启用项）
   const [statusDict, setStatusDict] = useState<{ status_code: string; status_name: string; status_type: string; status_category: string | null }[]>([]);
   const [statusDictLoading, setStatusDictLoading] = useState(true);
@@ -344,6 +415,8 @@ export default memo(function ParcelsTab({
       fd.append('height_cm', String(values.height_cm));
       fd.append('storage_bin', values.storage_bin != null ? String(values.storage_bin) : '');
       fd.append('logistics_provider_id', values.logistics_provider_id != null ? String(values.logistics_provider_id) : '');
+      fd.append('sender_address_id', values.sender_address_id != null ? String(values.sender_address_id) : '');
+      fd.append('recipient_address_id', values.recipient_address_id != null ? String(values.recipient_address_id) : '');
       fd.append('items', JSON.stringify(values.items));
       fileList.forEach(f => {
         if (f.originFileObj) fd.append('files', f.originFileObj);
@@ -383,6 +456,8 @@ export default memo(function ParcelsTab({
       status_remark: record.status_remark || '',
       storage_bin: record.storage_bin || '',
       logistics_provider_id: record.logistics_provider_id ?? undefined,
+      sender_address_id: record.sender_address_id ?? undefined,
+      recipient_address_id: record.recipient_address_id ?? undefined,
       items: [{ name: '', value: 0, quantity: 1 }],
     });
     try {
@@ -420,6 +495,8 @@ export default memo(function ParcelsTab({
       fd.append('status_remark', values.status_remark || '');
       fd.append('storage_bin', values.storage_bin != null ? String(values.storage_bin) : '');
       fd.append('logistics_provider_id', values.logistics_provider_id != null ? String(values.logistics_provider_id) : '');
+      fd.append('sender_address_id', values.sender_address_id != null ? String(values.sender_address_id) : '');
+      fd.append('recipient_address_id', values.recipient_address_id != null ? String(values.recipient_address_id) : '');
       fd.append('items', JSON.stringify(values.items));
       const existingUrls = editFileList.filter(f => f.url && !f.originFileObj).map(f => f.url!);
       fd.append('existing_images', existingUrls.join(','));
@@ -773,6 +850,40 @@ export default memo(function ParcelsTab({
           },
         },
       ],
+    },
+    {
+      title: '发货人',
+      key: 'sender',
+      width: 190,
+      children: [{
+        title: <span style={{ fontSize: 12, color: '#999' }}>地址簿</span>,
+        key: 'sender_child',
+        width: 190,
+        ellipsis: true,
+        render: (_, record) => {
+          if (!record.sender_name) return '';
+          const address = [record.sender_province, record.sender_city, record.sender_district, record.sender_street, record.sender_address].filter(Boolean).join('');
+          const text = `${record.sender_name} · ${record.sender_phone || ''} · ${address}`;
+          return <Tooltip title={text}>{text}</Tooltip>;
+        },
+      }],
+    },
+    {
+      title: '收货人',
+      key: 'recipient',
+      width: 190,
+      children: [{
+        title: <span style={{ fontSize: 12, color: '#999' }}>地址簿</span>,
+        key: 'recipient_child',
+        width: 190,
+        ellipsis: true,
+        render: (_, record) => {
+          if (!record.recipient_name) return '';
+          const address = [record.recipient_province, record.recipient_city, record.recipient_district, record.recipient_street, record.recipient_address].filter(Boolean).join('');
+          const text = `${record.recipient_name} · ${record.recipient_phone || ''} · ${address}`;
+          return <Tooltip title={text}>{text}</Tooltip>;
+        },
+      }],
     },
     {
       title: '货物态',
@@ -1175,8 +1286,37 @@ export default memo(function ParcelsTab({
               optionFilterProp="label"
               placeholder="请选择物流商（可选）"
               options={logisticsSelectOptions}
+              onChange={() => inboundForm.setFieldsValue({ sender_address_id: undefined, recipient_address_id: undefined })}
             />
           </Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="sender_address_id" label="发货人（地址簿）">
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  loading={addressOptionsLoading}
+                  disabled={actorScope === 'platform' && !inboundProviderId}
+                  placeholder={actorScope === 'platform' && !inboundProviderId ? '请先选择物流商' : '请选择发货人'}
+                  options={toAddressSelectOptions(inboundAddressOptions)}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="recipient_address_id" label="收货人（地址簿）">
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  loading={addressOptionsLoading}
+                  disabled={actorScope === 'platform' && !inboundProviderId}
+                  placeholder={actorScope === 'platform' && !inboundProviderId ? '请先选择物流商' : '请选择收货人'}
+                  options={toAddressSelectOptions(inboundAddressOptions)}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
           <Form.Item label="图片 (可选)">
             <Upload
               listType="picture-card"
@@ -1274,6 +1414,7 @@ export default memo(function ParcelsTab({
                         optionFilterProp="label"
                         placeholder="请选择物流商（可选）"
                         options={logisticsSelectOptions}
+                        onChange={() => editForm.setFieldsValue({ sender_address_id: undefined, recipient_address_id: undefined })}
                       />
                     </Form.Item>
                   </>
@@ -1296,6 +1437,38 @@ export default memo(function ParcelsTab({
                 <Input.TextArea rows={4} maxLength={255} placeholder="可选，填写异常原因或备注信息" />
               </Form.Item>
             </div>
+          </div>
+
+          <div style={{ marginBottom: 12, padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5' }}>
+            <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#141414' }}>收发货人信息</div>
+            <Row gutter={8}>
+              <Col span={12}>
+                <Form.Item name="sender_address_id" label="发货人（地址簿）" style={{ marginBottom: 0 }}>
+                  <Select
+                    allowClear
+                    showSearch
+                    optionFilterProp="label"
+                    loading={addressOptionsLoading}
+                    disabled={actorScope === 'platform' && !editProviderId}
+                    placeholder={actorScope === 'platform' && !editProviderId ? '请先选择物流商' : '请选择发货人'}
+                    options={toAddressSelectOptions(editAddressOptions)}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="recipient_address_id" label="收货人（地址簿）" style={{ marginBottom: 0 }}>
+                  <Select
+                    allowClear
+                    showSearch
+                    optionFilterProp="label"
+                    loading={addressOptionsLoading}
+                    disabled={actorScope === 'platform' && !editProviderId}
+                    placeholder={actorScope === 'platform' && !editProviderId ? '请先选择物流商' : '请选择收货人'}
+                    options={toAddressSelectOptions(editAddressOptions)}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
           </div>
 
           <div style={{ marginBottom: 12, padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5' }}>
