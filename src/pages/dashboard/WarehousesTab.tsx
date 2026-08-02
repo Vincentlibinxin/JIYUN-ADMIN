@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Button, Card, Checkbox, Form, Input, Modal, Pagination, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, message } from 'antd';
+import { Button, Card, Checkbox, DatePicker, Form, Input, Modal, Pagination, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, message } from 'antd';
 import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
@@ -47,6 +47,8 @@ export default function WarehousesTab({ actorScope, canCreate, canUpdate, canDel
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [localColumnFilters, setLocalColumnFilters] = useState<Record<string, string>>({});
+  const [dateFilters, setDateFilters] = useState<Record<string, [string, string] | null>>({});
+  const [dateResetKey, setDateResetKey] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<WarehouseItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -78,10 +80,12 @@ export default function WarehousesTab({ actorScope, canCreate, canUpdate, canDel
     nextSortKey: SortKey = sortKey,
     nextSortDirection = sortDirection,
     nextColumnFilters = columnFilters,
+    nextDateFilters = dateFilters,
   ) => {
     setLoading(true);
     try {
       const keyword = query.trim();
+      const cleanDateFilters = Object.fromEntries(Object.entries(nextDateFilters).filter((entry): entry is [string, [string, string]] => Boolean(entry[1])));
       const path = keyword
         ? `/admin/warehouses/search?q=${encodeURIComponent(keyword)}`
         : `/admin/warehouses?${new URLSearchParams({
@@ -90,6 +94,7 @@ export default function WarehousesTab({ actorScope, canCreate, canUpdate, canDel
           sortKey: nextSortKey,
           sortOrder: nextSortDirection,
           ...(Object.keys(nextColumnFilters).length ? { columnFilters: JSON.stringify(nextColumnFilters) } : {}),
+          ...(Object.keys(cleanDateFilters).length ? { dateFilters: JSON.stringify(cleanDateFilters) } : {}),
         })}`;
       const response = await adminFetch(path);
       if (response.status === 401) return;
@@ -231,15 +236,33 @@ export default function WarehousesTab({ actorScope, canCreate, canUpdate, canDel
     />
   );
 
+  const renderDateRangeInput = (key: string) => (
+    <DatePicker.RangePicker
+      size="small"
+      onChange={(_, dateStrings) => {
+        const next = { ...dateFilters, [key]: dateStrings[0] && dateStrings[1] ? [dateStrings[0], dateStrings[1]] as [string, string] : null };
+        setDateFilters(next);
+        setPage(1);
+        void fetchItems(1, pageSize, searchQuery, sortKey, sortDirection, columnFilters, next);
+      }}
+      onClick={(event) => event.stopPropagation()}
+      style={{ width: '100%' }}
+      key={`date-picker-${key}-${dateResetKey}`}
+      allowClear
+    />
+  );
+
   const resetFilters = () => {
     setColumnFilters({});
     setLocalColumnFilters({});
+    setDateFilters({});
+    setDateResetKey((value) => value + 1);
     setSearchQuery('');
     setSortKey('created_at');
     setSortDirection('desc');
     setSelectedRowKeys([]);
     setPage(1);
-    void fetchItems(1, pageSize, '', 'created_at', 'desc', {});
+    void fetchItems(1, pageSize, '', 'created_at', 'desc', {}, {});
   };
 
   const visibleKeys = items.map((item) => item.id);
@@ -276,7 +299,7 @@ export default function WarehousesTab({ actorScope, canCreate, canUpdate, canDel
     },
     ...(actorScope === 'platform' ? [{
       title: '物流商', key: 'logistics_provider_id', width: 160, sorter: true, sortOrder: sortOrderFor('logistics_provider_id'),
-      children: [{ title: '', key: 'logistics_provider_id_child', width: 160, ellipsis: { showTitle: false }, render: (_: unknown, record: WarehouseItem) => <Tooltip title={record.logistics_provider_name}><Tag color="blue">{record.logistics_provider_name}</Tag></Tooltip> }],
+      children: [{ title: renderSearchInput('logistics_provider_id', '物流商ID'), key: 'logistics_provider_id_child', width: 160, ellipsis: { showTitle: false }, render: (_: unknown, record: WarehouseItem) => <Tooltip title={record.logistics_provider_name}><Tag color="blue">{record.logistics_provider_name}</Tag></Tooltip> }],
     }] as ColumnsType<WarehouseItem> : []),
     {
       title: '是否开启', key: 'is_enabled', width: 110, sorter: true, sortOrder: sortOrderFor('is_enabled'),
@@ -284,7 +307,7 @@ export default function WarehousesTab({ actorScope, canCreate, canUpdate, canDel
     },
     {
       title: '创建时间', key: 'created_at', width: 180, sorter: true, sortOrder: sortOrderFor('created_at'),
-      children: [{ title: '', key: 'created_at_child', width: 180, render: (_, record) => new Date(record.created_at).toLocaleString() }],
+      children: [{ title: renderDateRangeInput('created_at'), key: 'created_at_child', width: 180, render: (_, record) => new Date(record.created_at).toLocaleString() }],
     },
     { title: '', key: 'spacer', children: [{ title: '', key: 'spacer_child', render: () => null }] },
     {

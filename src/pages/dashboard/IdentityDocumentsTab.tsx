@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Button, Card, Checkbox, Form, Input, Modal, Pagination, Popconfirm, Select, Space, Table, Tag, Tooltip, message } from 'antd';
+import { Button, Card, Checkbox, DatePicker, Form, Input, Modal, Pagination, Popconfirm, Select, Space, Table, Tag, Tooltip, message } from 'antd';
 import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
@@ -97,6 +97,8 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [localColumnFilters, setLocalColumnFilters] = useState<Record<string, string>>({});
+  const [dateFilters, setDateFilters] = useState<Record<string, [string, string] | null>>({});
+  const [dateResetKey, setDateResetKey] = useState(0);
 
   const [providerOptions, setProviderOptions] = useState<ProviderOption[]>([]);
   const [memberOptions, setMemberOptions] = useState<MemberOption[]>([]);
@@ -119,6 +121,7 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
     nextSortKey: SortKey = sortKey,
     nextSortOrder = sortOrder,
     nextColumnFilters = columnFilters,
+    nextDateFilters = dateFilters,
   ) => {
     setLoading(true);
     try {
@@ -129,6 +132,8 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
         sortOrder: nextSortOrder,
       });
       if (Object.keys(nextColumnFilters).length) params.set('columnFilters', JSON.stringify(nextColumnFilters));
+      const cleanDateFilters = Object.fromEntries(Object.entries(nextDateFilters).filter((entry): entry is [string, [string, string]] => Boolean(entry[1])));
+      if (Object.keys(cleanDateFilters).length) params.set('dateFilters', JSON.stringify(cleanDateFilters));
       const response = await adminFetch(`/admin/identity-documents?${params.toString()}`);
       if (!response.ok) throw new Error(await getResponseError(response, '加载证件失败'));
       const result = await response.json();
@@ -329,15 +334,33 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
     <Select size="small" value={columnFilters[key] || ''} onChange={(value) => handleColumnSearch(key, value)} onClick={(event) => event.stopPropagation()} style={{ width: '100%' }} options={[{ label: '全部', value: '' }, ...options]} />
   );
 
+  const renderDateRangeInput = (key: string) => (
+    <DatePicker.RangePicker
+      size="small"
+      onChange={(_, dateStrings) => {
+        const next = { ...dateFilters, [key]: dateStrings[0] && dateStrings[1] ? [dateStrings[0], dateStrings[1]] as [string, string] : null };
+        setDateFilters(next);
+        setPage(1);
+        void fetchDocuments(1, pageSize, sortKey, sortOrder, columnFilters, next);
+      }}
+      onClick={(event) => event.stopPropagation()}
+      style={{ width: '100%' }}
+      key={`date-picker-${key}-${dateResetKey}`}
+      allowClear
+    />
+  );
+
   const resetFilters = () => {
     setColumnFilters({});
     setLocalColumnFilters({});
+    setDateFilters({});
+    setDateResetKey((value) => value + 1);
     setSearchQuery('');
     setSortKey('created_at');
     setSortOrder('desc');
     setSelectedRowKeys([]);
     setPage(1);
-    void fetchDocuments(1, pageSize, 'created_at', 'desc', {});
+    void fetchDocuments(1, pageSize, 'created_at', 'desc', {}, {});
   };
 
   const visibleKeys = documents.map((document) => document.id);
@@ -361,7 +384,7 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
     },
     {
       title: '会员', key: 'user_id', width: 170, sorter: true, sortOrder: sortOrderFor('user_id'),
-      children: [{ title: '', key: 'user_id_child', width: 170, ellipsis: { showTitle: false }, render: (_, record) => <Tooltip title={record.member_phone || undefined}>{formatMember(record)}</Tooltip> }],
+      children: [{ title: renderSearchInput('user_id', '会员ID'), key: 'user_id_child', width: 170, ellipsis: { showTitle: false }, render: (_, record) => <Tooltip title={record.member_phone || undefined}>{formatMember(record)}</Tooltip> }],
     },
     {
       title: '持证人姓名', key: 'holder_name', width: 140, sorter: true, sortOrder: sortOrderFor('holder_name'),
@@ -369,7 +392,7 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
     },
     {
       title: '物流商', key: 'logistics_provider_id', width: 150, sorter: true, sortOrder: sortOrderFor('logistics_provider_id'),
-      children: [{ title: '', key: 'logistics_provider_id_child', width: 150, ellipsis: { showTitle: false }, render: (_, record) => record.logistics_provider_name || '—' }],
+      children: [{ title: renderSearchInput('logistics_provider_id', '物流商ID'), key: 'logistics_provider_id_child', width: 150, ellipsis: { showTitle: false }, render: (_, record) => record.logistics_provider_name || '—' }],
     },
     {
       title: '备注', key: 'remarks', width: 200,
@@ -377,7 +400,7 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
     },
     {
       title: '创建时间', key: 'created_at', width: 180, sorter: true, sortOrder: sortOrderFor('created_at'),
-      children: [{ title: '', key: 'created_at_child', width: 180, render: (_, record) => formatDate(record.created_at) }],
+      children: [{ title: renderDateRangeInput('created_at'), key: 'created_at_child', width: 180, render: (_, record) => formatDate(record.created_at) }],
     },
     { title: '', key: 'spacer', children: [{ title: '', key: 'spacer_child', render: () => null }] },
     {

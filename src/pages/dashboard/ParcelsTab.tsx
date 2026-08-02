@@ -625,6 +625,21 @@ export default memo(function ParcelsTab({
     />
   ), [columnFilters, handleColumnSearch]);
 
+  const renderImageFilter = useCallback(() => (
+    <Select
+      size="small"
+      value={columnFilters.images || ''}
+      onChange={(value) => handleColumnSearch('images', value)}
+      onClick={(event) => event.stopPropagation()}
+      style={{ width: '100%' }}
+      options={[
+        { label: '全部', value: '' },
+        { label: '有图', value: 'with' },
+        { label: '无图', value: 'without' },
+      ]}
+    />
+  ), [columnFilters.images, handleColumnSearch]);
+
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const [batchLogisticsModalOpen, setBatchLogisticsModalOpen] = useState(false);
   const [batchLogisticsProviderId, setBatchLogisticsProviderId] = useState<number | undefined>(undefined);
@@ -828,7 +843,7 @@ export default memo(function ParcelsTab({
       width: 60,
       children: [
         {
-          title: <span style={{ fontSize: 12, color: '#999' }}>图片</span>,
+          title: renderImageFilter(),
           key: 'images_child',
           width: 60,
           align: 'center' as const,
@@ -856,7 +871,7 @@ export default memo(function ParcelsTab({
       key: 'sender',
       width: 190,
       children: [{
-        title: <span style={{ fontSize: 12, color: '#999' }}>地址簿</span>,
+        title: renderSearchInput('sender', '发货人'),
         key: 'sender_child',
         width: 190,
         ellipsis: true,
@@ -873,7 +888,7 @@ export default memo(function ParcelsTab({
       key: 'recipient',
       width: 190,
       children: [{
-        title: <span style={{ fontSize: 12, color: '#999' }}>地址簿</span>,
+        title: renderSearchInput('recipient', '收货人'),
         key: 'recipient_child',
         width: 190,
         ellipsis: true,
@@ -1030,6 +1045,7 @@ export default memo(function ParcelsTab({
     openViewModal,
     renderDateRangeInput,
     renderDeletedFilter,
+    renderImageFilter,
     renderSearchInput,
     resetFilters,
     selectedRowKeySet,

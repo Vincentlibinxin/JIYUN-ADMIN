@@ -529,7 +529,7 @@ export default memo(function StorageBinsTab({
       key: 'size_length',
       width: 80,
       children: [
-        { title: '', dataIndex: 'size_length', key: 'size_length_child', width: 80, render: (v) => formatNumber(v) },
+        { title: renderSearchInput('size_length', '长'), dataIndex: 'size_length', key: 'size_length_child', width: 80, render: (v) => formatNumber(v) },
       ],
     },
     {
@@ -537,7 +537,7 @@ export default memo(function StorageBinsTab({
       key: 'size_width',
       width: 80,
       children: [
-        { title: '', dataIndex: 'size_width', key: 'size_width_child', width: 80, render: (v) => formatNumber(v) },
+        { title: renderSearchInput('size_width', '宽'), dataIndex: 'size_width', key: 'size_width_child', width: 80, render: (v) => formatNumber(v) },
       ],
     },
     {
@@ -545,7 +545,7 @@ export default memo(function StorageBinsTab({
       key: 'size_height',
       width: 80,
       children: [
-        { title: '', dataIndex: 'size_height', key: 'size_height_child', width: 80, render: (v) => formatNumber(v) },
+        { title: renderSearchInput('size_height', '高'), dataIndex: 'size_height', key: 'size_height_child', width: 80, render: (v) => formatNumber(v) },
       ],
     },
     {
@@ -553,7 +553,7 @@ export default memo(function StorageBinsTab({
       key: 'volume',
       width: 90,
       children: [
-        { title: '', dataIndex: 'volume', key: 'volume_child', width: 90, render: (v) => formatNumber(v) },
+        { title: renderSearchInput('volume', '容积'), dataIndex: 'volume', key: 'volume_child', width: 90, render: (v) => formatNumber(v) },
       ],
     },
     {
@@ -561,7 +561,7 @@ export default memo(function StorageBinsTab({
       key: 'capacity',
       width: 90,
       children: [
-        { title: '', dataIndex: 'capacity', key: 'capacity_child', width: 90, render: (v) => formatNumber(v) },
+        { title: renderSearchInput('capacity', '载重'), dataIndex: 'capacity', key: 'capacity_child', width: 90, render: (v) => formatNumber(v) },
       ],
     },
     {

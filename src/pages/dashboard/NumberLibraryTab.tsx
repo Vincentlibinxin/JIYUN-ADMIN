@@ -95,6 +95,8 @@ function NumbersModal({ open, categoryId, categoryName, canManage, canDelete, on
   const [total, setTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState('');
   const [numberFilter, setNumberFilter] = useState('');
+  const [dateFilters, setDateFilters] = useState<Record<string, [string, string] | null>>({});
+  const [dateResetKey, setDateResetKey] = useState(0);
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const [dirty, setDirty] = useState(false);
 
@@ -107,6 +109,7 @@ function NumbersModal({ open, categoryId, categoryName, canManage, canDelete, on
     size: number = pageSize,
     status: string = statusFilter,
     number: string = numberFilter,
+    nextDateFilters = dateFilters,
   ) => {
     if (!categoryId) return;
     try {
@@ -116,6 +119,8 @@ function NumbersModal({ open, categoryId, categoryName, canManage, canDelete, on
       if (status) cf.status = status;
       if (number.trim()) cf.number = number.trim();
       if (Object.keys(cf).length > 0) params.set('columnFilters', JSON.stringify(cf));
+      const cleanDateFilters = Object.fromEntries(Object.entries(nextDateFilters).filter((entry): entry is [string, [string, string]] => Boolean(entry[1])));
+      if (Object.keys(cleanDateFilters).length > 0) params.set('dateFilters', JSON.stringify(cleanDateFilters));
       const res = await adminFetch(`/admin/number-categories/${categoryId}/numbers?${params.toString()}`);
       if (!res.ok) throw new Error('fetch numbers failed');
       const data = await res.json();
@@ -134,9 +139,11 @@ function NumbersModal({ open, categoryId, categoryName, canManage, canDelete, on
     if (open && categoryId) {
       setStatusFilter('');
       setNumberFilter('');
+      setDateFilters({});
+      setDateResetKey((value) => value + 1);
       setSelectedRowKeys([]);
       setDirty(false);
-      fetchNumbers(1, pageSize, '', '');
+      fetchNumbers(1, pageSize, '', '', {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, categoryId]);
@@ -320,6 +327,26 @@ function NumbersModal({ open, categoryId, categoryName, canManage, canDelete, on
             value={numberFilter}
             onChange={(e) => { const v = e.target.value; setNumberFilter(v); if (!v) fetchNumbers(1, pageSize, statusFilter, ''); }}
             onSearch={(v) => fetchNumbers(1, pageSize, statusFilter, v)}
+          />
+          <DatePicker.RangePicker
+            size="small"
+            placeholder={['使用日期起', '使用日期止']}
+            key={`used-at-${dateResetKey}`}
+            onChange={(_, values) => {
+              const next = { ...dateFilters, used_at: values[0] && values[1] ? [values[0], values[1]] as [string, string] : null };
+              setDateFilters(next);
+              fetchNumbers(1, pageSize, statusFilter, numberFilter, next);
+            }}
+          />
+          <DatePicker.RangePicker
+            size="small"
+            placeholder={['创建日期起', '创建日期止']}
+            key={`created-at-${dateResetKey}`}
+            onChange={(_, values) => {
+              const next = { ...dateFilters, created_at: values[0] && values[1] ? [values[0], values[1]] as [string, string] : null };
+              setDateFilters(next);
+              fetchNumbers(1, pageSize, statusFilter, numberFilter, next);
+            }}
           />
         </div>
 
@@ -696,7 +723,7 @@ export default function NumberLibraryTab({
       width: 110,
       children: [
         {
-          title: '',
+          title: renderSearchInput('unused_count', '库存数量'),
           dataIndex: 'unused_count',
           key: 'unused_count_child',
           width: 110,
@@ -710,7 +737,7 @@ export default function NumberLibraryTab({
       width: 130,
       children: [
         {
-          title: '',
+          title: renderSearchInput('estimated_depletion_days', '用尽天数'),
           dataIndex: 'estimated_depletion_days',
           key: 'estimated_depletion_days_child',
           width: 130,

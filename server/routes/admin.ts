@@ -3648,6 +3648,7 @@ router.get('/purchase-orders', adminAuth, requirePermission(PERMISSIONS.PURCHASE
     String(req.query.sortKey || '').trim() || undefined,
     String(req.query.sortOrder || '').trim() || undefined,
     columnFilters,
+    parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters),
     getActorProviderFilter(req)
   );
   res.json({ data: result.data, pagination: { page, limit, total: result.total, pages: result.pages } });
@@ -3883,7 +3884,8 @@ router.get('/mall-products', adminAuth, requirePermission(PERMISSIONS.SKU_VIEW),
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 20));
   const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
-  const result = await getMallProductsPaged(page, limit, String(req.query.sortKey || '').trim() || undefined, String(req.query.sortOrder || '').trim() || undefined, columnFilters, getActorProviderFilter(req));
+  const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
+  const result = await getMallProductsPaged(page, limit, String(req.query.sortKey || '').trim() || undefined, String(req.query.sortOrder || '').trim() || undefined, columnFilters, dateFilters, getActorProviderFilter(req));
   res.json({ data: result.data, pagination: { page, limit, total: result.total, pages: result.pages } });
 });
 
@@ -4949,7 +4951,8 @@ router.get('/warehouses', adminAuth, requirePermission(PERMISSIONS.WAREHOUSE_VIE
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 20));
   const columnFilters = parseJsonQuery<Record<string, string>>(req.query.columnFilters);
-  const result = await getWarehousesPaged(page, limit, String(req.query.sortKey || '') || undefined, String(req.query.sortOrder || '') || undefined, columnFilters, getActorProviderFilter(req));
+  const dateFilters = parseJsonQuery<Record<string, [string, string]>>(req.query.dateFilters);
+  const result = await getWarehousesPaged(page, limit, String(req.query.sortKey || '') || undefined, String(req.query.sortOrder || '') || undefined, columnFilters, dateFilters, getActorProviderFilter(req));
   res.json({ data: result.data, pagination: { page, limit, total: result.total, pages: result.pages } });
 });
 

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Button, Card, Checkbox, Col, Form, Image, Input, InputNumber, Modal, Pagination, Popconfirm, Row, Select, Space, Switch, Table, Tag, Tooltip, Typography, message } from 'antd';
+import { Button, Card, Checkbox, Col, DatePicker, Form, Image, Input, InputNumber, Modal, Pagination, Popconfirm, Row, Select, Space, Switch, Table, Tag, Tooltip, Typography, message } from 'antd';
 import { AppstoreAddOutlined, DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
@@ -110,6 +110,8 @@ export default function SkuManagementTab({ actorScope, canCreate, canUpdate, can
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [localColumnFilters, setLocalColumnFilters] = useState<Record<string, string>>({});
+  const [dateFilters, setDateFilters] = useState<Record<string, [string, string] | null>>({});
+  const [dateResetKey, setDateResetKey] = useState(0);
   const [providerOptions, setProviderOptions] = useState<ProviderOption[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>('create');
@@ -129,11 +131,14 @@ export default function SkuManagementTab({ actorScope, canCreate, canUpdate, can
     nextSortKey: SortKey = sortKey,
     nextSortOrder = sortOrder,
     nextColumnFilters = columnFilters,
+    nextDateFilters = dateFilters,
   ) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(nextPage), limit: String(nextPageSize), sortKey: nextSortKey, sortOrder: nextSortOrder });
       if (Object.keys(nextColumnFilters).length) params.set('columnFilters', JSON.stringify(nextColumnFilters));
+      const cleanDateFilters = Object.fromEntries(Object.entries(nextDateFilters).filter((entry): entry is [string, [string, string]] => Boolean(entry[1])));
+      if (Object.keys(cleanDateFilters).length) params.set('dateFilters', JSON.stringify(cleanDateFilters));
       const response = await adminFetch(`/admin/mall-products?${params.toString()}`);
       if (!response.ok) throw new Error(await responseError(response, '加载商品失败'));
       const result = await response.json();
@@ -349,15 +354,33 @@ export default function SkuManagementTab({ actorScope, canCreate, canUpdate, can
     <Select size="small" value={columnFilters[key] || ''} onChange={(value) => handleColumnSearch(key, value)} onClick={(event) => event.stopPropagation()} style={{ width: '100%' }} options={[{ label: '全部', value: '' }, ...options]} />
   );
 
+  const renderDateRangeInput = (key: string) => (
+    <DatePicker.RangePicker
+      size="small"
+      onChange={(_, dateStrings) => {
+        const next = { ...dateFilters, [key]: dateStrings[0] && dateStrings[1] ? [dateStrings[0], dateStrings[1]] as [string, string] : null };
+        setDateFilters(next);
+        setPage(1);
+        void fetchProducts(1, pageSize, sortKey, sortOrder, columnFilters, next);
+      }}
+      onClick={(event) => event.stopPropagation()}
+      style={{ width: '100%' }}
+      key={`date-picker-${key}-${dateResetKey}`}
+      allowClear
+    />
+  );
+
   const resetFilters = () => {
     setColumnFilters({});
     setLocalColumnFilters({});
+    setDateFilters({});
+    setDateResetKey((value) => value + 1);
     setSearchQuery('');
     setSortKey('created_at');
     setSortOrder('desc');
     setSelectedRowKeys([]);
     setPage(1);
-    void fetchProducts(1, pageSize, 'created_at', 'desc', {});
+    void fetchProducts(1, pageSize, 'created_at', 'desc', {}, {});
   };
 
   const visibleKeys = products.map((product) => product.id);
@@ -383,16 +406,16 @@ export default function SkuManagementTab({ actorScope, canCreate, canUpdate, can
       title: '类目', key: 'category_name', width: 140, sorter: true, sortOrder: sortOrderFor('category_name'),
       children: [{ title: renderSearchInput('category_name', '类目'), key: 'category_name_child', width: 140, ellipsis: { showTitle: false }, render: (_, record) => record.category_name || '—' }],
     },
-    { title: 'SKU数', key: 'sku_count', width: 82, children: [{ title: '', key: 'sku_count_child', width: 82, align: 'right', render: (_, record) => record.sku_count }] },
-    { title: '总库存', key: 'total_stock', width: 100, children: [{ title: '', key: 'total_stock_child', width: 100, align: 'right', render: (_, record) => record.total_stock }] },
+    { title: 'SKU数', key: 'sku_count', width: 100, children: [{ title: renderSearchInput('sku_count', 'SKU数'), key: 'sku_count_child', width: 100, align: 'right', render: (_, record) => record.sku_count }] },
+    { title: '总库存', key: 'total_stock', width: 110, children: [{ title: renderSearchInput('total_stock', '总库存'), key: 'total_stock_child', width: 110, align: 'right', render: (_, record) => record.total_stock }] },
     {
       title: '价格区间', key: 'price_range', width: 150, align: 'right',
-      children: [{ title: '', key: 'price_range_child', width: 150, align: 'right', render: (_, record) => record.min_price === null ? '—' : record.min_price === record.max_price ? `¥${record.min_price.toFixed(2)}` : `¥${record.min_price.toFixed(2)} - ${record.max_price?.toFixed(2)}` }],
+      children: [{ title: renderSearchInput('price_range', '价格'), key: 'price_range_child', width: 150, align: 'right', render: (_, record) => record.min_price === null ? '—' : record.min_price === record.max_price ? `¥${record.min_price.toFixed(2)}` : `¥${record.min_price.toFixed(2)} - ${record.max_price?.toFixed(2)}` }],
     },
     { title: '单位', key: 'unit_name', width: 90, sorter: true, sortOrder: sortOrderFor('unit_name'), children: [{ title: renderSearchInput('unit_name', '单位'), key: 'unit_name_child', width: 90, render: (_, record) => record.unit_name }] },
     { title: '状态', key: 'is_enabled', width: 100, sorter: true, sortOrder: sortOrderFor('is_enabled'), children: [{ title: renderSelectFilter('is_enabled', [{ label: '启用', value: '1' }, { label: '停用', value: '0' }]), key: 'is_enabled_child', width: 100, render: (_, record) => <Tag color={record.is_enabled ? 'success' : 'default'}>{record.is_enabled ? '启用' : '停用'}</Tag> }] },
-    { title: '物流商', key: 'logistics_provider_id', width: 150, sorter: true, sortOrder: sortOrderFor('logistics_provider_id'), children: [{ title: '', key: 'logistics_provider_id_child', width: 150, ellipsis: { showTitle: false }, render: (_, record) => record.logistics_provider_name || '—' }] },
-    { title: '更新时间', key: 'updated_at', width: 180, sorter: true, sortOrder: sortOrderFor('updated_at'), children: [{ title: '', key: 'updated_at_child', width: 180, render: (_, record) => formatDate(record.updated_at) }] },
+    { title: '物流商', key: 'logistics_provider_id', width: 150, sorter: true, sortOrder: sortOrderFor('logistics_provider_id'), children: [{ title: renderSearchInput('logistics_provider_id', '物流商ID'), key: 'logistics_provider_id_child', width: 150, ellipsis: { showTitle: false }, render: (_, record) => record.logistics_provider_name || '—' }] },
+    { title: '更新时间', key: 'updated_at', width: 180, sorter: true, sortOrder: sortOrderFor('updated_at'), children: [{ title: renderDateRangeInput('updated_at'), key: 'updated_at_child', width: 180, render: (_, record) => formatDate(record.updated_at) }] },
     { title: '', key: 'spacer', children: [{ title: '', key: 'spacer_child', render: () => null }] },
     {
       title: '操作', key: 'actions', width: 120, fixed: 'right', align: 'center',

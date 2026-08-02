@@ -564,7 +564,7 @@ export default memo(function AddressBookTab({
       width: 160,
       children: [
         {
-          title: '',
+          title: renderSearchInput('member', '会员'),
           key: 'member_child',
           width: 160,
           ellipsis: true,

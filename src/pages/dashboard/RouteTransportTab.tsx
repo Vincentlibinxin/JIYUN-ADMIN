@@ -816,7 +816,7 @@ function RoutesSubTab(props: SubTabProps) {
     { key: 'is_enabled', title: '状态', width: 100, filter: 'enabled', sortable: true, render: (v: number) => <Tag color={v === 1 ? 'success' : 'default'}>{v === 1 ? '启用' : '停用'}</Tag> },
     { key: 'description', title: '备注', width: 160, searchable: true },
     {
-      key: 'created_at', title: '创建/更新时间', width: 240,
+      key: 'created_at', title: '创建/更新时间', width: 240, filter: 'date',
       render: (_v, record) => renderLabeledFields([
         { label: '创建时间', value: renderDateValue(record.created_at) },
         { label: '更新时间', value: renderDateValue(record.updated_at) },
@@ -955,7 +955,7 @@ function ContainersSubTab(props: SubTabProps) {
     { key: 'is_enabled', title: '状态', width: 100, filter: 'enabled', sortable: true, render: (v: number) => <Tag color={v === 1 ? 'success' : 'default'}>{v === 1 ? '启用' : '停用'}</Tag> },
     { key: 'description', title: '备注', width: 200, searchable: true },
     {
-      key: 'created_at', title: '创建/更新时间', width: 240,
+      key: 'created_at', title: '创建/更新时间', width: 240, filter: 'date',
       render: (_v, record) => renderLabeledFields([
         { label: '创建时间', value: renderDateValue(record.created_at) },
         { label: '更新时间', value: renderDateValue(record.updated_at) },
@@ -1375,7 +1375,7 @@ function BillsSubTab(props: SubTabProps) {
       },
     },
     {
-      key: 'package_count', title: '货物信息', width: 320,
+      key: 'package_count', title: '货物信息', width: 320, searchable: true,
       render: (_v, record) => renderLabeledFields([
         { label: '件数', value: record.package_count ?? '—' },
         { label: '重量', value: record.weight ?? '—' },
@@ -1385,7 +1385,7 @@ function BillsSubTab(props: SubTabProps) {
       ]),
     },
     {
-      key: 'created_at', title: '创建/更新时间', width: 240,
+      key: 'created_at', title: '创建/更新时间', width: 240, filter: 'date',
       render: (_v, record) => renderLabeledFields([
         { label: '创建时间', value: renderDateValue(record.created_at) },
         { label: '更新时间', value: renderDateValue(record.updated_at) },

@@ -2200,6 +2200,12 @@ export const getParcelsPaged = async (
     itemsFilter = parcelColFilters['items'];
     delete parcelColFilters['items'];
   }
+  const senderFilter = parcelColFilters?.['sender'];
+  if (senderFilter) delete parcelColFilters!['sender'];
+  const recipientFilter = parcelColFilters?.['recipient'];
+  if (recipientFilter) delete parcelColFilters!['recipient'];
+  const imagesFilter = parcelColFilters?.['images'];
+  if (imagesFilter) delete parcelColFilters!['images'];
   let logisticsFilter: string | undefined;
   if (parcelColFilters && parcelColFilters['logistics_provider']) {
     logisticsFilter = parcelColFilters['logistics_provider'];
@@ -2231,6 +2237,16 @@ export const getParcelsPaged = async (
     );
     allParams.push(`%${itemsFilter.trim()}%`);
   }
+  if (senderFilter) {
+    allClauses.push(`CONCAT_WS(' ', sender.name, sender.phone, sender.province, sender.city, sender.district, sender.street, sender.address) LIKE ?`);
+    allParams.push(`%${senderFilter.trim()}%`);
+  }
+  if (recipientFilter) {
+    allClauses.push(`CONCAT_WS(' ', recipient.name, recipient.phone, recipient.province, recipient.city, recipient.district, recipient.street, recipient.address) LIKE ?`);
+    allParams.push(`%${recipientFilter.trim()}%`);
+  }
+  if (imagesFilter === 'with') allClauses.push(`p.images IS NOT NULL AND TRIM(p.images) <> ''`);
+  if (imagesFilter === 'without') allClauses.push(`(p.images IS NULL OR TRIM(p.images) = '')`);
   if (logisticsFilter) {
     allClauses.push(`CAST(lp.name AS CHAR) LIKE ?`);
     allParams.push(`%${logisticsFilter.trim()}%`);
@@ -2285,6 +2301,8 @@ export const getParcelsPaged = async (
      FROM parcels p
      LEFT JOIN users u ON p.user_id = u.id
      LEFT JOIN logistics_providers lp ON p.logistics_provider_id = lp.id
+     LEFT JOIN address_book sender ON p.sender_address_id = sender.id
+     LEFT JOIN address_book recipient ON p.recipient_address_id = recipient.id
      ${whereSql}`,
     allParams
   );
@@ -2361,6 +2379,14 @@ export const getParcelsForExport = async (
     itemsFilter = parcelColFilters['items'];
     delete parcelColFilters['items'];
   }
+  const senderFilter = parcelColFilters?.['sender'];
+  if (senderFilter) delete parcelColFilters!['sender'];
+  const recipientFilter = parcelColFilters?.['recipient'];
+  if (recipientFilter) delete parcelColFilters!['recipient'];
+  const imagesFilter = parcelColFilters?.['images'];
+  if (imagesFilter) delete parcelColFilters!['images'];
+  const logisticsFilter = parcelColFilters?.['logistics_provider'];
+  if (logisticsFilter) delete parcelColFilters!['logistics_provider'];
   // 状态快筛：货物态/信息态多选（IN 匹配），来自《包裹状态快筛栏》
   const statusInFilter = extractStatusInFilter(parcelColFilters, 'status__in');
   const subStatusInFilter = extractStatusInFilter(parcelColFilters, 'sub_status__in');
@@ -2436,6 +2462,20 @@ export const getParcelsForExport = async (
       `EXISTS (SELECT 1 FROM parcel_items pi WHERE pi.parcel_id = p.id AND pi.name LIKE ?)`
     );
     allParams.push(`%${itemsFilter.trim()}%`);
+  }
+  if (senderFilter) {
+    allClauses.push(`CONCAT_WS(' ', sender.name, sender.phone, sender.province, sender.city, sender.district, sender.street, sender.address) LIKE ?`);
+    allParams.push(`%${senderFilter.trim()}%`);
+  }
+  if (recipientFilter) {
+    allClauses.push(`CONCAT_WS(' ', recipient.name, recipient.phone, recipient.province, recipient.city, recipient.district, recipient.street, recipient.address) LIKE ?`);
+    allParams.push(`%${recipientFilter.trim()}%`);
+  }
+  if (imagesFilter === 'with') allClauses.push(`p.images IS NOT NULL AND TRIM(p.images) <> ''`);
+  if (imagesFilter === 'without') allClauses.push(`(p.images IS NULL OR TRIM(p.images) = '')`);
+  if (logisticsFilter) {
+    allClauses.push(`CAST(lp.name AS CHAR) LIKE ?`);
+    allParams.push(`%${logisticsFilter.trim()}%`);
   }
   if (statusInFilter.length) {
     allClauses.push(`p.status IN (${statusInFilter.map(() => '?').join(',')})`);
@@ -3166,7 +3206,7 @@ export const getOrderOwnerProviderId = async (orderId: number): Promise<number |
   return row ? (row.logistics_provider_id ?? null) : undefined;
 };
 
-const LOGISTICS_SORT_COLUMNS = new Set(['id', 'name', 'code', 'contact_name', 'contact_phone', 'email', 'website', 'status', 'created_at']);
+const LOGISTICS_SORT_COLUMNS = new Set(['id', 'name', 'code', 'contact_name', 'contact_phone', 'email', 'website', 'status', 'remark', 'created_at']);
 
 export const getLogisticsProvidersPaged = async (
   page: number,
@@ -3400,7 +3440,7 @@ export const batchDeleteLogisticsProviders = async (ids: number[]): Promise<numb
 // ============ 库位管理 ============
 const STORAGE_BIN_SORT_COLUMNS = new Set([
   'id', 'storage_bin', 'area_zone', 'area_aisle', 'area_section', 'area_tier', 'area_slot',
-  'size_length', 'size_width', 'size_height', 'volume', 'capacity', 'warehouse',
+  'size_length', 'size_width', 'size_height', 'volume', 'capacity', 'warehouse', 'description',
   'is_enabled', 'logistics_provider_id', 'created_at', 'updated_at',
 ]);
 
@@ -3605,7 +3645,7 @@ export const batchDeleteStorageBins = async (ids: number[]): Promise<number> => 
 // ============ 单号库 - 号段库 + 单号（按物流商归属） ============
 
 const NUMBER_CATEGORY_SORT_COLUMNS = new Set([
-  'id', 'number_category', 'is_enabled', 'logistics_provider_id', 'created_at', 'updated_at',
+  'id', 'number_category', 'description', 'is_enabled', 'logistics_provider_id', 'created_at', 'updated_at',
 ]);
 
 // 近期使用窗口（天），用于预计用尽天数的日均消耗估算
@@ -3648,8 +3688,30 @@ export const getNumberCategoriesPaged = async (
   providerFilter?: number | null
 ) => {
   const orderBy = `c.${toSafeOrderBy(sortKey, sortOrder, NUMBER_CATEGORY_SORT_COLUMNS, 'created_at')}`;
-  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, NUMBER_CATEGORY_SORT_COLUMNS, 'c.');
+  const directFilters = columnFilters ? { ...columnFilters } : undefined;
+  const unusedCountFilter = directFilters?.unused_count;
+  const depletionDaysFilter = directFilters?.estimated_depletion_days;
+  if (unusedCountFilter) delete directFilters!.unused_count;
+  if (depletionDaysFilter) delete directFilters!.estimated_depletion_days;
+  const { clauses, params } = buildColumnFilters(directFilters, dateFilters, NUMBER_CATEGORY_SORT_COLUMNS, 'c.');
   const allClauses = ['1=1', ...clauses];
+  if (unusedCountFilter) {
+    allClauses.push(`CAST((SELECT COUNT(*) FROM tracking_numbers tn WHERE tn.category_id = c.id AND tn.status = 'unused') AS CHAR) LIKE ?`);
+    params.push(`%${unusedCountFilter.trim()}%`);
+  }
+  if (depletionDaysFilter) {
+    allClauses.push(`CAST((
+      CASE
+        WHEN (SELECT COUNT(*) FROM tracking_numbers tn WHERE tn.category_id = c.id AND tn.status = 'used' AND tn.used_at >= (NOW() - INTERVAL ${NUMBER_USAGE_WINDOW_DAYS} DAY)) > 0
+        THEN ROUND(
+          (SELECT COUNT(*) FROM tracking_numbers tn WHERE tn.category_id = c.id AND tn.status = 'unused') /
+          ((SELECT COUNT(*) FROM tracking_numbers tn WHERE tn.category_id = c.id AND tn.status = 'used' AND tn.used_at >= (NOW() - INTERVAL ${NUMBER_USAGE_WINDOW_DAYS} DAY)) / ${NUMBER_USAGE_WINDOW_DAYS})
+        )
+        ELSE NULL
+      END
+    ) AS CHAR) LIKE ?`);
+    params.push(`%${depletionDaysFilter.trim()}%`);
+  }
   if (providerFilter !== null && providerFilter !== undefined) {
     allClauses.push('c.logistics_provider_id = ?');
     params.push(providerFilter);
@@ -3908,8 +3970,15 @@ export const getAddressBookPaged = async (
   providerFilter?: number | null
 ) => {
   const orderBy = `ab.${toSafeOrderBy(sortKey, sortOrder, ADDRESS_BOOK_SORT_COLUMNS, 'created_at')}`;
-  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, ADDRESS_BOOK_SORT_COLUMNS, 'ab.');
+  const directFilters = columnFilters ? { ...columnFilters } : undefined;
+  const memberFilter = directFilters?.member;
+  if (memberFilter) delete directFilters!.member;
+  const { clauses, params } = buildColumnFilters(directFilters, dateFilters, ADDRESS_BOOK_SORT_COLUMNS, 'ab.');
   const allClauses = ['1=1', ...clauses];
+  if (memberFilter) {
+    allClauses.push(`CONCAT_WS(' ', u.username, u.real_name) LIKE ?`);
+    params.push(`%${memberFilter.trim()}%`);
+  }
   if (providerFilter !== null && providerFilter !== undefined) {
     allClauses.push('ab.logistics_provider_id = ?');
     params.push(providerFilter);
@@ -3934,7 +4003,10 @@ export const getAddressBookPaged = async (
   );
 
   const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT COUNT(*) as count FROM address_book ab ${whereSql}`,
+    `SELECT COUNT(*) as count
+     FROM address_book ab
+     LEFT JOIN users u ON ab.user_id = u.id
+     ${whereSql}`,
     params
   );
 
@@ -4254,11 +4326,44 @@ export const getPurchaseOrdersPaged = async (
   sortKey?: string,
   sortOrder?: string,
   columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>,
   providerFilter?: number | null
 ) => {
-  const { clauses: filterClauses, params: filterParams } = buildColumnFilters(columnFilters, undefined, PURCHASE_ORDER_SORT_COLUMNS, 'po.');
+  const directFilters = columnFilters ? { ...columnFilters } : undefined;
+  const itemsFilter = directFilters?.items;
+  const itemCountFilter = directFilters?.item_count;
+  const totalQuantityFilter = directFilters?.total_quantity;
+  const itemUrlsFilter = directFilters?.item_urls;
+  if (itemsFilter) delete directFilters!.items;
+  if (itemCountFilter) delete directFilters!.item_count;
+  if (totalQuantityFilter) delete directFilters!.total_quantity;
+  if (itemUrlsFilter) delete directFilters!.item_urls;
+  const { clauses: filterClauses, params: filterParams } = buildColumnFilters(directFilters, dateFilters, PURCHASE_ORDER_SORT_COLUMNS, 'po.');
   const params: any[] = [...filterParams];
   const clauses = ['1=1', ...filterClauses];
+  if (itemsFilter) {
+    clauses.push(`EXISTS (
+      SELECT 1 FROM purchase_order_items poi
+      WHERE poi.purchase_order_id = po.id
+        AND CONCAT_WS(' ', poi.item_name, poi.description) LIKE ?
+    )`);
+    params.push(`%${itemsFilter.trim()}%`);
+  }
+  if (itemCountFilter) {
+    clauses.push(`CAST((SELECT COUNT(*) FROM purchase_order_items poi WHERE poi.purchase_order_id = po.id) AS CHAR) LIKE ?`);
+    params.push(`%${itemCountFilter.trim()}%`);
+  }
+  if (totalQuantityFilter) {
+    clauses.push(`CAST((SELECT COALESCE(SUM(poi.quantity), 0) FROM purchase_order_items poi WHERE poi.purchase_order_id = po.id) AS CHAR) LIKE ?`);
+    params.push(`%${totalQuantityFilter.trim()}%`);
+  }
+  if (itemUrlsFilter) {
+    clauses.push(`EXISTS (
+      SELECT 1 FROM purchase_order_items poi
+      WHERE poi.purchase_order_id = po.id AND poi.item_url LIKE ?
+    )`);
+    params.push(`%${itemUrlsFilter.trim()}%`);
+  }
   if (providerFilter !== null && providerFilter !== undefined) {
     clauses.push('po.logistics_provider_id = ?');
     params.push(providerFilter);
@@ -4437,11 +4542,34 @@ export const getMallProductsPaged = async (
   sortKey?: string,
   sortOrder?: string,
   columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>,
   providerFilter?: number | null
 ) => {
-  const { clauses: filterClauses, params: filterParams } = buildColumnFilters(columnFilters, undefined, MALL_PRODUCT_SORT_COLUMNS, 'mp.');
+  const directFilters = columnFilters ? { ...columnFilters } : undefined;
+  const skuCountFilter = directFilters?.sku_count;
+  const totalStockFilter = directFilters?.total_stock;
+  const priceRangeFilter = directFilters?.price_range;
+  if (skuCountFilter) delete directFilters!.sku_count;
+  if (totalStockFilter) delete directFilters!.total_stock;
+  if (priceRangeFilter) delete directFilters!.price_range;
+  const { clauses: filterClauses, params: filterParams } = buildColumnFilters(directFilters, dateFilters, MALL_PRODUCT_SORT_COLUMNS, 'mp.');
   const params: any[] = [...filterParams];
   const clauses = ['1=1', ...filterClauses];
+  if (skuCountFilter) {
+    clauses.push(`CAST((SELECT COUNT(*) FROM mall_skus sku WHERE sku.product_id = mp.id) AS CHAR) LIKE ?`);
+    params.push(`%${skuCountFilter.trim()}%`);
+  }
+  if (totalStockFilter) {
+    clauses.push(`CAST((SELECT COALESCE(SUM(sku.stock), 0) FROM mall_skus sku WHERE sku.product_id = mp.id) AS CHAR) LIKE ?`);
+    params.push(`%${totalStockFilter.trim()}%`);
+  }
+  if (priceRangeFilter) {
+    clauses.push(`CONCAT_WS(' - ',
+      (SELECT MIN(sku.price) FROM mall_skus sku WHERE sku.product_id = mp.id),
+      (SELECT MAX(sku.price) FROM mall_skus sku WHERE sku.product_id = mp.id)
+    ) LIKE ?`);
+    params.push(`%${priceRangeFilter.trim()}%`);
+  }
   if (providerFilter !== null && providerFilter !== undefined) {
     clauses.push('mp.logistics_provider_id = ?');
     params.push(providerFilter);
@@ -4571,7 +4699,7 @@ export const batchDeleteMallProducts = async (ids: number[]): Promise<number> =>
 export const SHIPPING_CARRIER_TYPES = ['海运', '空运', '陆运', '铁路', '水运', '其它'];
 
 const SHIPPING_ROUTE_SORT_COLUMNS = new Set([
-  'id', 'route_name', 'route_code', 'carrier_type', 'carrier_tool_name', 'carrier', 'departure_port', 'destination_port', 'is_enabled', 'logistics_provider_id', 'created_at', 'updated_at',
+  'id', 'route_name', 'route_code', 'carrier_type', 'carrier_tool_name', 'carrier', 'departure_port', 'destination_port', 'description', 'is_enabled', 'logistics_provider_id', 'created_at', 'updated_at',
 ]);
 
 export interface ShippingRoutePayload {
@@ -4620,8 +4748,27 @@ export const getShippingRoutesPaged = async (
   providerFilter?: number | null
 ) => {
   const orderBy = `r.${toSafeOrderBy(sortKey, sortOrder, SHIPPING_ROUTE_SORT_COLUMNS, 'created_at')}`;
-  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, SHIPPING_ROUTE_SORT_COLUMNS, 'r.');
+  const directFilters = columnFilters ? { ...columnFilters } : undefined;
+  const routeInfoFilter = directFilters?.route_name;
+  const carrierInfoFilter = directFilters?.carrier_type;
+  const portInfoFilter = directFilters?.departure_port;
+  if (routeInfoFilter) delete directFilters!.route_name;
+  if (carrierInfoFilter) delete directFilters!.carrier_type;
+  if (portInfoFilter) delete directFilters!.departure_port;
+  const { clauses, params } = buildColumnFilters(directFilters, dateFilters, SHIPPING_ROUTE_SORT_COLUMNS, 'r.');
   const allClauses = ['1=1', ...clauses];
+  if (routeInfoFilter) {
+    allClauses.push(`CONCAT_WS(' ', r.route_name, r.route_code, lp.name) LIKE ?`);
+    params.push(`%${routeInfoFilter.trim()}%`);
+  }
+  if (carrierInfoFilter) {
+    allClauses.push(`CONCAT_WS(' ', r.carrier_type, r.carrier_tool_name, r.carrier) LIKE ?`);
+    params.push(`%${carrierInfoFilter.trim()}%`);
+  }
+  if (portInfoFilter) {
+    allClauses.push(`CONCAT_WS(' ', r.departure_port, r.destination_port) LIKE ?`);
+    params.push(`%${portInfoFilter.trim()}%`);
+  }
   const visibility = buildShippingRouteProviderVisibility('r', providerFilter);
   if (visibility.clause) {
     allClauses.push(visibility.clause);
@@ -4643,7 +4790,7 @@ export const getShippingRoutesPaged = async (
     params
   );
   const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT COUNT(*) as count FROM shipping_routes r ${whereSql}`,
+    `SELECT COUNT(*) as count FROM shipping_routes r LEFT JOIN logistics_providers lp ON r.logistics_provider_id = lp.id ${whereSql}`,
     params
   );
   const total = Number(countRows?.[0]?.count || 0);
@@ -4846,7 +4993,7 @@ export const batchDeleteShippingRoutes = async (ids: number[]): Promise<number> 
 // ============ 航线运输管理 - 集装箱 shipping_containers（按物流商归属） ============
 
 const SHIPPING_CONTAINER_SORT_COLUMNS = new Set([
-  'id', 'container_no', 'container_type', 'is_enabled', 'logistics_provider_id', 'created_at', 'updated_at',
+  'id', 'container_no', 'container_type', 'description', 'is_enabled', 'logistics_provider_id', 'created_at', 'updated_at',
 ]);
 
 export interface ShippingContainerPayload {
@@ -4867,8 +5014,15 @@ export const getShippingContainersPaged = async (
   providerFilter?: number | null
 ) => {
   const orderBy = `c.${toSafeOrderBy(sortKey, sortOrder, SHIPPING_CONTAINER_SORT_COLUMNS, 'created_at')}`;
-  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, SHIPPING_CONTAINER_SORT_COLUMNS, 'c.');
+  const directFilters = columnFilters ? { ...columnFilters } : undefined;
+  const containerInfoFilter = directFilters?.container_no;
+  if (containerInfoFilter) delete directFilters!.container_no;
+  const { clauses, params } = buildColumnFilters(directFilters, dateFilters, SHIPPING_CONTAINER_SORT_COLUMNS, 'c.');
   const allClauses = ['1=1', ...clauses];
+  if (containerInfoFilter) {
+    allClauses.push(`CONCAT_WS(' ', c.container_no, c.container_type) LIKE ?`);
+    params.push(`%${containerInfoFilter.trim()}%`);
+  }
   if (providerFilter !== null && providerFilter !== undefined) {
     allClauses.push('c.logistics_provider_id = ?');
     params.push(providerFilter);
@@ -5245,7 +5399,7 @@ export const batchDeleteShippingVoyages = async (ids: number[]): Promise<number>
 const SHIPPING_BILL_SORT_COLUMNS = new Set([
   'id', 'shipping_bill_id', 'bl_no', 'shipper', 'consignee', 'notify_party', 'delivery_place', 'departure_port', 'destination_port',
   'container_no', 'seal_no', 'container_bindings_json', 'package_count', 'weight', 'volume', 'marks', 'voyage_id', 'cargo_status',
-  'logistics_provider_id', 'created_at', 'updated_at',
+  'description', 'logistics_provider_id', 'created_at', 'updated_at',
 ]);
 
 export interface ShippingBillPayload {
@@ -5280,8 +5434,52 @@ export const getShippingBillsPaged = async (
   providerFilter?: number | null
 ) => {
   const orderBy = `b.${toSafeOrderBy(sortKey, sortOrder, SHIPPING_BILL_SORT_COLUMNS, 'created_at')}`;
-  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, SHIPPING_BILL_SORT_COLUMNS, 'b.');
+  const directFilters = columnFilters ? { ...columnFilters } : undefined;
+  const billInfoFilter = directFilters?.bl_no;
+  const partiesFilter = directFilters?.shipper;
+  const portInfoFilter = directFilters?.departure_port;
+  const cargoInfoFilter = directFilters?.package_count;
+  if (billInfoFilter) delete directFilters!.bl_no;
+  if (partiesFilter) delete directFilters!.shipper;
+  if (portInfoFilter) delete directFilters!.departure_port;
+  if (cargoInfoFilter) delete directFilters!.package_count;
+  const { clauses, params } = buildColumnFilters(directFilters, dateFilters, SHIPPING_BILL_SORT_COLUMNS, 'b.');
   const allClauses = ['1=1', ...clauses];
+  if (billInfoFilter) {
+    allClauses.push(`(
+      CONCAT_WS(' ', b.shipping_bill_id, b.bl_no, b.container_no, b.container_bindings_json, b.cargo_status) LIKE ?
+      OR EXISTS (
+        SELECT 1 FROM parcel_statuses ps
+        WHERE ps.status_code = b.cargo_status AND ps.status_name LIKE ?
+      )
+    )`);
+    params.push(`%${billInfoFilter.trim()}%`, `%${billInfoFilter.trim()}%`);
+  }
+  if (partiesFilter) {
+    allClauses.push(`CONCAT_WS(' ', b.shipper, b.consignee, b.notify_party) LIKE ?`);
+    params.push(`%${partiesFilter.trim()}%`);
+  }
+  if (portInfoFilter) {
+    allClauses.push(`(
+      CONCAT_WS(' ', b.departure_port, b.destination_port) LIKE ?
+      OR EXISTS (
+        SELECT 1
+        FROM shipping_voyages vf
+        LEFT JOIN logistics_providers vplf ON vf.logistics_provider_id = vplf.id
+        WHERE vf.id = b.voyage_id
+          AND CONCAT_WS(' ', vf.voyage_name, vplf.name) LIKE ?
+      )
+      OR EXISTS (
+        SELECT 1 FROM logistics_providers blpf
+        WHERE blpf.id = b.logistics_provider_id AND blpf.name LIKE ?
+      )
+    )`);
+    params.push(`%${portInfoFilter.trim()}%`, `%${portInfoFilter.trim()}%`, `%${portInfoFilter.trim()}%`);
+  }
+  if (cargoInfoFilter) {
+    allClauses.push(`CONCAT_WS(' ', b.package_count, b.weight, b.volume, b.marks, b.delivery_place) LIKE ?`);
+    params.push(`%${cargoInfoFilter.trim()}%`);
+  }
   if (providerFilter !== null && providerFilter !== undefined) {
     allClauses.push(`(
       b.logistics_provider_id = ?
@@ -5643,10 +5841,11 @@ export const getWarehousesPaged = async (
   sortKey?: string,
   sortOrder?: string,
   columnFilters?: Record<string, string>,
+  dateFilters?: Record<string, [string, string]>,
   providerFilter?: number | null
 ) => {
   const orderBy = `w.${toSafeOrderBy(sortKey, sortOrder, WAREHOUSE_SORT_COLUMNS, 'created_at')}`;
-  const { clauses, params } = buildColumnFilters(columnFilters, undefined, WAREHOUSE_SORT_COLUMNS, 'w.');
+  const { clauses, params } = buildColumnFilters(columnFilters, dateFilters, WAREHOUSE_SORT_COLUMNS, 'w.');
   const allClauses = ['1=1', ...clauses];
   if (providerFilter !== null && providerFilter !== undefined) {
     allClauses.push('w.logistics_provider_id = ?');

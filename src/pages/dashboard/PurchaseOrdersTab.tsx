@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Button, Card, Checkbox, Form, Input, InputNumber, Modal, Pagination, Popconfirm, Select, Space, Table, Tag, Tooltip, message } from 'antd';
+import { Button, Card, Checkbox, DatePicker, Form, Input, InputNumber, Modal, Pagination, Popconfirm, Select, Space, Table, Tag, Tooltip, message } from 'antd';
 import { DeleteOutlined, EditOutlined, EyeOutlined, LinkOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
@@ -102,6 +102,8 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [localColumnFilters, setLocalColumnFilters] = useState<Record<string, string>>({});
+  const [dateFilters, setDateFilters] = useState<Record<string, [string, string] | null>>({});
+  const [dateResetKey, setDateResetKey] = useState(0);
   const [providerOptions, setProviderOptions] = useState<ProviderOption[]>([]);
   const [memberOptions, setMemberOptions] = useState<MemberOption[]>([]);
   const [memberSearching, setMemberSearching] = useState(false);
@@ -121,6 +123,7 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
     nextSortKey: SortKey = sortKey,
     nextSortOrder = sortOrder,
     nextColumnFilters = columnFilters,
+    nextDateFilters = dateFilters,
   ) => {
     setLoading(true);
     try {
@@ -131,6 +134,8 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
         sortOrder: nextSortOrder,
       });
       if (Object.keys(nextColumnFilters).length) params.set('columnFilters', JSON.stringify(nextColumnFilters));
+      const cleanDateFilters = Object.fromEntries(Object.entries(nextDateFilters).filter((entry): entry is [string, [string, string]] => Boolean(entry[1])));
+      if (Object.keys(cleanDateFilters).length) params.set('dateFilters', JSON.stringify(cleanDateFilters));
       const response = await adminFetch(`/admin/purchase-orders?${params.toString()}`);
       if (!response.ok) throw new Error(await responseError(response, '加载代购订单失败'));
       const result = await response.json();
@@ -339,15 +344,33 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
     <Select size="small" value={columnFilters[key] || ''} onChange={(value) => handleColumnSearch(key, value)} onClick={(event) => event.stopPropagation()} style={{ width: '100%' }} options={[{ label: '全部', value: '' }, ...options]} />
   );
 
+  const renderDateRangeInput = (key: string) => (
+    <DatePicker.RangePicker
+      size="small"
+      onChange={(_, dateStrings) => {
+        const next = { ...dateFilters, [key]: dateStrings[0] && dateStrings[1] ? [dateStrings[0], dateStrings[1]] as [string, string] : null };
+        setDateFilters(next);
+        setPage(1);
+        void fetchOrders(1, pageSize, sortKey, sortOrder, columnFilters, next);
+      }}
+      onClick={(event) => event.stopPropagation()}
+      style={{ width: '100%' }}
+      key={`date-picker-${key}-${dateResetKey}`}
+      allowClear
+    />
+  );
+
   const resetFilters = () => {
     setColumnFilters({});
     setLocalColumnFilters({});
+    setDateFilters({});
+    setDateResetKey((value) => value + 1);
     setSearchQuery('');
     setSortKey('created_at');
     setSortOrder('desc');
     setSelectedRowKeys([]);
     setPage(1);
-    void fetchOrders(1, pageSize, 'created_at', 'desc', {});
+    void fetchOrders(1, pageSize, 'created_at', 'desc', {}, {});
   };
 
   const visibleKeys = orders.map((order) => order.id);
@@ -367,17 +390,17 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
     },
     {
       title: '会员', key: 'user_id', width: 180, sorter: true, sortOrder: sortOrderFor('user_id'),
-      children: [{ title: '', key: 'user_id_child', width: 180, ellipsis: { showTitle: false }, render: (_, record) => <Tooltip title={record.member_phone || undefined}>{memberLabel(record)}</Tooltip> }],
+      children: [{ title: renderSearchInput('user_id', '会员ID'), key: 'user_id_child', width: 180, ellipsis: { showTitle: false }, render: (_, record) => <Tooltip title={record.member_phone || undefined}>{memberLabel(record)}</Tooltip> }],
     },
     {
       title: '物品', key: 'items', width: 260, ellipsis: true,
-      children: [{ title: '', key: 'items_child', width: 240, ellipsis: { showTitle: false }, render: (_, record) => {
+      children: [{ title: renderSearchInput('items', '物品'), key: 'items_child', width: 240, ellipsis: { showTitle: false }, render: (_, record) => {
         const names = record.items.map((item) => item.item_name).join('、');
         return <Tooltip title={names}>{names || '—'}</Tooltip>;
       } }],
     },
-    { title: '物品种类', key: 'item_count', width: 90, children: [{ title: '', key: 'item_count_child', width: 90, align: 'right', render: (_, record) => record.items.length }] },
-    { title: '总数量', key: 'total_quantity', width: 90, children: [{ title: '', key: 'total_quantity_child', width: 90, align: 'right', render: (_, record) => record.items.reduce((total, item) => total + Number(item.quantity || 0), 0) }] },
+    { title: '物品种类', key: 'item_count', width: 100, children: [{ title: renderSearchInput('item_count', '种类数'), key: 'item_count_child', width: 100, align: 'right', render: (_, record) => record.items.length }] },
+    { title: '总数量', key: 'total_quantity', width: 100, children: [{ title: renderSearchInput('total_quantity', '总数量'), key: 'total_quantity_child', width: 100, align: 'right', render: (_, record) => record.items.reduce((total, item) => total + Number(item.quantity || 0), 0) }] },
     {
       title: '状态', key: 'status', width: 110, sorter: true, sortOrder: sortOrderFor('status'),
       children: [{ title: renderSelectFilter('status', ORDER_STATUSES.map(({ value, label }) => ({ value, label }))), key: 'status_child', width: 110, render: (_, record) => {
@@ -387,7 +410,7 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
     },
     {
       title: '链接', key: 'item_urls', width: 150, align: 'center',
-      children: [{ title: '', key: 'item_urls_child', width: 150, align: 'center', render: (_, record) => {
+      children: [{ title: renderSearchInput('item_urls', '链接'), key: 'item_urls_child', width: 150, align: 'center', render: (_, record) => {
         const linkedItems = record.items.filter((item) => item.item_url);
         if (!linkedItems.length) return '—';
         return (
@@ -402,8 +425,8 @@ export default function PurchaseOrdersTab({ actorScope, canCreate, canUpdate, ca
         );
       } }],
     },
-    { title: '物流商', key: 'logistics_provider_id', width: 150, sorter: true, sortOrder: sortOrderFor('logistics_provider_id'), children: [{ title: '', key: 'logistics_provider_id_child', width: 150, ellipsis: { showTitle: false }, render: (_, record) => record.logistics_provider_name || '—' }] },
-    { title: '创建时间', key: 'created_at', width: 180, sorter: true, sortOrder: sortOrderFor('created_at'), children: [{ title: '', key: 'created_at_child', width: 180, render: (_, record) => formatDate(record.created_at) }] },
+    { title: '物流商', key: 'logistics_provider_id', width: 150, sorter: true, sortOrder: sortOrderFor('logistics_provider_id'), children: [{ title: renderSearchInput('logistics_provider_id', '物流商ID'), key: 'logistics_provider_id_child', width: 150, ellipsis: { showTitle: false }, render: (_, record) => record.logistics_provider_name || '—' }] },
+    { title: '创建时间', key: 'created_at', width: 180, sorter: true, sortOrder: sortOrderFor('created_at'), children: [{ title: renderDateRangeInput('created_at'), key: 'created_at_child', width: 180, render: (_, record) => formatDate(record.created_at) }] },
     { title: '', key: 'spacer', children: [{ title: '', key: 'spacer_child', render: () => null }] },
     {
       title: '操作', key: 'actions', width: 120, fixed: 'right', align: 'center',
