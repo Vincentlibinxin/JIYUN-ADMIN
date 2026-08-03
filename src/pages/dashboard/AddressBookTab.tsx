@@ -3,16 +3,22 @@ import { Button, Card, Cascader, Checkbox, DatePicker, Form, Input, Modal, Pagin
 import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
-import { loadChinaRegionOptions, regionInfoFromProvince, isRegionPathComplete, type RegionCascaderOption } from '../../lib/chinaRegions';
+import { loadChinaRegionOptions, isRegionPathComplete, type RegionCascaderOption } from '../../lib/chinaRegions';
 import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
 
 // 区域及其国际电话代码（中国大陆/台湾/香港/澳门）
 export const ADDRESS_BOOK_REGIONS: Array<{ value: string; label: string; dialCode: string }> = [
   { value: 'CN', label: '中国大陆', dialCode: '+86' },
-  { value: 'TW', label: '台湾', dialCode: '+886' },
-  { value: 'HK', label: '香港', dialCode: '+852' },
-  { value: 'MO', label: '澳门', dialCode: '+853' },
+  { value: 'HK', label: '中国香港', dialCode: '+852' },
+  { value: 'MO', label: '中国澳门', dialCode: '+853' },
+  { value: 'TW', label: '中国台湾', dialCode: '+886' },
 ];
+
+const REGION_FIXED_PROVINCE: Record<'HK' | 'MO' | 'TW', string> = {
+  HK: '香港特别行政区',
+  MO: '澳门特别行政区',
+  TW: '台湾省',
+};
 
 const REGION_MAP: Record<string, { label: string; dialCode: string }> = ADDRESS_BOOK_REGIONS.reduce(
   (acc, r) => { acc[r.value] = { label: r.label, dialCode: r.dialCode }; return acc; },
@@ -84,6 +90,7 @@ interface AddressBookTabProps {
 type ModalMode = 'create' | 'edit' | 'view';
 
 interface AddressBookFormValues {
+  region: string;
   name: string;
   regionPath?: string[];
   phone: string;
@@ -334,21 +341,54 @@ export default memo(function AddressBookTab({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm<AddressBookFormValues>();
+  const selectedRegion = (Form.useWatch('region', form) as string | undefined) || 'CN';
   const regionPath = Form.useWatch('regionPath', form) as string[] | undefined;
-  const selectedProvince = regionPath?.[0];
-  const currentDialCode = selectedProvince ? regionInfoFromProvince(selectedProvince).dialCode : '';
+  const currentDialCode = REGION_MAP[selectedRegion]?.dialCode || '';
+
+  const isMainland = selectedRegion === 'CN';
+  const fixedProvince = selectedRegion === 'HK' || selectedRegion === 'MO' || selectedRegion === 'TW'
+    ? REGION_FIXED_PROVINCE[selectedRegion]
+    : null;
+  const regionPathOptions = isMainland
+    ? regionOptions.filter((option) => !Object.values(REGION_FIXED_PROVINCE).includes(option.value))
+    : (regionOptions.find((option) => option.value === fixedProvince)?.children || []);
+
+  const toCompleteRegionPath = (path?: string[]) => {
+    const safePath = path || [];
+    if (isMainland) return safePath;
+    if (!fixedProvince) return safePath;
+    return [fixedProvince, ...safePath];
+  };
+
+  const getAreaPathText = (record: AddressBookEntry): string => {
+    const parts = [record.province, record.city, record.district, record.street].filter((v): v is string => !!v);
+    if (record.region !== 'CN' && parts.length > 0) {
+      const fixed = (record.region === 'HK' || record.region === 'MO' || record.region === 'TW')
+        ? REGION_FIXED_PROVINCE[record.region]
+        : null;
+      if (fixed && parts[0] === fixed) {
+        return parts.slice(1).join(' / ');
+      }
+    }
+    return parts.join(' / ');
+  };
 
   const openCreate = () => {
     setModalMode('create');
     setEditingId(null);
     form.resetFields();
+    form.setFieldValue('region', 'CN');
     setMemberOptions([]);
     setModalOpen(true);
   };
 
   const fillForm = (record: AddressBookEntry) => {
-    const path = [record.province, record.city, record.district, record.street].filter((v): v is string => !!v);
+    const region = (record.region || 'CN') as string;
+    const fullPath = [record.province, record.city, record.district, record.street].filter((v): v is string => !!v);
+    const fixed = region === 'HK' || region === 'MO' || region === 'TW' ? REGION_FIXED_PROVINCE[region] : null;
+    const path = fixed && fullPath[0] === fixed ? fullPath.slice(1) : fullPath;
     form.setFieldsValue({
+      region,
       name: record.name,
       regionPath: path,
       phone: record.phone,
@@ -391,12 +431,13 @@ export default memo(function AddressBookTab({
     try {
       const values = await form.validateFields();
       setSubmitting(true);
+      const region = String(values.region || 'CN').trim().toUpperCase();
       const path = (values.regionPath || []) as string[];
-      const province = path[0] || '';
-      const city = path[1] || '';
-      const district = path[2] || '';
-      const street = path[3] || '';
-      const { region } = regionInfoFromProvince(province);
+      const resolvedFixedProvince = region === 'HK' || region === 'MO' || region === 'TW' ? REGION_FIXED_PROVINCE[region] : null;
+      const province = region === 'CN' ? (path[0] || '') : (resolvedFixedProvince || '');
+      const city = region === 'CN' ? (path[1] || '') : (path[0] || '');
+      const district = region === 'CN' ? (path[2] || '') : (path[1] || '');
+      const street = region === 'CN' ? (path[3] || '') : (path[2] || '');
       const payload: AddressBookPayload = {
         name: values.name.trim(),
         region,
@@ -474,16 +515,21 @@ export default memo(function AddressBookTab({
       ],
     },
     {
-      title: '物流商',
-      key: 'logistics_provider_id',
-      width: 150,
+      title: '国家/地区',
+      key: 'region',
+      width: 130,
+      sorter: true,
+      sortOrder: sortKey === 'region' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
       children: [
         {
-          title: renderSearchInput('logistics_provider_id', '物流商ID'),
-          key: 'logistics_provider_id_child',
-          width: 150,
+          title: renderRegionFilter(),
+          key: 'region_child',
+          width: 130,
           ellipsis: true,
-          render: (_, record) => record.logistics_provider_name || (record.logistics_provider_id ? `#${record.logistics_provider_id}` : '—'),
+          render: (_, record) => {
+            const item = REGION_MAP[record.region];
+            return item ? <Tag color="blue">{item.label}</Tag> : (record.region || '—');
+          },
         },
       ],
     },
@@ -523,21 +569,19 @@ export default memo(function AddressBookTab({
       ],
     },
     {
-      title: '区域',
-      key: 'region',
+      title: '所在区域',
+      key: 'region_path',
       width: 220,
       children: [
         {
-          title: renderRegionFilter(),
-          key: 'region_child',
+          title: renderSearchInput('province', '所在区域'),
+          key: 'region_path_child',
           width: 220,
           ellipsis: true,
           render: (_, record) => {
-            const parts = [record.province, record.city, record.district, record.street].filter(Boolean);
-            const text = parts.join(' / ');
+            const text = getAreaPathText(record);
             if (!text) {
-              const r = REGION_MAP[record.region];
-              return r ? <Tag color="blue">{r.label}</Tag> : (record.region || '—');
+              return '—';
             }
             return <Tooltip title={text}>{text}</Tooltip>;
           },
@@ -569,6 +613,20 @@ export default memo(function AddressBookTab({
           width: 160,
           ellipsis: true,
           render: (_, record) => renderMemberText(record),
+        },
+      ],
+    },
+    {
+      title: '物流商',
+      key: 'logistics_provider_id',
+      width: 150,
+      children: [
+        {
+          title: renderSearchInput('logistics_provider_id', '物流商ID'),
+          key: 'logistics_provider_id_child',
+          width: 150,
+          ellipsis: true,
+          render: (_, record) => record.logistics_provider_name || (record.logistics_provider_id ? `#${record.logistics_provider_id}` : '—'),
         },
       ],
     },
@@ -761,6 +819,19 @@ export default memo(function AddressBookTab({
       >
         <Form form={form} layout="vertical" disabled={isView}>
           <Form.Item
+            name="region"
+            label="国家/地区"
+            rules={[{ required: true, message: '请选择国家/地区' }]}
+            initialValue="CN"
+          >
+            <Select
+              options={ADDRESS_BOOK_REGIONS.map((r) => ({ label: r.label, value: r.value }))}
+              placeholder="请选择国家/地区"
+              onChange={() => form.setFieldValue('regionPath', [])}
+            />
+          </Form.Item>
+
+          <Form.Item
             name="name"
             label="名称"
             rules={[{ required: true, message: '请输入名称' }]}
@@ -769,14 +840,23 @@ export default memo(function AddressBookTab({
           </Form.Item>
 
           <Form.Item
+            name="phone"
+            label="电话"
+            rules={[{ required: true, message: '请输入电话' }]}
+          >
+            <Input addonBefore={currentDialCode || undefined} placeholder="请输入电话号码" maxLength={32} />
+          </Form.Item>
+
+          <Form.Item
             name="regionPath"
-            label="行政区域"
+            label="所在区域"
             rules={[
-              { required: true, message: '请选择省 / 市 / 区县 / 街道' },
+              { required: true, message: isMainland ? '请选择省 / 市 / 区县 / 街道' : '请选择市 / 区县 / 街道' },
               {
                 validator: (_rule, value: string[] | undefined) => {
                   if (!value || value.length === 0) return Promise.resolve();
-                  if (!isRegionPathComplete(regionOptions, value)) {
+                  const completePath = toCompleteRegionPath(value);
+                  if (!isRegionPathComplete(regionOptions, completePath)) {
                     return Promise.reject(new Error('请选择到最小级别（如街道 / 区县）'));
                   }
                   return Promise.resolve();
@@ -785,22 +865,14 @@ export default memo(function AddressBookTab({
             ]}
           >
             <Cascader
-              options={regionOptions}
-              placeholder="请选择省 / 市 / 区县 / 街道"
+              options={regionPathOptions}
+              placeholder={isMainland ? '请选择省 / 市 / 区县 / 街道' : '请选择市 / 区县 / 街道'}
               showSearch={{
                 filter: (input, path) =>
                   path.some((option) => String(option.label).toLowerCase().includes(input.toLowerCase())),
               }}
               expandTrigger="hover"
             />
-          </Form.Item>
-
-          <Form.Item
-            name="phone"
-            label="电话"
-            rules={[{ required: true, message: '请输入电话' }]}
-          >
-            <Input addonBefore={currentDialCode || undefined} placeholder="请输入电话号码" maxLength={32} />
           </Form.Item>
 
           <Form.Item

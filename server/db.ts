@@ -761,18 +761,24 @@ export const initDb = async (): Promise<void> => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
-    // 系统设置 - 仓库管理（四字段组合唯一）
+    // 系统设置 - 仓库管理（收货人信息采用地址簿模式）
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS warehouses (
         id INT AUTO_INCREMENT PRIMARY KEY,
+        warehouse_name VARCHAR(128) NOT NULL,
         recipient_name VARCHAR(128) NOT NULL,
+        region VARCHAR(16) NOT NULL DEFAULT 'CN',
+        province VARCHAR(64) DEFAULT NULL,
+        city VARCHAR(64) DEFAULT NULL,
+        district VARCHAR(64) DEFAULT NULL,
+        street VARCHAR(64) DEFAULT NULL,
         contact_phone VARCHAR(32) NOT NULL,
         address VARCHAR(255) NOT NULL,
         logistics_provider_id INT NOT NULL,
         is_enabled TINYINT(1) NOT NULL DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY uk_warehouse_binding (recipient_name, contact_phone, address, logistics_provider_id),
+        UNIQUE KEY uk_warehouse_binding (region, warehouse_name, recipient_name, contact_phone, logistics_provider_id),
         INDEX idx_warehouse_provider (logistics_provider_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
@@ -781,8 +787,42 @@ export const initDb = async (): Promise<void> => {
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'warehouses'`
     );
     const existingWarehouseCols = new Set((warehouseCols as any[]).map((row: any) => row.COLUMN_NAME));
+    if (!existingWarehouseCols.has('warehouse_name')) {
+      await connection.execute(`ALTER TABLE warehouses ADD COLUMN warehouse_name VARCHAR(128) NOT NULL DEFAULT '' AFTER recipient_name`);
+    }
+    if (!existingWarehouseCols.has('region')) {
+      await connection.execute(`ALTER TABLE warehouses ADD COLUMN region VARCHAR(16) NOT NULL DEFAULT 'CN' AFTER recipient_name`);
+    }
+    if (!existingWarehouseCols.has('province')) {
+      await connection.execute(`ALTER TABLE warehouses ADD COLUMN province VARCHAR(64) DEFAULT NULL AFTER region`);
+    }
+    if (!existingWarehouseCols.has('city')) {
+      await connection.execute(`ALTER TABLE warehouses ADD COLUMN city VARCHAR(64) DEFAULT NULL AFTER province`);
+    }
+    if (!existingWarehouseCols.has('district')) {
+      await connection.execute(`ALTER TABLE warehouses ADD COLUMN district VARCHAR(64) DEFAULT NULL AFTER city`);
+    }
+    if (!existingWarehouseCols.has('street')) {
+      await connection.execute(`ALTER TABLE warehouses ADD COLUMN street VARCHAR(64) DEFAULT NULL AFTER district`);
+    }
     if (!existingWarehouseCols.has('is_enabled')) {
       await connection.execute(`ALTER TABLE warehouses ADD COLUMN is_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER logistics_provider_id`);
+    }
+
+    const [warehouseIdxRows] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT INDEX_NAME, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) AS columns_list
+       FROM INFORMATION_SCHEMA.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'warehouses' AND NON_UNIQUE = 0
+       GROUP BY INDEX_NAME`
+    );
+    const warehouseUniqueIndexes = warehouseIdxRows as Array<{ INDEX_NAME: string; columns_list: string }>;
+    const expectedWarehouseBinding = 'region,warehouse_name,recipient_name,contact_phone,logistics_provider_id';
+    const currentWarehouseBinding = warehouseUniqueIndexes.find((idx) => idx.INDEX_NAME === 'uk_warehouse_binding');
+    if (!currentWarehouseBinding || currentWarehouseBinding.columns_list !== expectedWarehouseBinding) {
+      if (currentWarehouseBinding) {
+        await connection.execute(`ALTER TABLE warehouses DROP INDEX uk_warehouse_binding`);
+      }
+      await connection.execute(`ALTER TABLE warehouses ADD UNIQUE KEY uk_warehouse_binding (region, warehouse_name, recipient_name, contact_phone, logistics_provider_id)`);
     }
 
     // 地址簿（按物流商归属，可选关联会员）
@@ -4063,6 +4103,46 @@ export const getAddressBookOptions = async (providerId: number): Promise<any[]> 
   return rows as any[];
 };
 
+export const findDuplicateAddressBookBinding = async (
+  payload: AddressBookPayload,
+  excludeId?: number
+): Promise<number | null> => {
+  const whereClauses = [
+    'name = ?',
+    'phone = ?',
+    'region = ?',
+    'province <=> ?',
+    'city <=> ?',
+    'district <=> ?',
+    'street <=> ?',
+    'address = ?',
+    'user_id <=> ?',
+    'logistics_provider_id = ?',
+  ];
+  const params: any[] = [
+    payload.name,
+    payload.phone,
+    payload.region,
+    payload.province ?? null,
+    payload.city ?? null,
+    payload.district ?? null,
+    payload.street ?? null,
+    payload.address,
+    payload.user_id ?? null,
+    payload.logistics_provider_id ?? null,
+  ];
+  if (excludeId && excludeId > 0) {
+    whereClauses.push('id <> ?');
+    params.push(excludeId);
+  }
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id FROM address_book WHERE ${whereClauses.join(' AND ')} LIMIT 1`,
+    params
+  );
+  const id = rows?.[0]?.id;
+  return typeof id === 'number' ? id : null;
+};
+
 export const createAddressBook = async (payload: AddressBookPayload) => {
   const [result] = await pool.execute<mysql.ResultSetHeader>(
     `INSERT INTO address_book (name, region, province, city, district, street, phone, address, user_id, logistics_provider_id)
@@ -5824,11 +5904,17 @@ export const batchDeleteLabelTemplates = async (ids: number[]): Promise<number> 
 // ============ 系统设置 - 仓库管理（按物流商归属） ============
 
 const WAREHOUSE_SORT_COLUMNS = new Set([
-  'id', 'recipient_name', 'contact_phone', 'address', 'logistics_provider_id', 'is_enabled', 'created_at', 'updated_at',
+  'id', 'warehouse_name', 'recipient_name', 'region', 'province', 'city', 'district', 'street', 'contact_phone', 'address', 'logistics_provider_id', 'is_enabled', 'created_at', 'updated_at',
 ]);
 
 export interface WarehousePayload {
+  warehouse_name: string;
   recipient_name: string;
+  region: string;
+  province?: string | null;
+  city?: string | null;
+  district?: string | null;
+  street?: string | null;
   contact_phone: string;
   address: string;
   logistics_provider_id: number;
@@ -5856,7 +5942,7 @@ export const getWarehousesPaged = async (
   const safeLimit = toSafeInt(limit, 20, 1, 500);
   const offset = (safePage - 1) * safeLimit;
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT w.id, w.recipient_name, w.contact_phone, w.address, w.logistics_provider_id, w.is_enabled,
+    `SELECT w.id, w.warehouse_name, w.recipient_name, w.region, w.province, w.city, w.district, w.street, w.contact_phone, w.address, w.logistics_provider_id, w.is_enabled,
             w.created_at, w.updated_at, lp.name AS logistics_provider_name
      FROM warehouses w
      INNER JOIN logistics_providers lp ON w.logistics_provider_id = lp.id
@@ -5873,14 +5959,14 @@ export const getWarehousesPaged = async (
 
 export const searchWarehouses = async (keyword: string, providerFilter?: number | null): Promise<any[]> => {
   const like = `%${keyword}%`;
-  const clauses = ['(w.recipient_name LIKE ? OR w.contact_phone LIKE ? OR w.address LIKE ? OR lp.name LIKE ?)'];
-  const params: any[] = [like, like, like, like];
+  const clauses = ['(w.warehouse_name LIKE ? OR w.recipient_name LIKE ? OR w.contact_phone LIKE ? OR w.address LIKE ? OR w.province LIKE ? OR w.city LIKE ? OR w.district LIKE ? OR w.street LIKE ? OR lp.name LIKE ?)'];
+  const params: any[] = [like, like, like, like, like, like, like, like, like];
   if (providerFilter !== null && providerFilter !== undefined) {
     clauses.push('w.logistics_provider_id = ?');
     params.push(providerFilter);
   }
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT w.id, w.recipient_name, w.contact_phone, w.address, w.logistics_provider_id, w.is_enabled,
+    `SELECT w.id, w.warehouse_name, w.recipient_name, w.region, w.province, w.city, w.district, w.street, w.contact_phone, w.address, w.logistics_provider_id, w.is_enabled,
             w.created_at, w.updated_at, lp.name AS logistics_provider_name
      FROM warehouses w INNER JOIN logistics_providers lp ON w.logistics_provider_id = lp.id
      WHERE ${clauses.join(' AND ')} ORDER BY w.created_at DESC`,
@@ -5890,12 +5976,32 @@ export const searchWarehouses = async (keyword: string, providerFilter?: number 
 };
 
 export const findDuplicateWarehouse = async (payload: WarehousePayload, excludeId?: number): Promise<boolean> => {
-  const params: any[] = [payload.recipient_name, payload.contact_phone, payload.address, payload.logistics_provider_id];
+  const params: any[] = [
+    payload.region,
+    payload.warehouse_name,
+    payload.recipient_name,
+    payload.contact_phone,
+    payload.province ?? null,
+    payload.city ?? null,
+    payload.district ?? null,
+    payload.street ?? null,
+    payload.address,
+    payload.logistics_provider_id,
+  ];
   const excludeClause = excludeId ? ' AND id <> ?' : '';
   if (excludeId) params.push(excludeId);
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT id FROM warehouses
-     WHERE recipient_name = ? AND contact_phone = ? AND address = ? AND logistics_provider_id = ?${excludeClause}
+     WHERE region = ?
+       AND warehouse_name = ?
+       AND recipient_name = ?
+       AND contact_phone = ?
+       AND province <=> ?
+       AND city <=> ?
+       AND district <=> ?
+       AND street <=> ?
+       AND address = ?
+       AND logistics_provider_id = ?${excludeClause}
      LIMIT 1`,
     params
   );
@@ -5904,21 +6010,21 @@ export const findDuplicateWarehouse = async (payload: WarehousePayload, excludeI
 
 export const createWarehouse = async (payload: WarehousePayload) => {
   const [result] = await pool.execute<mysql.ResultSetHeader>(
-    `INSERT INTO warehouses (recipient_name, contact_phone, address, logistics_provider_id, is_enabled) VALUES (?, ?, ?, ?, ?)`,
-    [payload.recipient_name, payload.contact_phone, payload.address, payload.logistics_provider_id, payload.is_enabled ? 1 : 0]
+    `INSERT INTO warehouses (warehouse_name, recipient_name, region, province, city, district, street, contact_phone, address, logistics_provider_id, is_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [payload.warehouse_name, payload.recipient_name, payload.region, payload.province ?? null, payload.city ?? null, payload.district ?? null, payload.street ?? null, payload.contact_phone, payload.address, payload.logistics_provider_id, payload.is_enabled ? 1 : 0]
   );
   return { id: result.insertId, ...payload };
 };
 
 export const getWarehouseById = async (id: number): Promise<any | null> => querySingle<any>(
-  'SELECT id, logistics_provider_id FROM warehouses WHERE id = ? LIMIT 1',
+  'SELECT id, warehouse_name, recipient_name, region, province, city, district, street, contact_phone, address, logistics_provider_id, is_enabled FROM warehouses WHERE id = ? LIMIT 1',
   [id]
 );
 
 export const updateWarehouse = async (id: number, payload: WarehousePayload): Promise<boolean> => {
   const [result] = await pool.execute<mysql.ResultSetHeader>(
-    `UPDATE warehouses SET recipient_name = ?, contact_phone = ?, address = ?, logistics_provider_id = ?, is_enabled = ?, updated_at = NOW() WHERE id = ?`,
-    [payload.recipient_name, payload.contact_phone, payload.address, payload.logistics_provider_id, payload.is_enabled ? 1 : 0, id]
+    `UPDATE warehouses SET warehouse_name = ?, recipient_name = ?, region = ?, province = ?, city = ?, district = ?, street = ?, contact_phone = ?, address = ?, logistics_provider_id = ?, is_enabled = ?, updated_at = NOW() WHERE id = ?`,
+    [payload.warehouse_name, payload.recipient_name, payload.region, payload.province ?? null, payload.city ?? null, payload.district ?? null, payload.street ?? null, payload.contact_phone, payload.address, payload.logistics_provider_id, payload.is_enabled ? 1 : 0, id]
   );
   return result.affectedRows > 0;
 };

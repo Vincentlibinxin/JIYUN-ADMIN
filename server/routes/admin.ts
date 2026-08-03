@@ -99,6 +99,7 @@ import {
   batchDeleteTrackingNumbers,
   getAddressBookPaged,
   searchAddressBook,
+  findDuplicateAddressBookBinding,
   createAddressBook,
   getAddressBookById,
   getAddressBookOptions,
@@ -3218,6 +3219,16 @@ router.post('/address-book', adminAuth, csrfGuard, requirePermission(PERMISSIONS
   const memberId = await resolveAddressBookMember(req, res, req.body?.user_id, resolvedProviderId);
   if (memberId === undefined) return;
 
+  const duplicateId = await findDuplicateAddressBookBinding({
+    ...parsed,
+    user_id: memberId,
+    logistics_provider_id: resolvedProviderId,
+  });
+  if (duplicateId) {
+    res.status(409).json({ error: '国家/地区、名称、电话、所在区域、地址、会员、物流商组合不能重复' });
+    return;
+  }
+
   const entry = await createAddressBook({ ...parsed, user_id: memberId, logistics_provider_id: resolvedProviderId });
   await logAdminAudit({
     adminId: req.adminId,
@@ -3259,6 +3270,19 @@ router.put('/address-book/:id', adminAuth, csrfGuard, requirePermission(PERMISSI
 
   const memberId = await resolveAddressBookMember(req, res, req.body?.user_id, resolvedProviderId);
   if (memberId === undefined) return;
+
+  const duplicateId = await findDuplicateAddressBookBinding(
+    {
+      ...parsed,
+      user_id: memberId,
+      logistics_provider_id: resolvedProviderId,
+    },
+    id
+  );
+  if (duplicateId) {
+    res.status(409).json({ error: '国家/地区、名称、电话、所在区域、地址、会员、物流商组合不能重复' });
+    return;
+  }
 
   const ok = await updateAddressBook(id, { ...parsed, user_id: memberId, logistics_provider_id: resolvedProviderId });
   if (!ok) {
@@ -4918,19 +4942,44 @@ router.post('/labels/batch-delete', adminAuth, csrfGuard, requirePermission(PERM
 // ============ 系统设置 - 仓库管理（按物流商归属） ============
 
 const parseWarehouseBody = (body: Record<string, any>, res: Response) => {
+  const warehouse_name = String(body.warehouse_name ?? '').trim();
   const recipient_name = String(body.recipient_name ?? '').trim();
+  const region = String(body.region ?? '').trim().toUpperCase();
+  const province = String(body.province ?? '').trim();
+  const cityRaw = String(body.city ?? '').trim();
+  const districtRaw = String(body.district ?? '').trim();
+  const streetRaw = String(body.street ?? '').trim();
   const contact_phone = String(body.contact_phone ?? '').trim();
   const address = String(body.address ?? '').trim();
-  if (!recipient_name || !contact_phone || !address) {
-    res.status(400).json({ error: '收货人名称、联系电话和地址均为必填项' });
+  if (!warehouse_name || !recipient_name || !region || !province || !contact_phone || !address) {
+    res.status(400).json({ error: '仓库名称、国家/地区、收货人名称、所在区域、联系电话和地址均为必填项' });
     return null;
   }
-  if (recipient_name.length > 128 || contact_phone.length > 32 || address.length > 255) {
+  if (!['CN', 'HK', 'MO', 'TW'].includes(region)) {
+    res.status(400).json({ error: '国家/地区必须为中国大陆、中国香港、中国澳门或中国台湾' });
+    return null;
+  }
+  if (
+    warehouse_name.length > 128
+    || recipient_name.length > 128
+    || province.length > 64
+    || cityRaw.length > 64
+    || districtRaw.length > 64
+    || streetRaw.length > 64
+    || contact_phone.length > 32
+    || address.length > 255
+  ) {
     res.status(400).json({ error: '字段内容超过允许长度' });
     return null;
   }
   return {
+    warehouse_name,
     recipient_name,
+    region,
+    province,
+    city: cityRaw || null,
+    district: districtRaw || null,
+    street: streetRaw || null,
     contact_phone,
     address,
     is_enabled: body.is_enabled === undefined ? true : Boolean(body.is_enabled),
@@ -4968,7 +5017,7 @@ router.post('/warehouses', adminAuth, csrfGuard, requirePermission(PERMISSIONS.W
   const providerId = resolveRequiredWarehouseProvider(req, res);
   if (!fields || !providerId) return;
   const payload = { ...fields, logistics_provider_id: providerId };
-  if (await findDuplicateWarehouse(payload)) { res.status(409).json({ error: '相同收货人、联系电话、地址和物流商的仓库已存在' }); return; }
+  if (await findDuplicateWarehouse(payload)) { res.status(409).json({ error: '相同仓库名称、国家/地区、收货人名称、联系电话、所在区域、地址和物流商的仓库已存在' }); return; }
   const warehouse = await createWarehouse(payload);
   await logAdminAudit({ adminId: req.adminId, action: 'warehouse.create', targetType: 'warehouse', targetId: warehouse.id, result: 'success', ip: getRequestIp(req), detail: `recipient_name=${fields.recipient_name}` });
   res.status(201).json({ message: '仓库已创建', warehouse: { id: warehouse.id } });
@@ -4984,7 +5033,7 @@ router.put('/warehouses/:id', adminAuth, csrfGuard, requirePermission(PERMISSION
   const providerId = resolveRequiredWarehouseProvider(req, res, existing.logistics_provider_id);
   if (!fields || !providerId) return;
   const payload = { ...fields, logistics_provider_id: providerId };
-  if (await findDuplicateWarehouse(payload, id)) { res.status(409).json({ error: '相同收货人、联系电话、地址和物流商的仓库已存在' }); return; }
+  if (await findDuplicateWarehouse(payload, id)) { res.status(409).json({ error: '相同仓库名称、国家/地区、收货人名称、联系电话、所在区域、地址和物流商的仓库已存在' }); return; }
   await updateWarehouse(id, payload);
   await logAdminAudit({ adminId: req.adminId, action: 'warehouse.update', targetType: 'warehouse', targetId: id, result: 'success', ip: getRequestIp(req), detail: 'warehouse_updated' });
   res.json({ message: '仓库已更新', id });

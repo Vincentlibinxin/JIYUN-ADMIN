@@ -1,13 +1,41 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Button, Card, Checkbox, DatePicker, Form, Input, Modal, Pagination, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, message } from 'antd';
+import { Button, Card, Cascader, Checkbox, DatePicker, Form, Input, Modal, Pagination, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, message } from 'antd';
 import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { adminFetch } from '../../lib/api';
+import { loadChinaRegionOptions, isRegionPathComplete, type RegionCascaderOption } from '../../lib/chinaRegions';
 import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
+
+const WAREHOUSE_REGIONS: Array<{ value: string; label: string; dialCode: string }> = [
+  { value: 'CN', label: '中国大陆', dialCode: '+86' },
+  { value: 'HK', label: '中国香港', dialCode: '+852' },
+  { value: 'MO', label: '中国澳门', dialCode: '+853' },
+  { value: 'TW', label: '中国台湾', dialCode: '+886' },
+];
+
+const WAREHOUSE_REGION_MAP: Record<string, { label: string; dialCode: string }> = WAREHOUSE_REGIONS.reduce(
+  (acc, cur) => {
+    acc[cur.value] = { label: cur.label, dialCode: cur.dialCode };
+    return acc;
+  },
+  {} as Record<string, { label: string; dialCode: string }>
+);
+
+const WAREHOUSE_FIXED_PROVINCE: Record<'HK' | 'MO' | 'TW', string> = {
+  HK: '香港特别行政区',
+  MO: '澳门特别行政区',
+  TW: '台湾省',
+};
 
 interface WarehouseItem {
   id: number;
+  warehouse_name: string;
   recipient_name: string;
+  region: string;
+  province?: string | null;
+  city?: string | null;
+  district?: string | null;
+  street?: string | null;
   contact_phone: string;
   address: string;
   logistics_provider_id: number;
@@ -17,7 +45,14 @@ interface WarehouseItem {
 }
 
 interface WarehousePayload {
+  warehouse_name: string;
   recipient_name: string;
+  region: string;
+  province: string;
+  city?: string | null;
+  district?: string | null;
+  street?: string | null;
+  regionPath?: string[];
   contact_phone: string;
   address: string;
   logistics_provider_id?: number;
@@ -33,7 +68,7 @@ interface WarehousesTabProps {
 }
 
 type SortDirection = 'asc' | 'desc';
-type SortKey = 'recipient_name' | 'contact_phone' | 'logistics_provider_id' | 'is_enabled' | 'created_at';
+type SortKey = 'warehouse_name' | 'recipient_name' | 'region' | 'contact_phone' | 'logistics_provider_id' | 'is_enabled' | 'created_at';
 
 export default function WarehousesTab({ actorScope, canCreate, canUpdate, canDelete, refreshKey }: WarehousesTabProps) {
   const [items, setItems] = useState<WarehouseItem[]>([]);
@@ -55,8 +90,19 @@ export default function WarehousesTab({ actorScope, canCreate, canUpdate, canDel
   const [providerOptions, setProviderOptions] = useState<Array<{ label: string; value: number }>>([]);
   const [form] = Form.useForm<WarehousePayload>();
   const [messageApi, messageContextHolder] = message.useMessage();
+  const [regionOptions, setRegionOptions] = useState<RegionCascaderOption[]>([]);
   const tableHostRef = useRef<HTMLDivElement>(null);
   const [tableScrollY, setTableScrollY] = useState(240);
+
+  const selectedRegion = (Form.useWatch('region', form) as string | undefined) || 'CN';
+  const currentDialCode = WAREHOUSE_REGION_MAP[selectedRegion]?.dialCode || '';
+  const isMainland = selectedRegion === 'CN';
+  const fixedProvince = selectedRegion === 'HK' || selectedRegion === 'MO' || selectedRegion === 'TW'
+    ? WAREHOUSE_FIXED_PROVINCE[selectedRegion]
+    : null;
+  const regionPathOptions = isMainland
+    ? regionOptions.filter((option) => !Object.values(WAREHOUSE_FIXED_PROVINCE).includes(option.value))
+    : (regionOptions.find((option) => option.value === fixedProvince)?.children || []);
 
   useLayoutEffect(() => {
     const updateTableHeight = () => {
@@ -71,6 +117,10 @@ export default function WarehousesTab({ actorScope, canCreate, canUpdate, canDel
       observer.disconnect();
       window.removeEventListener('resize', updateTableHeight);
     };
+  }, []);
+
+  useEffect(() => {
+    loadChinaRegionOptions().then(setRegionOptions).catch(() => { /* ignore */ });
   }, []);
 
   const fetchItems = async (
@@ -137,14 +187,26 @@ export default function WarehousesTab({ actorScope, canCreate, canUpdate, canDel
   const openCreate = () => {
     setEditingItem(null);
     form.resetFields();
-    form.setFieldsValue({ is_enabled: true });
+    form.setFieldsValue({ warehouse_name: '', is_enabled: true, region: 'CN' });
     setModalOpen(true);
   };
 
   const openEdit = (record: WarehouseItem) => {
+    const fullPath = [record.province, record.city, record.district, record.street].filter((v): v is string => !!v);
+    const fixed = record.region === 'HK' || record.region === 'MO' || record.region === 'TW'
+      ? WAREHOUSE_FIXED_PROVINCE[record.region]
+      : null;
+    const path = fixed && fullPath[0] === fixed ? fullPath.slice(1) : fullPath;
     setEditingItem(record);
     form.setFieldsValue({
+      warehouse_name: record.warehouse_name || '',
       recipient_name: record.recipient_name,
+      region: record.region || 'CN',
+      province: record.province || '',
+      city: record.city || null,
+      district: record.district || null,
+      street: record.street || null,
+      regionPath: path,
       contact_phone: record.contact_phone,
       address: record.address,
       logistics_provider_id: record.logistics_provider_id,
@@ -160,8 +222,25 @@ export default function WarehousesTab({ actorScope, canCreate, canUpdate, canDel
     } catch {
       return;
     }
+    const path = values.regionPath;
+    const safePath = path || [];
+    const completePath = isMainland ? safePath : [fixedProvince || '', ...safePath].filter(Boolean);
+    const province = isMainland ? (safePath[0] || '') : (fixedProvince || '');
+    const city = isMainland ? (safePath[1] || '') : (safePath[0] || '');
+    const district = isMainland ? (safePath[2] || '') : (safePath[1] || '');
+    const street = isMainland ? (safePath[3] || '') : (safePath[2] || '');
+    if (!isRegionPathComplete(regionOptions, completePath)) {
+      messageApi.error('请选择到最小级别（如街道 / 区县）');
+      return;
+    }
     const payload: WarehousePayload = {
+      warehouse_name: values.warehouse_name.trim(),
       recipient_name: values.recipient_name.trim(),
+      region: String(values.region || 'CN').trim().toUpperCase(),
+      province,
+      city: city || null,
+      district: district || null,
+      street: street || null,
       contact_phone: values.contact_phone.trim(),
       address: values.address.trim(),
       is_enabled: values.is_enabled,
@@ -236,6 +315,30 @@ export default function WarehousesTab({ actorScope, canCreate, canUpdate, canDel
     />
   );
 
+  const renderRegionFilter = () => (
+    <Select
+      size="small"
+      value={columnFilters.region || ''}
+      onChange={(value) => handleColumnSearch('region', value)}
+      onClick={(event) => event.stopPropagation()}
+      style={{ width: '100%' }}
+      options={[{ label: '全部', value: '' }, ...WAREHOUSE_REGIONS.map((r) => ({ label: r.label, value: r.value }))]}
+    />
+  );
+
+  const renderAreaPath = (record: WarehouseItem) => {
+    const parts = [record.province, record.city, record.district, record.street].filter((v): v is string => !!v);
+    if (record.region !== 'CN' && parts.length > 0) {
+      const fixed = record.region === 'HK' || record.region === 'MO' || record.region === 'TW'
+        ? WAREHOUSE_FIXED_PROVINCE[record.region]
+        : null;
+      if (fixed && parts[0] === fixed) {
+        return parts.slice(1).join(' / ');
+      }
+    }
+    return parts.join(' / ');
+  };
+
   const renderDateRangeInput = (key: string) => (
     <DatePicker.RangePicker
       size="small"
@@ -286,12 +389,30 @@ export default function WarehousesTab({ actorScope, canCreate, canUpdate, canDel
       }],
     },
     {
+      title: '仓库名称', key: 'warehouse_name', width: 160, sorter: true, sortOrder: sortOrderFor('warehouse_name'),
+      children: [{ title: renderSearchInput('warehouse_name', '仓库名称'), key: 'warehouse_name_child', width: 160, ellipsis: { showTitle: false }, render: (_, record) => <Tooltip title={record.warehouse_name}><span style={{ fontWeight: 600 }}>{record.warehouse_name}</span></Tooltip> }],
+    },
+    {
+      title: '国家/地区', key: 'region', width: 130, sorter: true, sortOrder: sortOrderFor('region'),
+      children: [{ title: renderRegionFilter(), key: 'region_child', width: 130, render: (_, record) => {
+        const item = WAREHOUSE_REGION_MAP[record.region];
+        return item ? <Tag color="blue">{item.label}</Tag> : (record.region || '—');
+      } }],
+    },
+    {
       title: '收货人名称', key: 'recipient_name', width: 150, sorter: true, sortOrder: sortOrderFor('recipient_name'),
       children: [{ title: renderSearchInput('recipient_name', '收货人名称'), key: 'recipient_name_child', width: 150, ellipsis: { showTitle: false }, render: (_, record) => <Tooltip title={record.recipient_name}><span style={{ fontWeight: 600 }}>{record.recipient_name}</span></Tooltip> }],
     },
     {
       title: '联系电话', key: 'contact_phone', width: 140, sorter: true, sortOrder: sortOrderFor('contact_phone'),
       children: [{ title: renderSearchInput('contact_phone', '联系电话'), key: 'contact_phone_child', width: 140, render: (_, record) => record.contact_phone }],
+    },
+    {
+      title: '所在区域', key: 'province', width: 220,
+      children: [{ title: renderSearchInput('province', '所在区域'), key: 'province_child', width: 220, ellipsis: { showTitle: false }, render: (_, record) => {
+        const text = renderAreaPath(record);
+        return text ? <Tooltip title={text}>{text}</Tooltip> : '—';
+      } }],
     },
     {
       title: '地址', key: 'address', width: 240,
@@ -339,7 +460,7 @@ export default function WarehousesTab({ actorScope, canCreate, canUpdate, canDel
         <Input.Search
           allowClear
           value={searchQuery}
-          placeholder="搜索收货人、电话、地址或物流商"
+          placeholder="搜索仓库、收货人、电话、区域、地址或物流商"
           style={{ width: 420, margin: '0 auto' }}
           onChange={(event) => {
             setSearchQuery(event.target.value);
@@ -399,11 +520,47 @@ export default function WarehousesTab({ actorScope, canCreate, canUpdate, canDel
       </div>
       <Modal title={editingItem ? '编辑仓库' : '新增仓库'} open={modalOpen} onCancel={() => setModalOpen(false)} onOk={handleSubmit} confirmLoading={submitting} okText="保存" cancelText="取消" destroyOnHidden>
         <Form form={form} layout="vertical" preserve={false}>
+          <Form.Item name="warehouse_name" label="仓库名称" rules={[{ required: true, whitespace: true, message: '请输入仓库名称' }, { max: 128 }]}>
+            <Input maxLength={128} />
+          </Form.Item>
+          <Form.Item name="region" label="国家/地区" initialValue="CN" rules={[{ required: true, message: '请选择国家/地区' }]}>
+            <Select
+              options={WAREHOUSE_REGIONS.map((r) => ({ label: r.label, value: r.value }))}
+              placeholder="请选择国家/地区"
+              onChange={() => form.setFieldValue('regionPath', [])}
+            />
+          </Form.Item>
           <Form.Item name="recipient_name" label="收货人名称" rules={[{ required: true, whitespace: true, message: '请输入收货人名称' }, { max: 128 }]}>
             <Input maxLength={128} />
           </Form.Item>
           <Form.Item name="contact_phone" label="联系电话" rules={[{ required: true, whitespace: true, message: '请输入联系电话' }, { max: 32 }]}>
-            <Input maxLength={32} />
+            <Input maxLength={32} addonBefore={currentDialCode || undefined} />
+          </Form.Item>
+          <Form.Item
+            name="regionPath"
+            label="所在区域"
+            rules={[
+              { required: true, message: isMainland ? '请选择省 / 市 / 区县 / 街道' : '请选择市 / 区县 / 街道' },
+              {
+                validator: (_rule, value: string[] | undefined) => {
+                  if (!value || value.length === 0) return Promise.resolve();
+                  const completePath = isMainland ? value : [fixedProvince || '', ...value].filter(Boolean);
+                  if (!isRegionPathComplete(regionOptions, completePath)) {
+                    return Promise.reject(new Error('请选择到最小级别（如街道 / 区县）'));
+                  }
+                  return Promise.resolve();
+                },
+              },
+            ]}
+          >
+            <Cascader
+              options={regionPathOptions}
+              placeholder={isMainland ? '请选择省 / 市 / 区县 / 街道' : '请选择市 / 区县 / 街道'}
+              showSearch={{
+                filter: (input, path) => path.some((option) => String(option.label).toLowerCase().includes(input.toLowerCase())),
+              }}
+              expandTrigger="hover"
+            />
           </Form.Item>
           <Form.Item name="address" label="地址" rules={[{ required: true, whitespace: true, message: '请输入地址' }, { max: 255 }]}>
             <Input.TextArea rows={3} maxLength={255} showCount />
