@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import adminRoutes from './routes/admin';
 import { initDb } from './db';
+import { runWithRetry } from './startup';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -63,9 +64,23 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const start = async (): Promise<void> => {
-  await initDb();
+  let dbReady = false;
+
+  try {
+    await runWithRetry(() => initDb(), {
+      retries: 2,
+      delayMs: 1500,
+      backoffMs: 1000,
+      timeoutMs: 8000,
+      label: 'database initialization',
+    });
+    dbReady = true;
+  } catch (error) {
+    console.warn('[API] database initialization did not complete; continuing to serve health checks', error);
+  }
+
   app.listen(port, host, () => {
-    console.log(`[API] running on http://${host}:${port}`);
+    console.log(`[API] running on http://${host}:${port} (dbReady=${dbReady})`);
   });
 };
 
