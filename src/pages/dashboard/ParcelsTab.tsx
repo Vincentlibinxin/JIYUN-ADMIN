@@ -14,6 +14,7 @@ interface Parcel {
   origin: string;
   destination: string;
   weight: number | null;
+  cod_amount: number | null;
   length_cm: number | null;
   width_cm: number | null;
   height_cm: number | null;
@@ -22,8 +23,7 @@ interface Parcel {
   storage_bin: string | null;
   status: string;
   sub_status: string | null;
-  status_remark: string | null;
-  status_updated_at: string | null;
+  remark: string | null;
   estimated_delivery: string | null;
   created_at: string;
   username: string | null;
@@ -410,9 +410,11 @@ export default memo(function ParcelsTab({
       const fd = new FormData();
       fd.append('tracking_number', values.tracking_number);
       fd.append('weight', String(values.weight));
+      fd.append('cod_amount', values.cod_amount != null ? String(values.cod_amount) : '');
       fd.append('length_cm', String(values.length_cm));
       fd.append('width_cm', String(values.width_cm));
       fd.append('height_cm', String(values.height_cm));
+      fd.append('remark', values.remark != null ? String(values.remark) : '');
       fd.append('storage_bin', values.storage_bin != null ? String(values.storage_bin) : '');
       fd.append('logistics_provider_id', values.logistics_provider_id != null ? String(values.logistics_provider_id) : '');
       fd.append('sender_address_id', values.sender_address_id != null ? String(values.sender_address_id) : '');
@@ -442,9 +444,9 @@ export default memo(function ParcelsTab({
       tracking_number: record.tracking_number,
       username: record.username || '',
       created_at: record.created_at ? dayjs(record.created_at).format('YYYY-MM-DD HH:mm:ss') : '',
-      status_updated_at: record.status_updated_at ? dayjs(record.status_updated_at).format('YYYY-MM-DD HH:mm:ss') : '',
       estimated_delivery: record.estimated_delivery ? dayjs(record.estimated_delivery).format('YYYY-MM-DD HH:mm:ss') : '',
       weight: record.weight,
+      cod_amount: record.cod_amount,
       length_cm: record.length_cm,
       width_cm: record.width_cm,
       height_cm: record.height_cm,
@@ -453,7 +455,7 @@ export default memo(function ParcelsTab({
       destination: record.destination || '',
       status: record.status,
       sub_status: record.sub_status || undefined,
-      status_remark: record.status_remark || '',
+      remark: record.remark || '',
       storage_bin: record.storage_bin || '',
       logistics_provider_id: record.logistics_provider_id ?? undefined,
       sender_address_id: record.sender_address_id ?? undefined,
@@ -485,6 +487,7 @@ export default memo(function ParcelsTab({
       setEditLoading(true);
       const fd = new FormData();
       fd.append('weight', String(values.weight));
+      fd.append('cod_amount', values.cod_amount != null ? String(values.cod_amount) : '');
       fd.append('length_cm', String(values.length_cm));
       fd.append('width_cm', String(values.width_cm));
       fd.append('height_cm', String(values.height_cm));
@@ -492,7 +495,7 @@ export default memo(function ParcelsTab({
       fd.append('destination', values.destination || '');
       fd.append('status', values.status || editingParcel.status);
       fd.append('sub_status', values.sub_status || '');
-      fd.append('status_remark', values.status_remark || '');
+      fd.append('remark', values.remark != null ? String(values.remark) : '');
       fd.append('storage_bin', values.storage_bin != null ? String(values.storage_bin) : '');
       fd.append('logistics_provider_id', values.logistics_provider_id != null ? String(values.logistics_provider_id) : '');
       fd.append('sender_address_id', values.sender_address_id != null ? String(values.sender_address_id) : '');
@@ -762,6 +765,19 @@ export default memo(function ParcelsTab({
           key: 'weight_child',
           width: 100,
           render: (_, record) => (record.weight != null ? `${record.weight.toFixed(2)}` : ''),
+        },
+      ],
+    },
+    {
+      title: '代收款',
+      key: 'cod_amount',
+      width: 110,
+      children: [
+        {
+          title: renderSearchInput('cod_amount', '代收款'),
+          key: 'cod_amount_child',
+          width: 110,
+          render: (_, record) => (record.cod_amount != null ? Number(record.cod_amount).toFixed(2) : ''),
         },
       ],
     },
@@ -1281,6 +1297,9 @@ export default memo(function ParcelsTab({
           <Form.Item name="weight" label="重量 (kg)" rules={[{ required: true, message: '请输入重量' }]}>
             <InputNumber min={0.01} step={0.01} precision={2} style={{ width: '100%' }} placeholder="请输入重量" />
           </Form.Item>
+          <Form.Item name="cod_amount" label="代收款 (元)">
+            <InputNumber min={0} step={0.01} precision={2} style={{ width: '100%' }} placeholder="请输入代收款（可选）" />
+          </Form.Item>
           <div style={{ display: 'flex', gap: 12 }}>
             <Form.Item name="length_cm" label="长 (cm)" rules={[{ required: true, message: '请输入长' }]} style={{ flex: 1 }}>
               <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="长" />
@@ -1294,6 +1313,9 @@ export default memo(function ParcelsTab({
           </div>
           <Form.Item name="storage_bin" label="库位号">
             <Input maxLength={64} placeholder="请输入库位号（可选）" />
+          </Form.Item>
+          <Form.Item name="remark" label="备注（运单备注）">
+            <Input.TextArea maxLength={255} rows={2} showCount placeholder="请输入运单备注（可选）" />
           </Form.Item>
           <Form.Item name="logistics_provider_id" label="物流商">
             <Select
@@ -1443,14 +1465,8 @@ export default memo(function ParcelsTab({
               <Form.Item name="status" label="货物态" style={{ marginBottom: 8 }}>
                 <Select showSearch optionFilterProp="label" options={cargoStatusOptions} />
               </Form.Item>
-              <Form.Item name="sub_status" label="信息态" style={{ marginBottom: 8 }}>
+              <Form.Item name="sub_status" label="信息态" style={{ marginBottom: 0 }}>
                 <Select allowClear showSearch optionFilterProp="label" placeholder="可选" options={infoStatusOptions} />
-              </Form.Item>
-              <Form.Item name="status_updated_at" label="状态更新时间" style={{ marginBottom: 8 }}>
-                <Input disabled placeholder="-" />
-              </Form.Item>
-              <Form.Item name="status_remark" label="状态备注" style={{ marginBottom: 0 }}>
-                <Input.TextArea rows={4} maxLength={255} placeholder="可选，填写异常原因或备注信息" />
               </Form.Item>
             </div>
           </div>
@@ -1496,6 +1512,11 @@ export default memo(function ParcelsTab({
                 </Form.Item>
               </Col>
               <Col span={6}>
+                <Form.Item name="cod_amount" label="代收款 (元)" style={{ marginBottom: 8 }}>
+                  <InputNumber min={0} step={0.01} precision={2} style={{ width: '100%' }} placeholder="请输入代收款（可选）" />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
                 <Form.Item name="length_cm" label="长 (cm)" rules={[{ required: true, message: '请输入长' }]} style={{ marginBottom: 8 }}>
                   <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="长" />
                 </Form.Item>
@@ -1512,17 +1533,22 @@ export default memo(function ParcelsTab({
               </Col>
             </Row>
             <Row gutter={8}>
-              <Col span={8}>
+              <Col span={6}>
+                <Form.Item name="remark" label="备注（运单备注）" style={{ marginBottom: 8 }}>
+                  <Input maxLength={255} placeholder="请输入运单备注（可选）" />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
                 <Form.Item name="volume" label="体积" style={{ marginBottom: 8 }}>
                   <InputNumber disabled style={{ width: '100%' }} placeholder="系统计算" />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+              <Col span={6}>
                 <Form.Item name="storage_bin" label="库位号" style={{ marginBottom: 8 }}>
                   <Input maxLength={64} placeholder="请输入库位号（可选）" />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+              <Col span={6}>
                 <Form.Item name="estimated_delivery" label="预计到达" style={{ marginBottom: 8 }}>
                   <Input disabled placeholder="-" />
                 </Form.Item>

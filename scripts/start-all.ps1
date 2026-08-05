@@ -1,6 +1,6 @@
 ﻿param(
   [Parameter(Mandatory = $false)]
-  [ValidateSet('auto', 'dev', 'prod', 'stop')]
+  [ValidateSet('auto', 'dev', 'prod', 'stop', 'api')]
   [string]$Mode = 'auto'
 )
 
@@ -11,6 +11,7 @@ $ErrorActionPreference = 'Stop'
 #    -Mode dev   开发环境：后端 tsx watch 热重载 + 前端 Vite HMR
 #    -Mode prod  生产环境：npm run build + 后台 api/preview + 健康检查
 #    -Mode stop  停止占用 3001 / 3002 端口的服务
+#    -Mode api   仅重启后端 API（用于快速排查 500）
 # ============================================================
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -66,6 +67,67 @@ function Stop-OldServices {
   }
 }
 
+function Restart-ApiOnly {
+  $npmCmd = Resolve-Npm
+  Write-Host '============================================================' -ForegroundColor DarkCyan
+  Write-Host '            跨境物流系统 - 仅重启后端 API' -ForegroundColor White
+  Write-Host '============================================================' -ForegroundColor DarkCyan
+  Write-Host ''
+  Write-Host '==> 停止占用端口 3001 的旧进程' -ForegroundColor Cyan
+  $listeners = Get-NetTCPConnection -LocalPort 3001 -State Listen -ErrorAction SilentlyContinue
+  if ($listeners) {
+    $ids = $listeners | Select-Object -ExpandProperty OwningProcess -Unique
+    foreach ($id in $ids) {
+      $proc = Get-Process -Id $id -ErrorAction SilentlyContinue
+      if ($proc -and $proc.ProcessName -eq 'Code') {
+        Write-Warn2 "端口 3001 被 VS Code 进程 (PID=$id) 占用，已跳过。"
+        continue
+      }
+      try {
+        Stop-Process -Id $id -Force -ErrorAction Stop
+        Write-Ok "已停止端口 3001 上的进程 PID=$id"
+      } catch {
+        Write-Warn2 "无法停止端口 3001 上的进程 PID=$id：$($_.Exception.Message)"
+      }
+    }
+  } else {
+    Write-Ok '端口 3001 当前无旧进程。'
+  }
+
+  Write-Host ''
+  Write-Host '==> 启动后端 API（3001）' -ForegroundColor Cyan
+  $apiOut = Join-Path $logDir 'api.out.log'
+  $apiErr = Join-Path $logDir 'api.err.log'
+  Start-Process -FilePath $npmCmd -ArgumentList @('run', 'api') -WorkingDirectory $repoRoot -WindowStyle Hidden -RedirectStandardOutput $apiOut -RedirectStandardError $apiErr
+
+  $apiReady = $false
+  $deadline = (Get-Date).AddSeconds(30)
+  while ((Get-Date) -lt $deadline) {
+    try {
+      $apiResp = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:3001' -TimeoutSec 3
+      if ($apiResp.StatusCode -ge 200) {
+        $apiReady = $true
+        break
+      }
+    } catch {
+      if ($_.Exception.Response) {
+        $status = [int]$_.Exception.Response.StatusCode
+        if ($status -eq 401 -or $status -eq 404) {
+          $apiReady = $true
+          break
+        }
+      }
+    }
+    Start-Sleep -Milliseconds 800
+  }
+
+  if ($apiReady) {
+    Write-Ok '后端 API 已重启并可访问。'
+  } else {
+    Write-Warn2 '后端 API 启动后未通过快速检查，请查看 logs\api.err.log。'
+  }
+}
+
 # --- 自动环境判断（本机=开发，其它机器=生产）---
 # 开发机器名清单：如果你还有其它开发电脑，把它的计算机名追加到这里即可
 $DevMachineNames = @('VINSHUAWEILAPTO')
@@ -96,6 +158,9 @@ switch ($Mode) {
     Stop-OldServices
     Write-Host ''
     Write-Ok '已停止 3001 / 3002 端口上的服务。'
+  }
+  'api' {
+    Restart-ApiOnly
   }
   'prod' {
     # 生产环境：直接复用现有的重构建+重启脚本（build + 后台 api/preview + 健康检查）

@@ -71,7 +71,7 @@ const start = async (): Promise<void> => {
       retries: 2,
       delayMs: 1500,
       backoffMs: 1000,
-      timeoutMs: 8000,
+      timeoutMs: 60000,
       label: 'database initialization',
     });
     dbReady = true;

@@ -23,6 +23,7 @@ interface IdentityDocument {
   user_id: number;
   logistics_provider_id: number;
   holder_name: string | null;
+  holder_phone: string | null;
   remarks: string | null;
   logistics_provider_name: string | null;
   member_username: string | null;
@@ -52,6 +53,7 @@ interface FormValues {
   user_id: number;
   logistics_provider_id?: number;
   holder_name?: string;
+  holder_phone?: string;
   remarks?: string;
 }
 
@@ -254,6 +256,7 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
       user_id: record.user_id,
       logistics_provider_id: record.logistics_provider_id,
       holder_name: record.holder_name || undefined,
+      holder_phone: record.holder_phone || undefined,
       remarks: record.remarks || undefined,
     });
     setModalOpen(true);
@@ -271,6 +274,7 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
         ...values,
         document_number: values.document_number.trim(),
         holder_name: values.holder_name?.trim() || null,
+        holder_phone: values.holder_phone?.trim() || null,
         remarks: values.remarks?.trim() || null,
         logistics_provider_id: actorScope === 'platform' ? values.logistics_provider_id : undefined,
       };
@@ -387,8 +391,12 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
       children: [{ title: renderSearchInput('user_id', '会员ID'), key: 'user_id_child', width: 170, ellipsis: { showTitle: false }, render: (_, record) => <Tooltip title={record.member_phone || undefined}>{formatMember(record)}</Tooltip> }],
     },
     {
-      title: '持证人姓名', key: 'holder_name', width: 140, sorter: true, sortOrder: sortOrderFor('holder_name'),
+      title: '持证人名称', key: 'holder_name', width: 140, sorter: true, sortOrder: sortOrderFor('holder_name'),
       children: [{ title: renderSearchInput('holder_name', '持证人'), key: 'holder_name_child', width: 140, ellipsis: { showTitle: false }, render: (_, record) => record.holder_name || '—' }],
+    },
+    {
+      title: '电话', key: 'holder_phone', width: 150,
+      children: [{ title: renderSearchInput('holder_phone', '电话'), key: 'holder_phone_child', width: 150, ellipsis: { showTitle: false }, render: (_, record) => record.holder_phone || '—' }],
     },
     {
       title: '物流商', key: 'logistics_provider_id', width: 150, sorter: true, sortOrder: sortOrderFor('logistics_provider_id'),
@@ -540,7 +548,8 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
               }))}
             />
           </Form.Item>
-          <Form.Item name="holder_name" label="持证人姓名"><Input maxLength={128} placeholder="选填" /></Form.Item>
+          <Form.Item name="holder_name" label="持证人名称"><Input maxLength={128} placeholder="选填" /></Form.Item>
+          <Form.Item name="holder_phone" label="电话"><Input maxLength={32} placeholder="选填（非必填）" /></Form.Item>
           <Form.Item name="remarks" label="备注"><Input.TextArea maxLength={255} rows={3} showCount placeholder="选填" /></Form.Item>
         </Form>
       </Modal>

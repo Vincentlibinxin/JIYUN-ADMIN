@@ -1545,9 +1545,9 @@ router.patch('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS
     res.status(400).json({ error: '信息态不合法' });
     return;
   }
-  const statusRemark = req.body?.status_remark !== undefined ? String(req.body.status_remark || '').trim().slice(0, 255) || null : undefined;
+  const remark = req.body?.remark !== undefined ? String(req.body.remark || '').trim().slice(0, 255) || null : undefined;
   const operatorId = (req as any).adminId || null;
-  const ok = await updateParcelStatus(parcelId, status, subStatus, statusRemark, operatorId);
+  const ok = await updateParcelStatus(parcelId, status, subStatus, remark, operatorId);
   if (!ok) {
     res.status(404).json({ error: '包裹不存在' });
     return;
@@ -1579,17 +1579,22 @@ const parcelUpload = multer({
 });
 
 router.post('/parcels/inbound', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_CREATE), parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
-  const { tracking_number, weight, length_cm, width_cm, height_cm, shelf_location, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, items: itemsJson } = req.body;
+  const { tracking_number, weight, cod_amount, length_cm, width_cm, height_cm, remark, shelf_location, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, items: itemsJson } = req.body;
   if (!tracking_number || typeof tracking_number !== 'string' || !tracking_number.trim()) {
     res.status(400).json({ error: '包裹单号不能为空' });
     return;
   }
   const w = Number(weight);
+  const codAmount = cod_amount !== undefined && cod_amount !== null && String(cod_amount).trim() !== '' ? Number(cod_amount) : undefined;
   const l = Number(length_cm);
   const wi = Number(width_cm);
   const h = Number(height_cm);
   if (isNaN(w) || w <= 0 || isNaN(l) || l <= 0 || isNaN(wi) || wi <= 0 || isNaN(h) || h <= 0) {
     res.status(400).json({ error: '重量和尺寸必须为正数' });
+    return;
+  }
+  if (codAmount !== undefined && (!Number.isFinite(codAmount) || codAmount < 0)) {
+    res.status(400).json({ error: '代收款必须为非负数' });
     return;
   }
   let items: { name: string; value: number; quantity: number }[];
@@ -1638,11 +1643,13 @@ router.post('/parcels/inbound', adminAuth, csrfGuard, requirePermission(PERMISSI
     const insertId = await createParcelInbound({
       tracking_number: tracking_number.trim(),
       weight: w,
+      cod_amount: codAmount,
       length_cm: l,
       width_cm: wi,
       height_cm: h,
       volume,
       images: imageUrls || undefined,
+      remark: typeof remark === 'string' ? remark.trim() : undefined,
       shelf_location: typeof shelf_location === 'string' ? shelf_location.trim() || undefined : undefined,
       storage_bin: typeof storage_bin === 'string' ? storage_bin.trim() || undefined : undefined,
       logistics_provider_id: resolvedProviderId,
@@ -1667,13 +1674,18 @@ router.get('/parcels/:id/items', adminAuth, requirePermission(PERMISSIONS.PARCEL
 router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE), parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
   const parcelId = Number(req.params.id);
   if (denyCrossProvider(req, res, await getParcelOwnerProviderId(parcelId))) return;
-  const { weight, length_cm, width_cm, height_cm, origin, destination, status, sub_status, status_remark, storage_bin, items: itemsJson, existing_images, logistics_provider_id, sender_address_id, recipient_address_id } = req.body;
+  const { weight, cod_amount, length_cm, width_cm, height_cm, origin, destination, status, sub_status, remark, storage_bin, items: itemsJson, existing_images, logistics_provider_id, sender_address_id, recipient_address_id } = req.body;
   const w = Number(weight);
+  const codAmount = cod_amount !== undefined && cod_amount !== null && String(cod_amount).trim() !== '' ? Number(cod_amount) : undefined;
   const l = Number(length_cm);
   const wi = Number(width_cm);
   const h = Number(height_cm);
   if (isNaN(w) || w <= 0 || isNaN(l) || l <= 0 || isNaN(wi) || wi <= 0 || isNaN(h) || h <= 0) {
     res.status(400).json({ error: '重量和尺寸必须为正数' });
+    return;
+  }
+  if (codAmount !== undefined && (!Number.isFinite(codAmount) || codAmount < 0)) {
+    res.status(400).json({ error: '代收款必须为非负数' });
     return;
   }
   // 货物态/信息态必须取自《包裹状态字典》对应类型的启用值
@@ -1733,6 +1745,7 @@ router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.P
   try {
     const ok = await updateParcel(parcelId, {
       weight: w,
+      cod_amount: codAmount,
       length_cm: l,
       width_cm: wi,
       height_cm: h,
@@ -1741,7 +1754,7 @@ router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.P
       destination: typeof destination === 'string' ? destination.trim() : undefined,
       status: typeof status === 'string' ? status.trim() : undefined,
       sub_status: typeof sub_status === 'string' ? sub_status.trim() : undefined,
-      status_remark: typeof status_remark === 'string' ? status_remark.trim() : undefined,
+      remark: typeof remark === 'string' ? remark.trim() : undefined,
       images: allImages || undefined,
       storage_bin: typeof storage_bin === 'string' ? storage_bin.trim() : undefined,
       logistics_provider_id: editProviderId,
@@ -3453,7 +3466,12 @@ const parseIdentityDocumentBody = async (
   }
   const holderName = String(req.body?.holder_name ?? '').trim();
   if (holderName.length > 128) {
-    res.status(400).json({ error: '持证人姓名不能超过128个字符' });
+    res.status(400).json({ error: '持证人名称不能超过128个字符' });
+    return null;
+  }
+  const holderPhone = String(req.body?.holder_phone ?? '').trim();
+  if (holderPhone.length > 32) {
+    res.status(400).json({ error: '电话不能超过32个字符' });
     return null;
   }
   const remarks = String(req.body?.remarks ?? '').trim();
@@ -3467,6 +3485,7 @@ const parseIdentityDocumentBody = async (
     user_id: userId,
     logistics_provider_id: logisticsProviderId,
     holder_name: holderName || null,
+    holder_phone: holderPhone || null,
     remarks: remarks || null,
   };
 };

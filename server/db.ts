@@ -556,6 +556,7 @@ export const initDb = async (): Promise<void> => {
         origin VARCHAR(255) NOT NULL,
         destination VARCHAR(255) NOT NULL,
         weight DOUBLE,
+        cod_amount DECIMAL(10, 2) DEFAULT NULL,
         length_cm DOUBLE,
         width_cm DOUBLE,
         height_cm DOUBLE,
@@ -578,6 +579,9 @@ export const initDb = async (): Promise<void> => {
     if (!existingCols.has('length_cm')) {
       await connection.execute(`ALTER TABLE parcels ADD COLUMN length_cm DOUBLE AFTER weight`);
     }
+    if (!existingCols.has('cod_amount')) {
+      await connection.execute(`ALTER TABLE parcels ADD COLUMN cod_amount DECIMAL(10, 2) DEFAULT NULL AFTER weight`);
+    }
     if (!existingCols.has('width_cm')) {
       await connection.execute(`ALTER TABLE parcels ADD COLUMN width_cm DOUBLE AFTER length_cm`);
     }
@@ -599,11 +603,22 @@ export const initDb = async (): Promise<void> => {
     if (!existingCols.has('sub_status')) {
       await connection.execute(`ALTER TABLE parcels ADD COLUMN sub_status VARCHAR(64) DEFAULT NULL AFTER status`);
     }
-    if (!existingCols.has('status_remark')) {
-      await connection.execute(`ALTER TABLE parcels ADD COLUMN status_remark VARCHAR(255) DEFAULT NULL AFTER sub_status`);
+    if (!existingCols.has('remark')) {
+      await connection.execute(`ALTER TABLE parcels ADD COLUMN remark VARCHAR(255) DEFAULT NULL AFTER sub_status`);
     }
-    if (!existingCols.has('status_updated_at')) {
-      await connection.execute(`ALTER TABLE parcels ADD COLUMN status_updated_at DATETIME DEFAULT NULL AFTER status_remark`);
+    // 迁移历史状态备注到运单备注：仅回填 remark 为空的记录，避免覆盖已有运单备注。
+    if (existingCols.has('status_remark')) {
+      await connection.execute(`
+        UPDATE parcels
+        SET remark = status_remark
+        WHERE (remark IS NULL OR TRIM(remark) = '')
+          AND status_remark IS NOT NULL
+          AND TRIM(status_remark) <> ''
+      `);
+      await connection.execute(`ALTER TABLE parcels DROP COLUMN status_remark`);
+    }
+    if (existingCols.has('status_updated_at')) {
+      await connection.execute(`ALTER TABLE parcels DROP COLUMN status_updated_at`);
     }
     if (!existingCols.has('logistics_provider_id')) {
       await connection.execute(`ALTER TABLE parcels ADD COLUMN logistics_provider_id INT DEFAULT NULL AFTER shelf_location`);
@@ -855,6 +870,7 @@ export const initDb = async (): Promise<void> => {
         user_id INT NOT NULL,
         logistics_provider_id INT NOT NULL,
         holder_name VARCHAR(128) DEFAULT NULL,
+        holder_phone VARCHAR(32) DEFAULT NULL,
         remarks VARCHAR(255) DEFAULT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -974,6 +990,15 @@ export const initDb = async (): Promise<void> => {
     }
     if (!existingAddressBookCols.has('street')) {
       await connection.execute(`ALTER TABLE address_book ADD COLUMN street VARCHAR(64) DEFAULT NULL AFTER district`);
+    }
+
+    // Migration: ensure identity_documents 持证人电话列存在（老库补齐）
+    const [identityDocumentCols] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'identity_documents'`
+    );
+    const existingIdentityDocumentCols = new Set((identityDocumentCols as any[]).map((r: any) => r.COLUMN_NAME));
+    if (!existingIdentityDocumentCols.has('holder_phone')) {
+      await connection.execute(`ALTER TABLE identity_documents ADD COLUMN holder_phone VARCHAR(32) DEFAULT NULL AFTER holder_name`);
     }
 
     // 航线运输管理 - 航线（按物流商归属）
@@ -2205,7 +2230,7 @@ export const searchSms = async (keyword: string, startDate?: string, endDate?: s
   return rows as any[];
 };
 
-const PARCELS_SORT_COLUMNS = new Set(['id', 'user_id', 'tracking_number', 'origin', 'destination', 'weight', 'length_cm', 'width_cm', 'height_cm', 'volume', 'storage_bin', 'status', 'estimated_delivery', 'created_at']);
+const PARCELS_SORT_COLUMNS = new Set(['id', 'user_id', 'tracking_number', 'origin', 'destination', 'weight', 'cod_amount', 'length_cm', 'width_cm', 'height_cm', 'volume', 'storage_bin', 'status', 'estimated_delivery', 'created_at']);
 const PARCELS_USERNAME_COL = 'username';
 
 export const getParcelsPaged = async (
@@ -2311,9 +2336,9 @@ export const getParcelsPaged = async (
     : `p.${toSafeOrderBy(sortKey, sortOrder, PARCELS_SORT_COLUMNS, 'created_at')}`;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
-            p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images, p.storage_bin,
-            p.status, p.sub_status, p.status_remark, p.status_updated_at,
+        `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
+          p.weight, p.cod_amount, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images, p.storage_bin,
+          p.status, p.sub_status, p.remark,
             p.estimated_delivery, p.created_at, p.deleted_at,
             p.logistics_provider_id, lp.name AS logistics_provider_name,
           p.sender_address_id, sender.name AS sender_name, sender.phone AS sender_phone,
@@ -2452,7 +2477,7 @@ export const getParcelsForExport = async (
       OR p.storage_bin LIKE ?
       OR p.status LIKE ?
       OR p.sub_status LIKE ?
-      OR p.status_remark LIKE ?
+      OR p.remark LIKE ?
       OR CAST(p.created_at AS CHAR) LIKE ?
       OR u.username LIKE ?
       OR lp.name LIKE ?
@@ -2537,9 +2562,9 @@ export const getParcelsForExport = async (
     : `p.${toSafeOrderBy(sortKey, sortOrder, PARCELS_SORT_COLUMNS, 'created_at')}`;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
-            p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume,
-            p.status, p.sub_status, p.status_remark, p.created_at,
+        `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
+          p.weight, p.cod_amount, p.length_cm, p.width_cm, p.height_cm, p.volume,
+          p.status, p.sub_status, p.remark, p.created_at,
             u.username AS username,
             (SELECT GROUP_CONCAT(pi.name SEPARATOR ',') FROM parcel_items pi WHERE pi.parcel_id = p.id) AS item_names,
             (SELECT GROUP_CONCAT(pi.value SEPARATOR ',') FROM parcel_items pi WHERE pi.parcel_id = p.id) AS item_values,
@@ -2565,12 +2590,13 @@ export const searchParcels = async (keyword: string, startDate?: string, endDate
     OR p.origin LIKE ?
     OR p.destination LIKE ?
     OR CAST(p.weight AS CHAR) LIKE ?
+    OR CAST(p.cod_amount AS CHAR) LIKE ?
     OR CONCAT_WS('*', p.length_cm, p.width_cm, p.height_cm) LIKE ?
     OR CAST(p.volume AS CHAR) LIKE ?
     OR p.storage_bin LIKE ?
     OR p.status LIKE ?
     OR p.sub_status LIKE ?
-    OR p.status_remark LIKE ?
+    OR p.remark LIKE ?
     OR CAST(p.created_at AS CHAR) LIKE ?
     OR u.username LIKE ?
     OR lp.name LIKE ?
@@ -2588,8 +2614,8 @@ export const searchParcels = async (keyword: string, startDate?: string, endDate
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT p.id, p.user_id, p.tracking_number, p.origin, p.destination,
-          p.weight, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images, p.storage_bin,
-            p.status, p.sub_status, p.status_remark, p.status_updated_at,
+          p.weight, p.cod_amount, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images, p.storage_bin,
+            p.status, p.sub_status, p.remark,
             p.estimated_delivery, p.created_at,
             p.logistics_provider_id, lp.name AS logistics_provider_name,
           p.sender_address_id, sender.name AS sender_name, sender.phone AS sender_phone,
@@ -2627,6 +2653,7 @@ export const searchParcels = async (keyword: string, startDate?: string, endDate
       like,
       like,
       like,
+      like,
       ...params,
       ...provParams,
     ]
@@ -2638,7 +2665,7 @@ export const updateParcelStatus = async (
   parcelId: number,
   status: string,
   subStatus?: string | null,
-  statusRemark?: string | null,
+  remark?: string | null,
   operatorId?: number | null
 ): Promise<boolean> => {
   const conn = await pool.getConnection();
@@ -2657,10 +2684,10 @@ export const updateParcelStatus = async (
     const fromStatus = rows[0].status;
 
     // Update parcel status
-    const sets: string[] = ['status = ?', 'status_updated_at = NOW()', 'updated_at = NOW()'];
+    const sets: string[] = ['status = ?', 'updated_at = NOW()'];
     const params: any[] = [status];
     if (subStatus !== undefined) { sets.push('sub_status = ?'); params.push(subStatus || null); }
-    if (statusRemark !== undefined) { sets.push('status_remark = ?'); params.push(statusRemark || null); }
+    if (remark !== undefined) { sets.push('remark = ?'); params.push(remark || null); }
     params.push(parcelId);
 
     const [result] = await conn.execute<mysql.ResultSetHeader>(
@@ -2676,7 +2703,7 @@ export const updateParcelStatus = async (
     await conn.execute(
       `INSERT INTO parcel_status_logs (parcel_id, from_status, to_status, sub_status, remark, operator_id)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [parcelId, fromStatus, status, subStatus || null, statusRemark || null, operatorId || null]
+      [parcelId, fromStatus, status, subStatus || null, remark || null, operatorId || null]
     );
 
     await conn.commit();
@@ -2692,11 +2719,13 @@ export const updateParcelStatus = async (
 export const createParcelInbound = async (payload: {
   tracking_number: string;
   weight: number;
+  cod_amount?: number | null;
   length_cm: number;
   width_cm: number;
   height_cm: number;
   volume: number;
   images?: string;
+  remark?: string;
   shelf_location?: string;
   storage_bin?: string;
   logistics_provider_id?: number | null;
@@ -2704,7 +2733,7 @@ export const createParcelInbound = async (payload: {
   recipient_address_id?: number | null;
   items: { name: string; value: number; quantity: number }[];
 }): Promise<number> => {
-  const { tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, items } = payload;
+  const { tracking_number, weight, cod_amount, length_cm, width_cm, height_cm, volume, images, remark, shelf_location, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, items } = payload;
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -2720,20 +2749,20 @@ export const createParcelInbound = async (payload: {
       // Update existing parcel with new inbound info (restore if soft-deleted)
       parcelId = existing[0].id;
       await conn.execute(
-        `UPDATE parcels SET weight = ?, length_cm = ?, width_cm = ?, height_cm = ?, volume = ?,
-         images = ?, shelf_location = ?, storage_bin = ?, logistics_provider_id = ?, sender_address_id = ?, recipient_address_id = ?, status = 'warehoused', status_updated_at = NOW(),
+        `UPDATE parcels SET weight = ?, cod_amount = ?, length_cm = ?, width_cm = ?, height_cm = ?, volume = ?,
+         images = ?, remark = ?, shelf_location = ?, storage_bin = ?, logistics_provider_id = ?, sender_address_id = ?, recipient_address_id = ?, status = 'warehoused',
          deleted_at = NULL, updated_at = NOW()
          WHERE id = ?`,
-        [weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, storage_bin || null, logistics_provider_id || null, sender_address_id || null, recipient_address_id || null, parcelId]
+        [weight, cod_amount ?? null, length_cm, width_cm, height_cm, volume, images || null, remark || null, shelf_location || null, storage_bin || null, logistics_provider_id || null, sender_address_id || null, recipient_address_id || null, parcelId]
       );
       // Remove old items, will re-insert below
       await conn.execute('DELETE FROM parcel_items WHERE parcel_id = ?', [parcelId]);
     } else {
       // Insert new parcel
       const [result] = await conn.execute<mysql.ResultSetHeader>(
-        `INSERT INTO parcels (tracking_number, weight, length_cm, width_cm, height_cm, volume, images, shelf_location, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, origin, destination, status, status_updated_at, user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 'warehoused', NOW(), NULL)`,
-        [tracking_number, weight, length_cm, width_cm, height_cm, volume, images || null, shelf_location || null, storage_bin || null, logistics_provider_id || null, sender_address_id || null, recipient_address_id || null]
+        `INSERT INTO parcels (tracking_number, weight, cod_amount, length_cm, width_cm, height_cm, volume, images, remark, shelf_location, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, origin, destination, status, user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 'warehoused', NULL)`,
+        [tracking_number, weight, cod_amount ?? null, length_cm, width_cm, height_cm, volume, images || null, remark || null, shelf_location || null, storage_bin || null, logistics_provider_id || null, sender_address_id || null, recipient_address_id || null]
       );
       parcelId = result.insertId;
     }
@@ -2769,6 +2798,7 @@ export const getParcelItems = async (parcelId: number): Promise<{ id: number; na
 
 export const updateParcel = async (parcelId: number, payload: {
   weight: number;
+  cod_amount?: number | null;
   length_cm: number;
   width_cm: number;
   height_cm: number;
@@ -2777,7 +2807,7 @@ export const updateParcel = async (parcelId: number, payload: {
   destination?: string;
   status?: string;
   sub_status?: string;
-  status_remark?: string;
+  remark?: string;
   images?: string;
   storage_bin?: string;
   logistics_provider_id?: number | null;
@@ -2785,17 +2815,17 @@ export const updateParcel = async (parcelId: number, payload: {
   recipient_address_id?: number | null;
   items: { name: string; value: number; quantity: number }[];
 }): Promise<boolean> => {
-  const { weight, length_cm, width_cm, height_cm, volume, origin, destination, status, sub_status, status_remark, images, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, items } = payload;
+  const { weight, cod_amount, length_cm, width_cm, height_cm, volume, origin, destination, status, sub_status, remark, images, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, items } = payload;
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const sets: string[] = ['weight = ?', 'length_cm = ?', 'width_cm = ?', 'height_cm = ?', 'volume = ?', 'updated_at = NOW()'];
-    const params: any[] = [weight, length_cm, width_cm, height_cm, volume];
+    const sets: string[] = ['weight = ?', 'cod_amount = ?', 'length_cm = ?', 'width_cm = ?', 'height_cm = ?', 'volume = ?', 'updated_at = NOW()'];
+    const params: any[] = [weight, cod_amount ?? null, length_cm, width_cm, height_cm, volume];
     if (origin !== undefined) { sets.push('origin = ?'); params.push(origin); }
     if (destination !== undefined) { sets.push('destination = ?'); params.push(destination); }
-    if (status !== undefined) { sets.push('status = ?'); sets.push('status_updated_at = NOW()'); params.push(status); }
+    if (status !== undefined) { sets.push('status = ?'); params.push(status); }
     if (sub_status !== undefined) { sets.push('sub_status = ?'); params.push(sub_status || null); }
-    if (status_remark !== undefined) { sets.push('status_remark = ?'); params.push(status_remark || null); }
+    if (remark !== undefined) { sets.push('remark = ?'); params.push(remark || null); }
     if (images !== undefined) { sets.push('images = ?'); params.push(images || null); }
     if (storage_bin !== undefined) { sets.push('storage_bin = ?'); params.push(storage_bin || null); }
     if (logistics_provider_id !== undefined) { sets.push('logistics_provider_id = ?'); params.push(logistics_provider_id || null); }
@@ -4212,7 +4242,7 @@ export const batchDeleteAddressBook = async (ids: number[]): Promise<number> => 
 // ============ 证件管理（绑定会员与物流商） ============
 
 const IDENTITY_DOCUMENT_SORT_COLUMNS = new Set([
-  'id', 'document_type', 'document_number', 'user_id', 'logistics_provider_id', 'holder_name', 'remarks', 'created_at', 'updated_at',
+  'id', 'document_type', 'document_number', 'user_id', 'logistics_provider_id', 'holder_name', 'holder_phone', 'remarks', 'created_at', 'updated_at',
 ]);
 
 export interface IdentityDocumentPayload {
@@ -4221,6 +4251,7 @@ export interface IdentityDocumentPayload {
   user_id: number;
   logistics_provider_id: number;
   holder_name?: string | null;
+  holder_phone?: string | null;
   remarks?: string | null;
 }
 
@@ -4247,7 +4278,7 @@ export const getIdentityDocumentsPaged = async (
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT d.id, d.document_type, d.document_number, d.user_id, d.logistics_provider_id,
-            d.holder_name, d.remarks, d.created_at, d.updated_at,
+            d.holder_name, d.holder_phone, d.remarks, d.created_at, d.updated_at,
             lp.name AS logistics_provider_name, u.username AS member_username,
             u.real_name AS member_real_name, u.phone AS member_phone
      FROM identity_documents d
@@ -4269,17 +4300,17 @@ export const getIdentityDocumentsPaged = async (
 export const searchIdentityDocuments = async (keyword: string, providerFilter?: number | null): Promise<any[]> => {
   const like = `%${keyword}%`;
   const clauses = [`(
-    CAST(d.id AS CHAR) LIKE ? OR d.document_number LIKE ? OR d.holder_name LIKE ? OR d.remarks LIKE ?
+    CAST(d.id AS CHAR) LIKE ? OR d.document_number LIKE ? OR d.holder_name LIKE ? OR d.holder_phone LIKE ? OR d.remarks LIKE ?
     OR u.username LIKE ? OR u.real_name LIKE ? OR lp.name LIKE ?
   )`];
-  const params: any[] = [like, like, like, like, like, like, like];
+  const params: any[] = [like, like, like, like, like, like, like, like];
   if (providerFilter !== null && providerFilter !== undefined) {
     clauses.push('d.logistics_provider_id = ?');
     params.push(providerFilter);
   }
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT d.id, d.document_type, d.document_number, d.user_id, d.logistics_provider_id,
-            d.holder_name, d.remarks, d.created_at, d.updated_at,
+            d.holder_name, d.holder_phone, d.remarks, d.created_at, d.updated_at,
             lp.name AS logistics_provider_name, u.username AS member_username,
             u.real_name AS member_real_name, u.phone AS member_phone
      FROM identity_documents d
@@ -4314,15 +4345,15 @@ export const findDuplicateIdentityDocument = async (
 export const createIdentityDocument = async (payload: IdentityDocumentPayload) => {
   const [result] = await pool.execute<mysql.ResultSetHeader>(
     `INSERT INTO identity_documents
-      (document_type, document_number, user_id, logistics_provider_id, holder_name, remarks)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [payload.document_type, payload.document_number, payload.user_id, payload.logistics_provider_id, payload.holder_name ?? null, payload.remarks ?? null]
+      (document_type, document_number, user_id, logistics_provider_id, holder_name, holder_phone, remarks)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [payload.document_type, payload.document_number, payload.user_id, payload.logistics_provider_id, payload.holder_name ?? null, payload.holder_phone ?? null, payload.remarks ?? null]
   );
   return { id: result.insertId, ...payload };
 };
 
 export const getIdentityDocumentById = async (id: number): Promise<any | null> => querySingle<any>(
-  `SELECT id, document_type, document_number, user_id, logistics_provider_id, holder_name, remarks
+  `SELECT id, document_type, document_number, user_id, logistics_provider_id, holder_name, holder_phone, remarks
    FROM identity_documents WHERE id = ? LIMIT 1`,
   [id]
 );
@@ -4331,9 +4362,9 @@ export const updateIdentityDocument = async (id: number, payload: IdentityDocume
   const [result] = await pool.execute<mysql.ResultSetHeader>(
     `UPDATE identity_documents
      SET document_type = ?, document_number = ?, user_id = ?, logistics_provider_id = ?,
-         holder_name = ?, remarks = ?, updated_at = NOW()
+         holder_name = ?, holder_phone = ?, remarks = ?, updated_at = NOW()
      WHERE id = ?`,
-    [payload.document_type, payload.document_number, payload.user_id, payload.logistics_provider_id, payload.holder_name ?? null, payload.remarks ?? null, id]
+    [payload.document_type, payload.document_number, payload.user_id, payload.logistics_provider_id, payload.holder_name ?? null, payload.holder_phone ?? null, payload.remarks ?? null, id]
   );
   return result.affectedRows > 0;
 };

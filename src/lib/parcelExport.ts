@@ -4,12 +4,13 @@ export interface ExportParcelRow {
   origin?: string | null;
   destination?: string | null;
   weight?: number | string | null;
+  cod_amount?: number | string | null;
   length_cm?: number | string | null;
   width_cm?: number | string | null;
   height_cm?: number | string | null;
   status?: string | null;
   sub_status?: string | null;
-  status_remark?: string | null;
+  remark?: string | null;
   username?: string | null;
   item_names?: string | null;
   item_values?: string | null;
@@ -81,7 +82,8 @@ export async function exportParcelsToTemplate(parcels: ExportParcelRow[], templa
     const row = ws.getRow(DATA_START_ROW + idx);
     // Keep the col A formula (单序) — do not overwrite.
     row.getCell(2).value = p.tracking_number || '';           // B 运单号
-    row.getCell(6).value = p.status_remark || '';              // F 备注
+    row.getCell(4).value = p.cod_amount != null ? Number(p.cod_amount) : ''; // D 代收款
+    row.getCell(6).value = p.remark || '';                     // F 备注
     row.getCell(7).value = p.username || '';                   // G 客户
     row.getCell(11).value = p.username || '';                  // K 收件人
     row.getCell(18).value = p.weight != null ? Number(p.weight) : '';   // R 重量

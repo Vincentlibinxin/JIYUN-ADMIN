@@ -53,11 +53,13 @@ interface Parcel {
   origin: string;
   destination: string;
   weight: number | null;
+  cod_amount: number | null;
   length_cm: number | null;
   width_cm: number | null;
   height_cm: number | null;
   volume: number | null;
   images: string | null;
+  remark?: string | null;
   status: string;
   estimated_delivery: string | null;
   created_at: string;
@@ -1508,7 +1510,7 @@ export default function AdminDashboard() {
         : [];
 
       if (loadedRows.length > 0) {
-        const exportRows = await buildExportRowsFromLoadedParcels(loadedRows as Array<Parcel & { status_remark?: string | null }>);
+        const exportRows = await buildExportRowsFromLoadedParcels(loadedRows as Array<Parcel & { remark?: string | null }>);
         if (exportRows.length > 0) {
           await exportRowsToTemplate(exportRows);
           message.success(`已导出 ${exportRows.length} 条数据`);
@@ -1677,13 +1679,13 @@ export default function AdminDashboard() {
     return [];
   };
 
-  const buildExportRowsFromLoadedParcels = async (records: Array<Parcel & { status_remark?: string | null }>) => {
+  const buildExportRowsFromLoadedParcels = async (records: Array<Parcel & { remark?: string | null }>) => {
     const exportRows = await Promise.all(records.map(async (record) => {
       const items = await fetchParcelItems(record.id);
       return {
         id: record.id,
         tracking_number: record.tracking_number,
-        status_remark: record.status_remark || '',
+        remark: record.remark || '',
         username: record.username,
         weight: record.weight,
         length_cm: record.length_cm,
