@@ -136,9 +136,59 @@ main form details {
   width: 72px !important;
   height: 72px !important;
 }
+.parcel-detail-modal .ant-modal-container,
+.ant-modal.parcel-detail-modal .ant-modal-container,
+.parcel-detail-modal.ant-modal .ant-modal-container {
+  max-height: calc(100vh - 24px);
+  display: flex;
+  flex-direction: column;
+  padding: 0 !important;
+  overflow: hidden;
+  background: #f5f5f5 !important;
+}
+
 .parcel-detail-modal .ant-modal-body {
-  max-height: calc(100vh - 200px);
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+}
+
+.parcel-detail-modal .compact-form .ant-form-item {
+  margin-bottom: 8px;
+}
+
+.parcel-detail-modal .compact-form .ant-form-item-label {
+  padding-bottom: 2px !important;
+}
+
+.parcel-detail-modal .compact-form .ant-input,
+.parcel-detail-modal .compact-form .ant-input-number,
+.parcel-detail-modal .compact-form .ant-select-selector {
+  font-size: 13px;
+}
+
+.parcel-detail-modal .compact-form .ant-input,
+.parcel-detail-modal .compact-form .ant-input-number-input {
+  height: 30px;
+}
+
+.parcel-detail-modal .compact-form .ant-input-number,
+.parcel-detail-modal .compact-form .ant-select-selector {
+  min-height: 30px !important;
+  height: 30px !important;
+}
+
+.parcel-detail-modal .compact-form .ant-select-selection-item,
+.parcel-detail-modal .compact-form .ant-select-selection-placeholder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.parcel-detail-modal .compact-upload .ant-upload.ant-upload-select,
+.parcel-detail-modal .compact-upload .ant-upload-list-item-container {
+  width: 60px !important;
+  height: 60px !important;
 }
 
 .shipping-bill-modal .ant-modal-body {
@@ -229,7 +279,8 @@ main form details {
 }
 
 @media (max-width: 991px) {
-  .parcel-detail-modal .parcel-detail-top-grid {
+  .parcel-detail-modal .parcel-detail-top-grid,
+  .parcel-detail-modal .parcel-detail-main-grid {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 

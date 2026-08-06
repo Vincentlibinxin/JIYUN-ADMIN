@@ -7,10 +7,20 @@ import { adminFetch } from '../../lib/api';
 import { constrainTableColumns, getConstrainedTableScrollX } from '../../lib/tableColumns';
 import dayjs from 'dayjs';
 
+const IDENTITY_DOCUMENT_TYPE_MAP: Record<string, string> = {
+  CN_RESIDENT_ID: '大陆居民身份证',
+  TW_RESIDENT_ID: '台湾身份证',
+  HK_PERMANENT_ID: '香港永久性居民身份证',
+  MO_PERMANENT_ID: '澳门永久性居民身份证',
+  HK_RESIDENCE_PERMIT: '港澳居民居住证（香港）',
+  MO_RESIDENCE_PERMIT: '港澳居民居住证（澳门）',
+};
+
 interface Parcel {
   id: number;
   user_id: number;
   tracking_number: string;
+  order_number: string | null;
   origin: string;
   destination: string;
   weight: number | null;
@@ -26,6 +36,7 @@ interface Parcel {
   remark: string | null;
   estimated_delivery: string | null;
   created_at: string;
+  updated_at?: string | null;
   username: string | null;
   logistics_provider_id: number | null;
   logistics_provider_name: string | null;
@@ -47,6 +58,11 @@ interface Parcel {
   recipient_district: string | null;
   recipient_street: string | null;
   recipient_address: string | null;
+  declaration_document_id: number | null;
+  declaration_document_type: string | null;
+  declaration_document_number: string | null;
+  declaration_holder_name: string | null;
+  declaration_holder_phone: string | null;
   first_item_name: string | null;
   item_count: number;
   deleted_at?: string | null;
@@ -227,6 +243,7 @@ export default memo(function ParcelsTab({
   const [addressOptionsLoading, setAddressOptionsLoading] = useState(false);
   const inboundProviderId = Form.useWatch('logistics_provider_id', inboundForm);
   const editProviderId = Form.useWatch('logistics_provider_id', editForm);
+  const editRemark = Form.useWatch('remark', editForm);
   const formatAddressLabel = useCallback((entry: AddressOption) => {
     const regionPath = [entry.province, entry.city, entry.district, entry.street].filter(Boolean).join('');
     return `${entry.name} · ${entry.phone} · ${regionPath}${entry.address}`;
@@ -234,6 +251,24 @@ export default memo(function ParcelsTab({
   const toAddressSelectOptions = useCallback((entries: AddressOption[]) => (
     entries.map((entry) => ({ value: entry.id, label: formatAddressLabel(entry) }))
   ), [formatAddressLabel]);
+
+  interface IdentityDocOption {
+    id: number;
+    document_type: string;
+    document_number: string;
+    holder_name: string | null;
+    holder_phone: string | null;
+  }
+  const [editIdentityOptions, setEditIdentityOptions] = useState<IdentityDocOption[]>([]);
+  const [identityOptionsLoading, setIdentityOptionsLoading] = useState(false);
+  const formatIdentityLabel = useCallback((entry: IdentityDocOption) => {
+    const typeName = IDENTITY_DOCUMENT_TYPE_MAP[entry.document_type] || entry.document_type;
+    const holder = entry.holder_name ? ` · ${entry.holder_name}` : '';
+    return `${typeName} · ${entry.document_number}${holder}`;
+  }, []);
+  const toIdentitySelectOptions = useCallback((entries: IdentityDocOption[]) => (
+    entries.map((entry) => ({ value: entry.id, label: formatIdentityLabel(entry) }))
+  ), [formatIdentityLabel]);
 
   useEffect(() => {
     const isInbound = inboundOpen;
@@ -263,6 +298,27 @@ export default memo(function ParcelsTab({
       .finally(() => { if (!cancelled) setAddressOptionsLoading(false); });
     return () => { cancelled = true; };
   }, [actorScope, editOpen, editProviderId, inboundOpen, inboundProviderId]);
+
+  // 申报证件（关联证件）：仅在详情/编辑弹窗按物流商加载证件库选项
+  useEffect(() => {
+    if (!editOpen) return;
+    if (actorScope === 'platform' && !editProviderId) {
+      setEditIdentityOptions([]);
+      return;
+    }
+    let cancelled = false;
+    setIdentityOptionsLoading(true);
+    const query = editProviderId ? `?logistics_provider_id=${editProviderId}` : '';
+    adminFetch(`/admin/parcels/identity-document-options${query}`)
+      .then(async (response) => response.ok ? response.json() : { data: [] })
+      .then((json) => {
+        if (cancelled) return;
+        setEditIdentityOptions(Array.isArray(json.data) ? json.data : []);
+      })
+      .catch(() => { if (!cancelled) setEditIdentityOptions([]); })
+      .finally(() => { if (!cancelled) setIdentityOptionsLoading(false); });
+    return () => { cancelled = true; };
+  }, [actorScope, editOpen, editProviderId]);
 
   // 《包裹状态字典》：货物态/信息态下拉与标签映射均来自字典（启用项）
   const [statusDict, setStatusDict] = useState<{ status_code: string; status_name: string; status_type: string; status_category: string | null }[]>([]);
@@ -409,6 +465,7 @@ export default memo(function ParcelsTab({
       setInboundLoading(true);
       const fd = new FormData();
       fd.append('tracking_number', values.tracking_number);
+      fd.append('order_number', values.order_number != null ? String(values.order_number) : '');
       fd.append('weight', String(values.weight));
       fd.append('cod_amount', values.cod_amount != null ? String(values.cod_amount) : '');
       fd.append('length_cm', String(values.length_cm));
@@ -442,8 +499,11 @@ export default memo(function ParcelsTab({
     setEditFileList(existingUrls.map((url, i) => ({ uid: `existing-${i}`, name: url.split('/').pop() || `img-${i}`, status: 'done' as const, url })));
     editForm.setFieldsValue({
       tracking_number: record.tracking_number,
+      order_number: record.order_number || '',
       username: record.username || '',
       created_at: record.created_at ? dayjs(record.created_at).format('YYYY-MM-DD HH:mm:ss') : '',
+      updated_at: record.updated_at ? dayjs(record.updated_at).format('YYYY-MM-DD HH:mm:ss') : '',
+      deleted_at_display: record.deleted_at ? dayjs(record.deleted_at).format('YYYY-MM-DD HH:mm:ss') : '',
       estimated_delivery: record.estimated_delivery ? dayjs(record.estimated_delivery).format('YYYY-MM-DD HH:mm:ss') : '',
       weight: record.weight,
       cod_amount: record.cod_amount,
@@ -460,6 +520,7 @@ export default memo(function ParcelsTab({
       logistics_provider_id: record.logistics_provider_id ?? undefined,
       sender_address_id: record.sender_address_id ?? undefined,
       recipient_address_id: record.recipient_address_id ?? undefined,
+      declaration_document_id: record.declaration_document_id ?? undefined,
       items: [{ name: '', value: 0, quantity: 1 }],
     });
     try {
@@ -486,6 +547,7 @@ export default memo(function ParcelsTab({
       const values = await editForm.validateFields();
       setEditLoading(true);
       const fd = new FormData();
+      fd.append('order_number', values.order_number != null ? String(values.order_number) : '');
       fd.append('weight', String(values.weight));
       fd.append('cod_amount', values.cod_amount != null ? String(values.cod_amount) : '');
       fd.append('length_cm', String(values.length_cm));
@@ -500,6 +562,7 @@ export default memo(function ParcelsTab({
       fd.append('logistics_provider_id', values.logistics_provider_id != null ? String(values.logistics_provider_id) : '');
       fd.append('sender_address_id', values.sender_address_id != null ? String(values.sender_address_id) : '');
       fd.append('recipient_address_id', values.recipient_address_id != null ? String(values.recipient_address_id) : '');
+      fd.append('declaration_document_id', values.declaration_document_id != null ? String(values.declaration_document_id) : '');
       fd.append('items', JSON.stringify(values.items));
       const existingUrls = editFileList.filter(f => f.url && !f.originFileObj).map(f => f.url!);
       fd.append('existing_images', existingUrls.join(','));
@@ -750,6 +813,21 @@ export default memo(function ParcelsTab({
           key: 'tracking_number_child',
           width: 180,
           ellipsis: true,
+        },
+      ],
+    },
+    {
+      title: '订单号',
+      key: 'order_number',
+      width: 160,
+      children: [
+        {
+          title: renderSearchInput('order_number', '订单号'),
+          dataIndex: 'order_number',
+          key: 'order_number_child',
+          width: 160,
+          ellipsis: true,
+          render: (value: string | null) => value || '',
         },
       ],
     },
@@ -1115,6 +1193,28 @@ export default memo(function ParcelsTab({
     </div>
   );
 
+  const composeRegion = useCallback((province?: string | null, city?: string | null, district?: string | null, street?: string | null) => (
+    [province, city, district, street].filter(Boolean).join('')
+  ), []);
+  const composeAddressLine = useCallback((region: string, address?: string | null) => {
+    const addr = (address || '').trim();
+    if (region && addr) return `${region}->${addr}`;
+    return region || addr || '-';
+  }, []);
+  const senderAddressLine = useMemo(() => composeAddressLine(
+    composeRegion(editingParcel?.sender_province, editingParcel?.sender_city, editingParcel?.sender_district, editingParcel?.sender_street),
+    editingParcel?.sender_address,
+  ), [composeAddressLine, composeRegion, editingParcel]);
+  const recipientAddressLine = useMemo(() => composeAddressLine(
+    composeRegion(editingParcel?.recipient_province, editingParcel?.recipient_city, editingParcel?.recipient_district, editingParcel?.recipient_street),
+    editingParcel?.recipient_address,
+  ), [composeAddressLine, composeRegion, editingParcel]);
+  const declarationTypeName = useMemo(
+    () => IDENTITY_DOCUMENT_TYPE_MAP[editingParcel?.declaration_document_type || ''] || editingParcel?.declaration_document_type || '-',
+    [editingParcel]
+  );
+  const remarkCount = useMemo(() => String(editRemark || '').length, [editRemark]);
+
   return (
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
       <div style={{ padding: '6px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
@@ -1294,6 +1394,9 @@ export default memo(function ParcelsTab({
           <Form.Item name="tracking_number" label="包裹单号" rules={[{ required: true, message: '请输入包裹单号' }]}>
             <Input placeholder="请输入包裹单号" />
           </Form.Item>
+          <Form.Item name="order_number" label="订单号">
+            <Input maxLength={128} placeholder="请输入订单号（可选）" />
+          </Form.Item>
           <Form.Item name="weight" label="重量 (kg)" rules={[{ required: true, message: '请输入重量' }]}>
             <InputNumber min={0.01} step={0.01} precision={2} style={{ width: '100%' }} placeholder="请输入重量" />
           </Form.Item>
@@ -1423,225 +1526,295 @@ export default memo(function ParcelsTab({
         style={{ maxWidth: 'calc(100vw - 24px)' }}
       >
         <Form form={editForm} layout="vertical" autoComplete="off" size="small" className="compact-form" disabled={editMode === 'view'}>
-          <div className="parcel-detail-top-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)', gap: 8, marginBottom: 12 }}>
-            <div style={{ marginBottom: 0, padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5' }}>
-              <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#141414' }}>基础信息</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '82px minmax(0, 1fr)', columnGap: 6, rowGap: 6, alignItems: 'center' }}>
-                <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>包裹单号</div>
-                <Form.Item name="tracking_number" style={{ marginBottom: 8 }}>
-                  <Input disabled />
-                </Form.Item>
+          <div className="parcel-detail-main-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gridAutoRows: 'auto', columnGap: 10, rowGap: 8, alignItems: 'stretch' }}>
+              {/* 行1 左：基础信息 */}
+              <div style={{ padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#fff', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#141414' }}>基础信息</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '62px minmax(0, 1fr)', columnGap: 6, rowGap: 6, alignItems: 'start' }}>
+                  <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>包裹单号</div>
+                  <Form.Item name="tracking_number" style={{ marginBottom: 0 }}>
+                    <Input disabled />
+                  </Form.Item>
 
-                <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>会员用户名</div>
-                <Form.Item name="username" style={{ marginBottom: 8 }}>
-                  <Input disabled placeholder="-" />
-                </Form.Item>
+                  <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>订单号</div>
+                  <Form.Item name="order_number" style={{ marginBottom: 0 }}>
+                    <Input maxLength={128} placeholder="订单号" />
+                  </Form.Item>
 
-                <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>创建时间</div>
-                <Form.Item name="created_at" style={{ marginBottom: 8 }}>
-                  <Input disabled placeholder="-" />
-                </Form.Item>
-
-                {actorScope === 'platform' && (
-                  <>
-                    <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>物流商</div>
-                    <Form.Item name="logistics_provider_id" style={{ marginBottom: 0 }}>
-                      <Select
-                        allowClear
-                        showSearch
-                        optionFilterProp="label"
-                        placeholder="请选择物流商（可选）"
-                        options={logisticsSelectOptions}
-                        onChange={() => editForm.setFieldsValue({ sender_address_id: undefined, recipient_address_id: undefined })}
-                      />
+                  <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>尺寸</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <Form.Item name="length_cm" rules={[{ required: true, message: '长' }]} style={{ flex: 1, marginBottom: 0 }}>
+                      <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="长" />
                     </Form.Item>
-                  </>
-                )}
-              </div>
-            </div>
+                    <Form.Item name="width_cm" rules={[{ required: true, message: '宽' }]} style={{ flex: 1, marginBottom: 0 }}>
+                      <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="宽" />
+                    </Form.Item>
+                    <Form.Item name="height_cm" rules={[{ required: true, message: '高' }]} style={{ flex: 1, marginBottom: 0 }}>
+                      <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="高" />
+                    </Form.Item>
+                  </div>
 
-            <div style={{ marginBottom: 0, padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5' }}>
-              <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#141414' }}>状态信息</div>
-              <Form.Item name="status" label="货物态" style={{ marginBottom: 8 }}>
-                <Select showSearch optionFilterProp="label" options={cargoStatusOptions} />
-              </Form.Item>
-              <Form.Item name="sub_status" label="信息态" style={{ marginBottom: 0 }}>
-                <Select allowClear showSearch optionFilterProp="label" placeholder="可选" options={infoStatusOptions} />
-              </Form.Item>
-            </div>
-          </div>
+                  <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '62px minmax(0, 1fr) 62px minmax(0, 1fr)', columnGap: 6, rowGap: 6, alignItems: 'start' }}>
+                    <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>重量</div>
+                    <Form.Item name="weight" rules={[{ required: true, message: '重量' }]} style={{ marginBottom: 0 }}>
+                      <InputNumber min={0.01} step={0.01} precision={2} style={{ width: '100%' }} placeholder="重量(kg)" />
+                    </Form.Item>
+                    <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>体积</div>
+                    <Form.Item name="volume" style={{ marginBottom: 0 }}>
+                      <InputNumber disabled style={{ width: '100%' }} placeholder="体积" />
+                    </Form.Item>
+                  </div>
 
-          <div style={{ marginBottom: 12, padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5' }}>
-            <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#141414' }}>收发货人信息</div>
-            <Row gutter={8}>
-              <Col span={12}>
-                <Form.Item name="sender_address_id" label="发货人（地址簿）" style={{ marginBottom: 0 }}>
-                  <Select
-                    allowClear
-                    showSearch
-                    optionFilterProp="label"
-                    loading={addressOptionsLoading}
-                    disabled={actorScope === 'platform' && !editProviderId}
-                    placeholder={actorScope === 'platform' && !editProviderId ? '请先选择物流商' : '请选择发货人'}
-                    options={toAddressSelectOptions(editAddressOptions)}
-                  />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="recipient_address_id" label="收货人（地址簿）" style={{ marginBottom: 0 }}>
-                  <Select
-                    allowClear
-                    showSearch
-                    optionFilterProp="label"
-                    loading={addressOptionsLoading}
-                    disabled={actorScope === 'platform' && !editProviderId}
-                    placeholder={actorScope === 'platform' && !editProviderId ? '请先选择物流商' : '请选择收货人'}
-                    options={toAddressSelectOptions(editAddressOptions)}
-                  />
-                </Form.Item>
-              </Col>
-            </Row>
-          </div>
+                  <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '62px minmax(0, 1fr) 62px minmax(0, 1fr)', columnGap: 6, rowGap: 6, alignItems: 'start' }}>
+                    <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>库位号</div>
+                    <Form.Item name="storage_bin" style={{ marginBottom: 0 }}>
+                      <Input maxLength={64} placeholder="库位号" />
+                    </Form.Item>
+                    <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>代收款</div>
+                    <Form.Item name="cod_amount" style={{ marginBottom: 0 }}>
+                      <InputNumber min={0} step={0.01} precision={2} style={{ width: '100%' }} placeholder="代收款(元)" />
+                    </Form.Item>
+                  </div>
 
-          <div style={{ marginBottom: 12, padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5' }}>
-            <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#141414' }}>货物信息</div>
-            <Row gutter={8}>
-              <Col span={6}>
-                <Form.Item name="weight" label="重量 (kg)" rules={[{ required: true, message: '请输入重量' }]} style={{ marginBottom: 8 }}>
-                  <InputNumber min={0.01} step={0.01} precision={2} style={{ width: '100%' }} placeholder="请输入重量" />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name="cod_amount" label="代收款 (元)" style={{ marginBottom: 8 }}>
-                  <InputNumber min={0} step={0.01} precision={2} style={{ width: '100%' }} placeholder="请输入代收款（可选）" />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name="length_cm" label="长 (cm)" rules={[{ required: true, message: '请输入长' }]} style={{ marginBottom: 8 }}>
-                  <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="长" />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name="width_cm" label="宽 (cm)" rules={[{ required: true, message: '请输入宽' }]} style={{ marginBottom: 8 }}>
-                  <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="宽" />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name="height_cm" label="高 (cm)" rules={[{ required: true, message: '请输入高' }]} style={{ marginBottom: 8 }}>
-                  <InputNumber min={0.1} step={0.1} precision={1} style={{ width: '100%' }} placeholder="高" />
-                </Form.Item>
-              </Col>
-            </Row>
-            <Row gutter={8}>
-              <Col span={6}>
-                <Form.Item name="remark" label="备注（运单备注）" style={{ marginBottom: 8 }}>
-                  <Input maxLength={255} placeholder="请输入运单备注（可选）" />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name="volume" label="体积" style={{ marginBottom: 8 }}>
-                  <InputNumber disabled style={{ width: '100%' }} placeholder="系统计算" />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name="storage_bin" label="库位号" style={{ marginBottom: 8 }}>
-                  <Input maxLength={64} placeholder="请输入库位号（可选）" />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name="estimated_delivery" label="预计到达" style={{ marginBottom: 8 }}>
-                  <Input disabled placeholder="-" />
-                </Form.Item>
-              </Col>
-            </Row>
-            <Row gutter={8}>
-              <Col span={12}>
-                <Form.Item name="origin" label="来源" style={{ marginBottom: 8 }}>
-                  <Input placeholder="来源" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="destination" label="目的地" style={{ marginBottom: 0 }}>
-                  <Input placeholder="目的地" />
-                </Form.Item>
-              </Col>
-            </Row>
-          </div>
+                  <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '62px minmax(0, 1fr) 62px minmax(0, 1fr)', columnGap: 6, rowGap: 6, alignItems: 'start' }}>
+                    <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>始发地</div>
+                    <Form.Item name="origin" style={{ marginBottom: 0 }}>
+                      <Input placeholder="始发地" />
+                    </Form.Item>
+                    <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>目的地</div>
+                    <Form.Item name="destination" style={{ marginBottom: 0 }}>
+                      <Input placeholder="目的地" />
+                    </Form.Item>
+                  </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 8 }}>
-            <div style={{ marginBottom: 0, padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5' }}>
-              <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#141414' }}>图片</div>
-              {editMode === 'view' ? (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))', gap: 8 }}>
-                  {editFileList.filter((f) => !!f.url).length === 0 && (
-                    <div style={{ color: '#8c8c8c', fontSize: 12 }}>暂无图片</div>
+                  <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>预计到达</div>
+                  <Form.Item name="estimated_delivery" style={{ marginBottom: 0 }}>
+                    <Input disabled placeholder="-" />
+                  </Form.Item>
+
+                  <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>会员</div>
+                  <Form.Item name="username" style={{ marginBottom: 0 }}>
+                    <Input disabled placeholder="-" />
+                  </Form.Item>
+
+                  {actorScope === 'platform' && (
+                    <>
+                      <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>物流商</div>
+                      <Form.Item name="logistics_provider_id" style={{ marginBottom: 0 }}>
+                        <Select
+                          allowClear
+                          showSearch
+                          optionFilterProp="label"
+                          placeholder="请选择物流商（可选）"
+                          options={logisticsSelectOptions}
+                          onChange={() => editForm.setFieldsValue({ sender_address_id: undefined, recipient_address_id: undefined, declaration_document_id: undefined })}
+                        />
+                      </Form.Item>
+                    </>
                   )}
-                  {editFileList.filter((f) => !!f.url).map((f) => (
-                    <Image
-                      key={f.uid}
-                      src={f.url}
-                      width={84}
-                      height={84}
-                      style={{ objectFit: 'cover', borderRadius: 6, border: '1px solid #f0f0f0' }}
-                    />
-                  ))}
                 </div>
-              ) : (
-                <Form.Item label={null} className="compact-upload" style={{ marginBottom: 0 }}>
-                  <Upload
-                    listType="picture-card"
-                    fileList={editFileList}
-                    onChange={({ fileList: fl }) => setEditFileList(fl)}
-                    onPreview={handleEditPreview}
-                    beforeUpload={() => false}
-                    accept="image/*"
-                    multiple
-                  >
-                    {editFileList.length >= 10 ? null : (
-                      <div>
-                        <PlusOutlined />
-                        <div style={{ marginTop: 4, fontSize: 12 }}>上传</div>
+              </div>
+
+              {/* 行1 右：收发货人 */}
+              <div style={{ padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#fff', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#141414' }}>收发货人</div>
+                <div style={{ minHeight: 0 }}>
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 600, color: '#262626' }}>发货人</div>
+                    {editMode === 'view' ? (
+                      <div style={{ minHeight: 72, border: '1px solid #d9d9d9', borderRadius: 4, padding: '6px 8px', fontSize: 12, lineHeight: 1.35 }}>
+                        <div>{editingParcel?.sender_name || '-'}</div>
+                        <div>{editingParcel?.sender_phone || '-'}</div>
+                        <div>{senderAddressLine}</div>
+                      </div>
+                    ) : (
+                      <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, padding: 6 }}>
+                        <Form.Item name="sender_address_id" style={{ marginBottom: 0 }}>
+                          <Select
+                            allowClear
+                            showSearch
+                            optionFilterProp="label"
+                            loading={addressOptionsLoading}
+                            disabled={actorScope === 'platform' && !editProviderId}
+                            placeholder={actorScope === 'platform' && !editProviderId ? '请先选择物流商' : '请选择发货人'}
+                            options={toAddressSelectOptions(editAddressOptions)}
+                          />
+                        </Form.Item>
                       </div>
                     )}
-                  </Upload>
-                </Form.Item>
-              )}
-            </div>
+                  </div>
 
-            <div style={{ marginBottom: 0, padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5' }}>
-              <Form.List
-                name="items"
-                rules={[{ validator: async (_, items) => { if (!items || items.length < 1) throw new Error('至少添加一个物品'); } }]}
-              >
-                {(fields, { add, remove }, { errors }) => (
-                  <>
-                    <div style={{ marginBottom: 6, fontWeight: 700, fontSize: 12, color: '#141414' }}>物品清单</div>
-                    {fields.map(({ key, name, ...restField }) => (
-                      <div key={key} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginBottom: 6 }}>
-                        <Form.Item {...restField} name={[name, 'name']} rules={[{ required: true, message: '名称' }]} style={{ flex: 2, marginBottom: 0 }}>
-                          <Input placeholder="物品名称" />
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 600, color: '#262626' }}>收货人</div>
+                  {editMode === 'view' ? (
+                    <div style={{ minHeight: 72, border: '1px solid #d9d9d9', borderRadius: 4, padding: '6px 8px', fontSize: 12, lineHeight: 1.35 }}>
+                      <div>{editingParcel?.recipient_name || '-'}</div>
+                      <div>{editingParcel?.recipient_phone || '-'}</div>
+                      <div>{recipientAddressLine}</div>
+                    </div>
+                  ) : (
+                    <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, padding: 6 }}>
+                      <Form.Item name="recipient_address_id" style={{ marginBottom: 0 }}>
+                        <Select
+                          allowClear
+                          showSearch
+                          optionFilterProp="label"
+                          loading={addressOptionsLoading}
+                          disabled={actorScope === 'platform' && !editProviderId}
+                          placeholder={actorScope === 'platform' && !editProviderId ? '请先选择物流商' : '请选择收货人'}
+                          options={toAddressSelectOptions(editAddressOptions)}
+                        />
+                      </Form.Item>
+                    </div>
+                  )}
+                  </div>
+
+                  <div>
+                    <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 600, color: '#262626' }}>申报证件</div>
+                    {editMode === 'view' ? (
+                      <div style={{ minHeight: 72, border: '1px solid #d9d9d9', borderRadius: 4, padding: '6px 8px', fontSize: 12, lineHeight: 1.35 }}>
+                        <div>{declarationTypeName}</div>
+                        <div>{editingParcel?.declaration_document_number || '-'}</div>
+                        <div>{editingParcel?.declaration_holder_name || '-'}</div>
+                        <div>{editingParcel?.declaration_holder_phone || '-'}</div>
+                      </div>
+                    ) : (
+                      <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, padding: 6 }}>
+                        <Form.Item name="declaration_document_id" style={{ marginBottom: 0 }}>
+                          <Select
+                            allowClear
+                            showSearch
+                            optionFilterProp="label"
+                            loading={identityOptionsLoading}
+                            disabled={actorScope === 'platform' && !editProviderId}
+                            placeholder={actorScope === 'platform' && !editProviderId ? '请先选择物流商' : '请选择申报证件'}
+                            options={toIdentitySelectOptions(editIdentityOptions)}
+                          />
                         </Form.Item>
-                        <Form.Item {...restField} name={[name, 'value']} rules={[{ required: true, message: '价值' }]} style={{ flex: 1, marginBottom: 0 }}>
-                          <InputNumber min={0} step={0.01} precision={2} style={{ width: '100%' }} placeholder="价值" />
-                        </Form.Item>
-                        <Form.Item {...restField} name={[name, 'quantity']} rules={[{ required: true, message: '数量' }]} style={{ flex: 1, marginBottom: 0 }}>
-                          <InputNumber min={1} step={1} precision={0} style={{ width: '100%' }} placeholder="数量" />
-                        </Form.Item>
-                        {editMode === 'edit' && fields.length > 1 && (
-                          <MinusCircleOutlined style={{ marginTop: 6, color: '#ff4d4f', fontSize: 16 }} onClick={() => remove(name)} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 行2 左：物品信息 */}
+              <div style={{ padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#fff', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                <Form.List
+                  name="items"
+                  rules={[{ validator: async (_, items) => { if (!items || items.length < 1) throw new Error('至少添加一个物品'); } }]}
+                >
+                  {(fields, { add, remove }, { errors }) => (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <div style={{ fontWeight: 700, fontSize: 12, color: '#141414' }}>物品信息</div>
+                        {editMode === 'edit' && (
+                          <Button type="default" size="small" onClick={() => add({ name: '', value: 0, quantity: 1 })}>+添加物品</Button>
                         )}
                       </div>
-                    ))}
-                    {editMode === 'edit' && (
-                      <Button type="dashed" size="small" onClick={() => add({ name: '', value: 0, quantity: 1 })} block icon={<PlusOutlined />}>
-                        添加物品
-                      </Button>
+                      <div style={{ minHeight: 0, flex: 1, maxHeight: 200, overflowY: 'auto', paddingRight: 2 }}>
+                        {fields.map(({ key, name, ...restField }) => (
+                          <div key={key} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginBottom: 6 }}>
+                            <Form.Item {...restField} name={[name, 'name']} rules={[{ required: true, message: '名称' }]} style={{ flex: 2, marginBottom: 0 }}>
+                              <Input placeholder="物品名称" />
+                            </Form.Item>
+                            <Form.Item {...restField} name={[name, 'value']} rules={[{ required: true, message: '价值' }]} style={{ flex: 1, marginBottom: 0 }}>
+                              <InputNumber min={0} step={0.01} precision={2} style={{ width: '100%' }} placeholder="价值" />
+                            </Form.Item>
+                            <Form.Item {...restField} name={[name, 'quantity']} rules={[{ required: true, message: '数量' }]} style={{ flex: 1, marginBottom: 0 }}>
+                              <InputNumber min={1} step={1} precision={0} style={{ width: '100%' }} placeholder="数量" />
+                            </Form.Item>
+                            {editMode === 'edit' && fields.length > 1 && (
+                              <MinusCircleOutlined style={{ marginTop: 6, color: '#ff4d4f', fontSize: 16 }} onClick={() => remove(name)} />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <Form.ErrorList errors={errors} />
+                    </>
+                  )}
+                </Form.List>
+              </div>
+
+              {/* 行2 右：状态与时间 */}
+              <div style={{ padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#fff', minHeight: 0 }}>
+                <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#141414' }}>状态与时间</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '62px minmax(0, 1fr)', columnGap: 6, rowGap: 6, alignItems: 'start' }}>
+                  <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>货物态</div>
+                  <Form.Item name="status" style={{ marginBottom: 0 }}>
+                    <Select showSearch optionFilterProp="label" options={cargoStatusOptions} />
+                  </Form.Item>
+
+                  <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>信息态</div>
+                  <Form.Item name="sub_status" style={{ marginBottom: 0 }}>
+                    <Select allowClear showSearch optionFilterProp="label" placeholder="可选" options={infoStatusOptions} />
+                  </Form.Item>
+
+                  <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>更新时间</div>
+                  <Form.Item name="updated_at" style={{ marginBottom: 0 }}>
+                    <Input disabled placeholder="-" />
+                  </Form.Item>
+
+                  <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>创建时间</div>
+                  <Form.Item name="created_at" style={{ marginBottom: 0 }}>
+                    <Input disabled placeholder="-" />
+                  </Form.Item>
+
+                  <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>删除时间</div>
+                  <Form.Item name="deleted_at_display" style={{ marginBottom: 0 }}>
+                    <Input disabled placeholder="-" />
+                  </Form.Item>
+                </div>
+              </div>
+
+              {/* 行3 左：图片 */}
+              <div style={{ padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#fff', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#141414' }}>图片</div>
+                </div>
+                {editMode === 'view' ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(60px, 60px))', gap: 8, alignContent: 'start', flex: 1, minHeight: 0, maxHeight: 168, overflowY: 'auto' }}>
+                    {editFileList.filter((f) => !!f.url).length === 0 && (
+                      <div style={{ color: '#8c8c8c', fontSize: 12 }}>暂无图片</div>
                     )}
-                    <Form.ErrorList errors={errors} />
-                  </>
+                    {editFileList.filter((f) => !!f.url).map((f) => (
+                      <Image
+                        key={f.uid}
+                        src={f.url}
+                        width={60}
+                        height={60}
+                        style={{ objectFit: 'cover', borderRadius: 6, border: '1px solid #f0f0f0' }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <Form.Item label={null} className="compact-upload" style={{ marginBottom: 0, flex: 1, minHeight: 0, maxHeight: 168, overflowY: 'auto' }}>
+                    <Upload
+                      listType="picture-card"
+                      fileList={editFileList}
+                      onChange={({ fileList: fl }) => setEditFileList(fl)}
+                      onPreview={handleEditPreview}
+                      beforeUpload={() => false}
+                      accept="image/*"
+                      multiple
+                    >
+                      {editFileList.length >= 10 ? null : (
+                        <div>
+                          <PlusOutlined />
+                          <div style={{ marginTop: 4, fontSize: 12 }}>上传</div>
+                        </div>
+                      )}
+                    </Upload>
+                  </Form.Item>
                 )}
-              </Form.List>
-            </div>
+              </div>
+
+              {/* 行3 右：备注 */}
+              <div style={{ padding: '10px 12px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#fff', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#141414' }}>备注 {remarkCount} / 255</div>
+                <Form.Item name="remark" style={{ marginBottom: 0, minHeight: 0, flex: 1 }}>
+                  <Input.TextArea maxLength={255} rows={5} placeholder="请输入运单备注（可选）" style={{ height: '100%', resize: 'none' }} />
+                </Form.Item>
+              </div>
           </div>
         </Form>
       </Modal>

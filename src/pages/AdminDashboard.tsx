@@ -50,6 +50,7 @@ interface Parcel {
   id: number;
   user_id: number;
   tracking_number: string;
+  order_number: string | null;
   origin: string;
   destination: string;
   weight: number | null;

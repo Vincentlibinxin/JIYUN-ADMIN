@@ -111,6 +111,7 @@ import {
   findDuplicateIdentityDocument,
   createIdentityDocument,
   getIdentityDocumentById,
+  getIdentityDocumentOptions,
   updateIdentityDocument,
   deleteIdentityDocument,
   batchDeleteIdentityDocuments,
@@ -1527,6 +1528,17 @@ router.get('/parcels/address-options', adminAuth, requirePermission(PERMISSIONS.
   res.json({ data });
 });
 
+router.get('/parcels/identity-document-options', adminAuth, requirePermission(PERMISSIONS.PARCEL_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const actorProvider = getActorProviderFilter(req);
+  const providerId = actorProvider !== null ? actorProvider : Number(req.query.logistics_provider_id);
+  if (!Number.isInteger(providerId) || providerId <= 0) {
+    res.json({ data: [] });
+    return;
+  }
+  const data = await getIdentityDocumentOptions(providerId);
+  res.json({ data });
+});
+
 router.patch('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE_STATUS), async (req: AdminRequest, res: Response): Promise<void> => {
   const status = String(req.body?.status || '').trim();
   const cargoStatusCodes = await getEnabledParcelStatusCodesByType('货物态');
@@ -1579,7 +1591,7 @@ const parcelUpload = multer({
 });
 
 router.post('/parcels/inbound', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_CREATE), parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
-  const { tracking_number, weight, cod_amount, length_cm, width_cm, height_cm, remark, shelf_location, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, items: itemsJson } = req.body;
+  const { tracking_number, order_number, weight, cod_amount, length_cm, width_cm, height_cm, remark, shelf_location, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, items: itemsJson } = req.body;
   if (!tracking_number || typeof tracking_number !== 'string' || !tracking_number.trim()) {
     res.status(400).json({ error: '包裹单号不能为空' });
     return;
@@ -1642,6 +1654,7 @@ router.post('/parcels/inbound', adminAuth, csrfGuard, requirePermission(PERMISSI
   try {
     const insertId = await createParcelInbound({
       tracking_number: tracking_number.trim(),
+      order_number: typeof order_number === 'string' ? order_number.trim() || undefined : undefined,
       weight: w,
       cod_amount: codAmount,
       length_cm: l,
@@ -1674,7 +1687,7 @@ router.get('/parcels/:id/items', adminAuth, requirePermission(PERMISSIONS.PARCEL
 router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE), parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
   const parcelId = Number(req.params.id);
   if (denyCrossProvider(req, res, await getParcelOwnerProviderId(parcelId))) return;
-  const { weight, cod_amount, length_cm, width_cm, height_cm, origin, destination, status, sub_status, remark, storage_bin, items: itemsJson, existing_images, logistics_provider_id, sender_address_id, recipient_address_id } = req.body;
+  const { order_number, weight, cod_amount, length_cm, width_cm, height_cm, origin, destination, status, sub_status, remark, storage_bin, items: itemsJson, existing_images, logistics_provider_id, sender_address_id, recipient_address_id, declaration_document_id } = req.body;
   const w = Number(weight);
   const codAmount = cod_amount !== undefined && cod_amount !== null && String(cod_amount).trim() !== '' ? Number(cod_amount) : undefined;
   const l = Number(length_cm);
@@ -1742,8 +1755,22 @@ router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.P
     res.status(400).json({ error: '发货人或收货人地址不属于所选物流商' });
     return;
   }
+  // 申报证件（关联证件库）：必须属于包裹所选物流商
+  const resolveDeclarationDocumentId = async (rawId: any): Promise<number | null | undefined> => {
+    if (rawId === undefined || rawId === null || rawId === '') return null;
+    const documentId = Number(rawId);
+    if (!Number.isInteger(documentId) || documentId <= 0 || !editProviderId) return undefined;
+    const document = await getIdentityDocumentById(documentId);
+    return document && Number(document.logistics_provider_id) === Number(editProviderId) ? documentId : undefined;
+  };
+  const editDeclarationDocumentId = await resolveDeclarationDocumentId(declaration_document_id);
+  if (editDeclarationDocumentId === undefined) {
+    res.status(400).json({ error: '申报证件不属于所选物流商' });
+    return;
+  }
   try {
     const ok = await updateParcel(parcelId, {
+      order_number: typeof order_number === 'string' ? order_number.trim() : undefined,
       weight: w,
       cod_amount: codAmount,
       length_cm: l,
@@ -1760,6 +1787,7 @@ router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.P
       logistics_provider_id: editProviderId,
       sender_address_id: editSenderAddressId,
       recipient_address_id: editRecipientAddressId,
+      declaration_document_id: editDeclarationDocumentId,
       items: items.map(it => ({ name: it.name.trim(), value: it.value, quantity: it.quantity })),
     });
     if (!ok) {

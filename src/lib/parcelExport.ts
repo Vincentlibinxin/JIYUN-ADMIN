@@ -1,6 +1,7 @@
 export interface ExportParcelRow {
   id: number;
   tracking_number?: string | null;
+  order_number?: string | null;
   origin?: string | null;
   destination?: string | null;
   weight?: number | string | null;
@@ -93,6 +94,7 @@ export async function exportParcelsToTemplate(parcels: ExportParcelRow[], templa
     row.getCell(22).value = p.item_name || '';               // V 物品名称
     row.getCell(23).value = p.item_value || '';              // W 单价
     row.getCell(24).value = p.item_quantity || '';           // X 数量
+    row.getCell(26).value = p.order_number || '';            // Z 订单号
     row.commit();
   });
 
