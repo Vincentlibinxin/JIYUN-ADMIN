@@ -674,6 +674,20 @@ export const initDb = async (): Promise<void> => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // Parcel storage-bin binding logs
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS parcel_storage_bin_logs (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        parcel_id INT NOT NULL,
+        storage_bin VARCHAR(64) NOT NULL,
+        operator_id INT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_psbl_parcel (parcel_id),
+        INDEX idx_psbl_created (created_at),
+        FOREIGN KEY (parcel_id) REFERENCES parcels(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS orders (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -2088,6 +2102,11 @@ export const deleteParcel = async (parcelId: number): Promise<boolean> => {
   return result.affectedRows > 0;
 };
 
+export const restoreParcel = async (parcelId: number): Promise<boolean> => {
+  const [result] = await pool.execute<mysql.ResultSetHeader>('UPDATE parcels SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL', [parcelId]);
+  return result.affectedRows > 0;
+};
+
 const ORDERS_SORT_COLUMNS = new Set(['id', 'user_id', 'total_amount', 'status', 'created_at']);
 
 export const getOrdersPaged = async (
@@ -2348,7 +2367,7 @@ export const getParcelsPaged = async (
         `SELECT p.id, p.user_id, p.tracking_number, p.order_number, p.origin, p.destination,
           p.weight, p.cod_amount, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images, p.storage_bin,
           p.status, p.sub_status, p.remark,
-            p.estimated_delivery, p.created_at, p.deleted_at,
+            p.estimated_delivery, p.created_at, p.updated_at, p.deleted_at,
             p.logistics_provider_id, lp.name AS logistics_provider_name,
           p.sender_address_id, sender.name AS sender_name, sender.phone AS sender_phone,
           sender.region AS sender_region, sender.province AS sender_province, sender.city AS sender_city,
@@ -2628,10 +2647,10 @@ export const searchParcels = async (keyword: string, startDate?: string, endDate
   const whereSql = `WHERE ${allClauses.join(' AND ')}`;
 
   const [rows] = await pool.execute<mysql.RowDataPacket[]>(
-    `SELECT p.id, p.user_id, p.tracking_number, p.order_number, p.origin, p.destination,
+        `SELECT p.id, p.user_id, p.tracking_number, p.order_number, p.origin, p.destination,
           p.weight, p.cod_amount, p.length_cm, p.width_cm, p.height_cm, p.volume, p.images, p.storage_bin,
             p.status, p.sub_status, p.remark,
-            p.estimated_delivery, p.created_at,
+          p.estimated_delivery, p.created_at, p.updated_at,
             p.logistics_provider_id, lp.name AS logistics_provider_name,
           p.sender_address_id, sender.name AS sender_name, sender.phone AS sender_phone,
           sender.region AS sender_region, sender.province AS sender_province, sender.city AS sender_city,
@@ -2748,15 +2767,17 @@ export const createParcelInbound = async (payload: {
   sender_address_id?: number | null;
   recipient_address_id?: number | null;
   items: { name: string; value: number; quantity: number }[];
-}): Promise<number> => {
+}, operatorId?: number | null): Promise<number> => {
   const { tracking_number, order_number, weight, cod_amount, length_cm, width_cm, height_cm, volume, images, remark, shelf_location, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, items } = payload;
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
+    const normalizedStorageBin = String(storage_bin || '').trim();
+
     // Check if parcel with same tracking number already exists (including soft-deleted)
     const [existing] = await conn.execute<mysql.RowDataPacket[]>(
-      'SELECT id FROM parcels WHERE tracking_number = ? LIMIT 1',
+      'SELECT id, storage_bin FROM parcels WHERE tracking_number = ? LIMIT 1',
       [tracking_number]
     );
 
@@ -2764,6 +2785,7 @@ export const createParcelInbound = async (payload: {
     if (existing.length > 0) {
       // Update existing parcel with new inbound info (restore if soft-deleted)
       parcelId = existing[0].id;
+      const previousStorageBin = String(existing[0].storage_bin || '').trim();
       await conn.execute(
         `UPDATE parcels SET order_number = ?, weight = ?, cod_amount = ?, length_cm = ?, width_cm = ?, height_cm = ?, volume = ?,
          images = ?, remark = ?, shelf_location = ?, storage_bin = ?, logistics_provider_id = ?, sender_address_id = ?, recipient_address_id = ?, status = 'warehoused',
@@ -2773,6 +2795,14 @@ export const createParcelInbound = async (payload: {
       );
       // Remove old items, will re-insert below
       await conn.execute('DELETE FROM parcel_items WHERE parcel_id = ?', [parcelId]);
+
+      if (normalizedStorageBin && normalizedStorageBin !== previousStorageBin) {
+        await conn.execute(
+          `INSERT INTO parcel_storage_bin_logs (parcel_id, storage_bin, operator_id)
+           VALUES (?, ?, ?)`,
+          [parcelId, normalizedStorageBin, operatorId || null]
+        );
+      }
     } else {
       // Insert new parcel
       const [result] = await conn.execute<mysql.ResultSetHeader>(
@@ -2781,6 +2811,14 @@ export const createParcelInbound = async (payload: {
         [tracking_number, order_number || null, weight, cod_amount ?? null, length_cm, width_cm, height_cm, volume, images || null, remark || null, shelf_location || null, storage_bin || null, logistics_provider_id || null, sender_address_id || null, recipient_address_id || null]
       );
       parcelId = result.insertId;
+
+      if (normalizedStorageBin) {
+        await conn.execute(
+          `INSERT INTO parcel_storage_bin_logs (parcel_id, storage_bin, operator_id)
+           VALUES (?, ?, ?)`,
+          [parcelId, normalizedStorageBin, operatorId || null]
+        );
+      }
     }
 
     for (const item of items) {
@@ -2822,6 +2860,8 @@ export const updateParcel = async (parcelId: number, payload: {
   volume: number;
   origin?: string;
   destination?: string;
+  estimated_delivery?: string | null;
+  user_id?: number;
   status?: string;
   sub_status?: string;
   remark?: string;
@@ -2832,16 +2872,29 @@ export const updateParcel = async (parcelId: number, payload: {
   recipient_address_id?: number | null;
   declaration_document_id?: number | null;
   items: { name: string; value: number; quantity: number }[];
-}): Promise<boolean> => {
-  const { order_number, weight, cod_amount, length_cm, width_cm, height_cm, volume, origin, destination, status, sub_status, remark, images, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, declaration_document_id, items } = payload;
+}, operatorId?: number | null): Promise<boolean> => {
+  const { order_number, weight, cod_amount, length_cm, width_cm, height_cm, volume, origin, destination, estimated_delivery, user_id, status, sub_status, remark, images, storage_bin, logistics_provider_id, sender_address_id, recipient_address_id, declaration_document_id, items } = payload;
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+
+    const [beforeRows] = await conn.execute<mysql.RowDataPacket[]>(
+      'SELECT storage_bin FROM parcels WHERE id = ? LIMIT 1',
+      [parcelId]
+    );
+    if (!beforeRows.length) {
+      await conn.rollback();
+      return false;
+    }
+    const previousStorageBin = String(beforeRows[0].storage_bin || '').trim();
+
     const sets: string[] = ['weight = ?', 'cod_amount = ?', 'length_cm = ?', 'width_cm = ?', 'height_cm = ?', 'volume = ?', 'updated_at = NOW()'];
     const params: any[] = [weight, cod_amount ?? null, length_cm, width_cm, height_cm, volume];
     if (order_number !== undefined) { sets.push('order_number = ?'); params.push(order_number || null); }
     if (origin !== undefined) { sets.push('origin = ?'); params.push(origin); }
     if (destination !== undefined) { sets.push('destination = ?'); params.push(destination); }
+    if (estimated_delivery !== undefined) { sets.push('estimated_delivery = ?'); params.push(estimated_delivery || null); }
+    if (user_id !== undefined) { sets.push('user_id = ?'); params.push(user_id); }
     if (status !== undefined) { sets.push('status = ?'); params.push(status); }
     if (sub_status !== undefined) { sets.push('sub_status = ?'); params.push(sub_status || null); }
     if (remark !== undefined) { sets.push('remark = ?'); params.push(remark || null); }
@@ -2867,6 +2920,18 @@ export const updateParcel = async (parcelId: number, payload: {
         [parcelId, item.name, item.value, item.quantity]
       );
     }
+
+    if (storage_bin !== undefined) {
+      const nextStorageBin = String(storage_bin || '').trim();
+      if (nextStorageBin && nextStorageBin !== previousStorageBin) {
+        await conn.execute(
+          `INSERT INTO parcel_storage_bin_logs (parcel_id, storage_bin, operator_id)
+           VALUES (?, ?, ?)`,
+          [parcelId, nextStorageBin, operatorId || null]
+        );
+      }
+    }
+
     await conn.commit();
     return true;
   } catch (err) {
@@ -2956,6 +3021,85 @@ export const getStatusLogsPaged = async (
     total,
     pages: Math.max(1, Math.ceil(total / safeLimit)),
   };
+};
+
+export const getStorageBinBindingLogsPaged = async (
+  page: number,
+  limit: number,
+  keyword?: string,
+  startDate?: string,
+  endDate?: string,
+  logisticsProviderId?: number | null,
+) => {
+  const safePage = toSafeInt(page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const safeLimit = toSafeInt(limit, 20, 1, 500);
+  const offset = (safePage - 1) * safeLimit;
+
+  const allClauses: string[] = [];
+  const allParams: any[] = [];
+
+  if (keyword && keyword.trim()) {
+    const like = `%${keyword.trim()}%`;
+    allClauses.push(`(
+      CAST(psbl.parcel_id AS CHAR) LIKE ?
+      OR p.tracking_number LIKE ?
+      OR psbl.storage_bin LIKE ?
+      OR a.username LIKE ?
+    )`);
+    allParams.push(like, like, like, like);
+  }
+  if (startDate) { allClauses.push('psbl.created_at >= ?'); allParams.push(startDate); }
+  if (endDate) { allClauses.push('psbl.created_at <= ?'); allParams.push(endDate + ' 23:59:59'); }
+  if (logisticsProviderId !== undefined && logisticsProviderId !== null) {
+    allClauses.push('p.logistics_provider_id = ?');
+    allParams.push(logisticsProviderId);
+  }
+
+  const whereSql = allClauses.length > 0 ? `WHERE ${allClauses.join(' AND ')}` : '';
+
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT psbl.id, psbl.parcel_id, psbl.storage_bin, psbl.operator_id, psbl.created_at,
+            a.username AS operator_name,
+            p.tracking_number
+     FROM parcel_storage_bin_logs psbl
+     LEFT JOIN admin_users a ON psbl.operator_id = a.id
+     LEFT JOIN parcels p ON psbl.parcel_id = p.id
+     ${whereSql}
+     ORDER BY psbl.created_at DESC
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    allParams
+  );
+
+  const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) as count
+     FROM parcel_storage_bin_logs psbl
+     LEFT JOIN admin_users a ON psbl.operator_id = a.id
+     LEFT JOIN parcels p ON psbl.parcel_id = p.id
+     ${whereSql}`,
+    allParams
+  );
+
+  const total = Number(countRows?.[0]?.count || 0);
+  return {
+    data: rows as any[],
+    total,
+    pages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+};
+
+export const getParcelStorageBinLogs = async (parcelId: number): Promise<any[]> => {
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT psbl.id, psbl.parcel_id, psbl.storage_bin, psbl.operator_id, psbl.created_at,
+            a.username AS operator_name,
+            p.tracking_number
+     FROM parcel_storage_bin_logs psbl
+     LEFT JOIN admin_users a ON psbl.operator_id = a.id
+     LEFT JOIN parcels p ON psbl.parcel_id = p.id
+     WHERE psbl.parcel_id = ?
+     ORDER BY psbl.created_at DESC`,
+    [parcelId]
+  );
+  return rows as any[];
 };
 
 const ADMINS_SORT_COLUMNS = new Set(['id', 'username', 'email', 'role', 'role_scope', 'role_logistics_provider_id', 'logistics_provider_id', 'status', 'last_login', 'created_at']);
@@ -3280,12 +3424,30 @@ export const getParcelOwnerProviderId = async (parcelId: number): Promise<number
   return row ? (row.logistics_provider_id ?? null) : undefined;
 };
 
+export const getParcelOwnerProviderIdAny = async (parcelId: number): Promise<number | null | undefined> => {
+  const row = await querySingle<{ logistics_provider_id: number | null }>(
+    'SELECT logistics_provider_id FROM parcels WHERE id = ? LIMIT 1',
+    [parcelId]
+  );
+  return row ? (row.logistics_provider_id ?? null) : undefined;
+};
+
 export const getUserOwnerProviderId = async (userId: number): Promise<number | null | undefined> => {
   const row = await querySingle<{ logistics_provider_id: number | null }>(
     'SELECT logistics_provider_id FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
     [userId]
   );
   return row ? (row.logistics_provider_id ?? null) : undefined;
+};
+
+export const getUserByUsername = async (username: string): Promise<{ id: number; logistics_provider_id: number | null } | null> => {
+  const normalized = username.trim();
+  if (!normalized) return null;
+  const row = await querySingle<{ id: number; logistics_provider_id: number | null }>(
+    'SELECT id, logistics_provider_id FROM users WHERE username = ? AND deleted_at IS NULL LIMIT 1',
+    [normalized]
+  );
+  return row || null;
 };
 
 export const getOrderOwnerProviderId = async (orderId: number): Promise<number | null | undefined> => {

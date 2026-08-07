@@ -86,6 +86,16 @@ const getResponseError = async (response: Response, fallback: string) => {
   }
 };
 
+const toFormValues = (record: IdentityDocument): FormValues => ({
+  document_type: record.document_type,
+  document_number: record.document_number,
+  user_id: record.user_id,
+  logistics_provider_id: record.logistics_provider_id,
+  holder_name: record.holder_name || undefined,
+  holder_phone: record.holder_phone || undefined,
+  remarks: record.remarks || undefined,
+});
+
 export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate, canDelete, refreshKey }: IdentityDocumentsTabProps) {
   const [documents, setDocuments] = useState<IdentityDocument[]>([]);
   const [loading, setLoading] = useState(false);
@@ -112,6 +122,7 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>('create');
   const [editing, setEditing] = useState<IdentityDocument | null>(null);
+  const [modalFormKey, setModalFormKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm<FormValues>();
   const selectedType = Form.useWatch('document_type', form);
@@ -242,7 +253,7 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
     setModalMode('create');
     setEditing(null);
     setMemberOptions([]);
-    form.resetFields();
+    setModalFormKey((value) => value + 1);
     setModalOpen(true);
   };
 
@@ -250,15 +261,7 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
     setModalMode(mode);
     setEditing(record);
     seedMember(record);
-    form.setFieldsValue({
-      document_type: record.document_type,
-      document_number: record.document_number,
-      user_id: record.user_id,
-      logistics_provider_id: record.logistics_provider_id,
-      holder_name: record.holder_name || undefined,
-      holder_phone: record.holder_phone || undefined,
-      remarks: record.remarks || undefined,
-    });
+    setModalFormKey((value) => value + 1);
     setModalOpen(true);
   };
 
@@ -433,6 +436,7 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
   const tableColumns = constrainTableColumns(visibleColumns);
   const isView = modalMode === 'view';
   const currentType = DOCUMENT_TYPES.find((item) => item.value === selectedType);
+  const formInitialValues: Partial<FormValues> = modalMode === 'create' || !editing ? {} : toFormValues(editing);
 
   return (
     <Card bordered={false} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }} bodyStyle={{ padding: 0, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -513,10 +517,11 @@ export default function IdentityDocumentsTab({ actorScope, canCreate, canUpdate,
         cancelText={isView ? '关闭' : '取消'}
         okButtonProps={isView ? { style: { display: 'none' } } : undefined}
         centered
+        forceRender
         destroyOnClose
         width={560}
       >
-        <Form form={form} layout="vertical" disabled={isView} preserve={false}>
+        <Form key={`identity-doc-form-${modalFormKey}`} form={form} layout="vertical" disabled={isView} initialValues={formInitialValues}>
           <Form.Item name="document_type" label="证件类型" rules={[{ required: true, message: '请选择证件类型' }]}>
             <Select options={DOCUMENT_TYPES.map(({ value, label }) => ({ value, label }))} placeholder="请选择证件类型" />
           </Form.Item>

@@ -24,7 +24,10 @@ import {
   deleteAdmin,
   deleteOrder,
   deleteParcel,
+  restoreParcel,
   getParcelOwnerProviderId,
+  getParcelOwnerProviderIdAny,
+  getUserByUsername,
   getUserOwnerProviderId,
   getOrderOwnerProviderId,
   deleteSms,
@@ -47,7 +50,9 @@ import {
   getParcelsForExport,
   getParcelStatusCounts,
   getParcelStatusLogs,
+  getParcelStorageBinLogs,
   getStatusLogsPaged,
+  getStorageBinBindingLogsPaged,
   searchAdmins,
   searchOrders,
   searchParcels,
@@ -1511,6 +1516,16 @@ router.get('/parcels/status-logs', adminAuth, requirePermission(PERMISSIONS.PARC
   res.json(result);
 });
 
+router.get('/parcels/storage-bin-logs', adminAuth, requirePermission(PERMISSIONS.PARCEL_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const page = Number(req.query.page) || 1;
+  const limit = Number(req.query.limit) || 20;
+  const keyword = typeof req.query.keyword === 'string' ? req.query.keyword : undefined;
+  const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : undefined;
+  const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
+  const result = await getStorageBinBindingLogsPaged(page, limit, keyword, startDate, endDate, getActorProviderFilter(req));
+  res.json(result);
+});
+
 // 《包裹状态快筛栏》：统计各货物态/信息态下的包裹数量
 router.get('/parcels/status-counts', adminAuth, requirePermission(PERMISSIONS.PARCEL_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
   const data = await getParcelStatusCounts(getActorProviderFilter(req));
@@ -1575,6 +1590,17 @@ router.get('/parcels/:id/status-logs', adminAuth, requirePermission(PERMISSIONS.
   }
   if (denyCrossProvider(req, res, await getParcelOwnerProviderId(parcelId))) return;
   const logs = await getParcelStatusLogs(parcelId);
+  res.json({ data: logs });
+});
+
+router.get('/parcels/:id/storage-bin-logs', adminAuth, requirePermission(PERMISSIONS.PARCEL_VIEW), async (req: AdminRequest, res: Response): Promise<void> => {
+  const parcelId = toId(req.params.id);
+  if (!parcelId) {
+    res.status(400).json({ error: '包裹ID不合法' });
+    return;
+  }
+  if (denyCrossProvider(req, res, await getParcelOwnerProviderId(parcelId))) return;
+  const logs = await getParcelStorageBinLogs(parcelId);
   res.json({ data: logs });
 });
 
@@ -1669,7 +1695,7 @@ router.post('/parcels/inbound', adminAuth, csrfGuard, requirePermission(PERMISSI
       sender_address_id: resolvedSenderAddressId,
       recipient_address_id: resolvedRecipientAddressId,
       items: items.map(it => ({ name: it.name.trim(), value: it.value, quantity: it.quantity })),
-    });
+    }, req.adminId || null);
     res.json({ message: '入库成功', parcelId: insertId });
   } catch (err: any) {
     console.error('[入库失败]', err);
@@ -1687,7 +1713,7 @@ router.get('/parcels/:id/items', adminAuth, requirePermission(PERMISSIONS.PARCEL
 router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE), parcelUpload.array('files', 10), async (req: AdminRequest, res: Response): Promise<void> => {
   const parcelId = Number(req.params.id);
   if (denyCrossProvider(req, res, await getParcelOwnerProviderId(parcelId))) return;
-  const { order_number, weight, cod_amount, length_cm, width_cm, height_cm, origin, destination, status, sub_status, remark, storage_bin, items: itemsJson, existing_images, logistics_provider_id, sender_address_id, recipient_address_id, declaration_document_id } = req.body;
+  const { order_number, weight, cod_amount, length_cm, width_cm, height_cm, origin, destination, estimated_delivery, username, status, sub_status, remark, storage_bin, items: itemsJson, existing_images, logistics_provider_id, sender_address_id, recipient_address_id, declaration_document_id } = req.body;
   const w = Number(weight);
   const codAmount = cod_amount !== undefined && cod_amount !== null && String(cod_amount).trim() !== '' ? Number(cod_amount) : undefined;
   const l = Number(length_cm);
@@ -1768,6 +1794,30 @@ router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.P
     res.status(400).json({ error: '申报证件不属于所选物流商' });
     return;
   }
+  const estimatedDeliveryValue =
+    estimated_delivery === undefined || estimated_delivery === null || String(estimated_delivery).trim() === ''
+      ? null
+      : String(estimated_delivery).trim();
+  if (estimatedDeliveryValue !== null && Number.isNaN(Date.parse(estimatedDeliveryValue))) {
+    res.status(400).json({ error: '预计到达时间格式不正确' });
+    return;
+  }
+  let editUserId: number | undefined;
+  if (username !== undefined) {
+    const normalizedUsername = String(username || '').trim();
+    if (normalizedUsername) {
+      const targetUser = await getUserByUsername(normalizedUsername);
+      if (!targetUser) {
+        res.status(400).json({ error: '会员不存在' });
+        return;
+      }
+      if (editProviderId !== undefined && Number(targetUser.logistics_provider_id ?? 0) !== Number(editProviderId ?? 0)) {
+        res.status(400).json({ error: '会员不属于所选物流商' });
+        return;
+      }
+      editUserId = targetUser.id;
+    }
+  }
   try {
     const ok = await updateParcel(parcelId, {
       order_number: typeof order_number === 'string' ? order_number.trim() : undefined,
@@ -1779,6 +1829,8 @@ router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.P
       volume,
       origin: typeof origin === 'string' ? origin.trim() : undefined,
       destination: typeof destination === 'string' ? destination.trim() : undefined,
+      estimated_delivery: estimatedDeliveryValue,
+      user_id: editUserId,
       status: typeof status === 'string' ? status.trim() : undefined,
       sub_status: typeof sub_status === 'string' ? sub_status.trim() : undefined,
       remark: typeof remark === 'string' ? remark.trim() : undefined,
@@ -1789,7 +1841,7 @@ router.put('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSIONS.P
       recipient_address_id: editRecipientAddressId,
       declaration_document_id: editDeclarationDocumentId,
       items: items.map(it => ({ name: it.name.trim(), value: it.value, quantity: it.quantity })),
-    });
+    }, req.adminId || null);
     if (!ok) {
       res.status(404).json({ error: '包裹不存在' });
       return;
@@ -1810,6 +1862,21 @@ router.delete('/parcels/:id', adminAuth, csrfGuard, requirePermission(PERMISSION
     return;
   }
   res.json({ message: '包裹已删除' });
+});
+
+router.post('/parcels/:id/restore', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_UPDATE), async (req: AdminRequest, res: Response): Promise<void> => {
+  const parcelId = Number(req.params.id);
+  if (!Number.isInteger(parcelId) || parcelId <= 0) {
+    res.status(400).json({ error: '无效的包裹ID' });
+    return;
+  }
+  if (denyCrossProvider(req, res, await getParcelOwnerProviderIdAny(parcelId))) return;
+  const ok = await restoreParcel(parcelId);
+  if (!ok) {
+    res.status(404).json({ error: '包裹不存在或未删除' });
+    return;
+  }
+  res.json({ message: '包裹已恢复' });
 });
 
 router.post('/parcels/batch-delete', adminAuth, csrfGuard, requirePermission(PERMISSIONS.PARCEL_DELETE), async (req: AdminRequest, res: Response): Promise<void> => {

@@ -1,6 +1,6 @@
 <mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/27.0.9 Chrome/134.0.6998.205 Electron/35.4.0 Safari/537.36" version="27.0.9">
   <diagram name="第 4 页 的副本" id="-39GGmuGbsAiXVMZZElT">
-    <mxGraphModel dx="2866" dy="2443" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="827" pageHeight="1169" background="none" math="0" shadow="0">
+    <mxGraphModel dx="1986" dy="2124" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="827" pageHeight="1169" background="none" math="0" shadow="0">
       <root>
         <mxCell id="S-CJXZpBJfYsY3bo3eE5-0" />
         <mxCell id="S-CJXZpBJfYsY3bo3eE5-1" parent="S-CJXZpBJfYsY3bo3eE5-0" />
@@ -606,14 +606,11 @@
         <mxCell id="wmCo6_nYJ_gyvW0ipKls-333" value="发货人" style="fillColor=none;strokeColor=none;align=left;fontSize=14;container=0;whiteSpace=wrap;" parent="wmCo6_nYJ_gyvW0ipKls-236" vertex="1">
           <mxGeometry x="529" y="120" width="400" height="25" as="geometry" />
         </mxCell>
-        <mxCell id="wmCo6_nYJ_gyvW0ipKls-334" value="张三&lt;div&gt;19955556666&lt;/div&gt;&lt;div&gt;广西壮族自治区&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(108, 118, 125), rgb(131, 139, 145));&quot;&gt;广西壮族自治区&lt;/span&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(108, 118, 125), rgb(131, 139, 145));&quot;&gt;广西壮族自治区&lt;/span&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(108, 118, 125), rgb(131, 139, 145));&quot;&gt;广西壮族自治区&lt;/span&gt;&lt;span style=&quot;text-wrap-mode: nowrap; background-color: transparent; color: light-dark(rgb(108, 118, 125), rgb(131, 139, 145));&quot;&gt;广西壮族自治区&lt;/span&gt;&lt;span style=&quot;text-wrap-mode: nowrap; background-color: transparent; color: light-dark(rgb(108, 118, 125), rgb(131, 139, 145));&quot;&gt;广西壮族自治区&lt;/span&gt;&lt;span style=&quot;text-wrap-mode: nowrap; background-color: transparent; color: light-dark(rgb(108, 118, 125), rgb(131, 139, 145));&quot;&gt;广西壮族自治区&lt;/span&gt;&lt;span style=&quot;text-wrap-mode: nowrap; background-color: transparent; color: light-dark(rgb(108, 118, 125), rgb(131, 139, 145));&quot;&gt;广西壮族自治区&lt;/span&gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;shape=mxgraph.bootstrap.rrect;rSize=5;fillColor=none;strokeColor=#999999;align=left;spacing=15;fontSize=14;fontColor=#6C767D;container=0;whiteSpace=wrap;" parent="wmCo6_nYJ_gyvW0ipKls-236" vertex="1">
-          <mxGeometry x="529" y="145" width="399" height="90" as="geometry" />
-        </mxCell>
         <mxCell id="wmCo6_nYJ_gyvW0ipKls-351" value="发货人" style="fillColor=none;strokeColor=none;align=left;fontSize=14;container=0;whiteSpace=wrap;" parent="wmCo6_nYJ_gyvW0ipKls-236" vertex="1">
           <mxGeometry x="531" y="240" width="380" height="23" as="geometry" />
         </mxCell>
-        <mxCell id="wmCo6_nYJ_gyvW0ipKls-352" value="&amp;lt;名称&amp;gt;&lt;br&gt;&lt;div style=&quot;text-wrap-mode: wrap;&quot;&gt;&amp;lt;电话&amp;gt;&lt;/div&gt;&lt;div style=&quot;text-wrap-mode: wrap;&quot;&gt;&amp;lt;所在区域&amp;gt;&amp;lt;地址&amp;gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;shape=mxgraph.bootstrap.rrect;rSize=5;fillColor=none;strokeColor=#999999;align=left;spacing=15;fontSize=14;fontColor=#6C767D;container=0;whiteSpace=wrap;" parent="wmCo6_nYJ_gyvW0ipKls-236" vertex="1">
-          <mxGeometry x="530" y="263" width="400" height="90" as="geometry" />
+        <mxCell id="wmCo6_nYJ_gyvW0ipKls-352" value="&amp;lt;名称&amp;gt;&amp;nbsp;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(108, 118, 125), rgb(131, 139, 145));&quot;&gt;&amp;lt;电话&amp;gt;&lt;/span&gt;&lt;div style=&quot;text-wrap-mode: wrap;&quot;&gt;&amp;lt;所在区域&amp;gt;&amp;lt;地址&amp;gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;shape=mxgraph.bootstrap.rrect;rSize=5;fillColor=none;strokeColor=#999999;align=left;spacing=2;fontSize=17;fontColor=#6C767D;container=0;whiteSpace=wrap;verticalAlign=top;" parent="wmCo6_nYJ_gyvW0ipKls-236" vertex="1">
+          <mxGeometry x="530" y="263" width="400" height="77" as="geometry" />
         </mxCell>
         <mxCell id="wmCo6_nYJ_gyvW0ipKls-354" value="23.99" style="html=1;shadow=0;dashed=0;shape=mxgraph.bootstrap.rrect;rSize=5;fillColor=none;strokeColor=#999999;align=left;spacing=15;fontSize=14;fontColor=#6C767D;container=0;" parent="wmCo6_nYJ_gyvW0ipKls-236" vertex="1">
           <mxGeometry x="288" y="660" width="100" height="40" as="geometry" />
@@ -633,8 +630,8 @@
         <mxCell id="wmCo6_nYJ_gyvW0ipKls-398" value="申报证件" style="fillColor=none;strokeColor=none;align=left;fontSize=14;container=0;whiteSpace=wrap;" parent="wmCo6_nYJ_gyvW0ipKls-236" vertex="1">
           <mxGeometry x="530" y="370" width="410.5" height="21.5" as="geometry" />
         </mxCell>
-        <mxCell id="wmCo6_nYJ_gyvW0ipKls-399" value="&amp;lt;证件类型&amp;gt;&lt;div&gt;&amp;lt;证件号&amp;gt;&lt;br&gt;&lt;div style=&quot;text-wrap-mode: wrap;&quot;&gt;&amp;lt;持证人名称&amp;gt;&lt;/div&gt;&lt;div style=&quot;text-wrap-mode: wrap;&quot;&gt;&amp;lt;电话&amp;gt;&lt;/div&gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;shape=mxgraph.bootstrap.rrect;rSize=5;fillColor=none;strokeColor=#999999;align=left;spacing=15;fontSize=14;fontColor=#6C767D;container=0;whiteSpace=wrap;" parent="wmCo6_nYJ_gyvW0ipKls-236" vertex="1">
-          <mxGeometry x="530" y="391.5" width="405.25" height="90" as="geometry" />
+        <mxCell id="wmCo6_nYJ_gyvW0ipKls-399" value="&amp;lt;证件类型&amp;gt;:&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(108, 118, 125), rgb(131, 139, 145));&quot;&gt;&amp;lt;证件号&amp;gt;&lt;/span&gt;&lt;div&gt;&lt;div style=&quot;text-wrap-mode: wrap;&quot;&gt;&amp;lt;持证人名称&amp;gt;&amp;nbsp;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(108, 118, 125), rgb(131, 139, 145));&quot;&gt;&amp;lt;电话&amp;gt;&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;" style="html=1;shadow=0;dashed=0;shape=mxgraph.bootstrap.rrect;rSize=5;fillColor=none;strokeColor=#999999;align=left;spacing=2;fontSize=17;fontColor=#6C767D;container=0;whiteSpace=wrap;" parent="wmCo6_nYJ_gyvW0ipKls-236" vertex="1">
+          <mxGeometry x="530" y="391.5" width="405.25" height="48.5" as="geometry" />
         </mxCell>
         <mxCell id="wmCo6_nYJ_gyvW0ipKls-400" value="会员" style="fillColor=none;strokeColor=none;align=right;fontSize=14;container=0;" parent="wmCo6_nYJ_gyvW0ipKls-236" vertex="1">
           <mxGeometry x="64" y="453" width="70" height="40" as="geometry" />
@@ -714,11 +711,14 @@
         <mxCell id="wmCo6_nYJ_gyvW0ipKls-441" value="" style="html=1;shadow=0;dashed=0;shape=mxgraph.bootstrap.rrect;rSize=5;fillColor=none;strokeColor=#999999;align=left;spacing=15;fontSize=14;fontColor=#6C767D;container=0;" parent="wmCo6_nYJ_gyvW0ipKls-236" vertex="1">
           <mxGeometry x="140" y="170" width="330" height="40" as="geometry" />
         </mxCell>
-        <mxCell id="JGAAadx3eWka17TmdUeX-0" value="&lt;span style=&quot;font-size: 14px; text-wrap-mode: nowrap;&quot;&gt;备注&amp;nbsp;0&amp;nbsp;/&amp;nbsp;255&lt;/span&gt;" style="html=1;shadow=0;dashed=0;shape=mxgraph.bootstrap.rrect;rSize=5;html=1;strokeColor=#C8C8C8;fillColor=#ffffff;whiteSpace=wrap;verticalAlign=top;align=left;fontSize=18;spacing=15;spacingTop=-5;" vertex="1" parent="wmCo6_nYJ_gyvW0ipKls-236">
+        <mxCell id="JGAAadx3eWka17TmdUeX-0" value="&lt;span style=&quot;font-size: 14px; text-wrap-mode: nowrap;&quot;&gt;备注&amp;nbsp;0&amp;nbsp;/&amp;nbsp;255&lt;/span&gt;" style="html=1;shadow=0;dashed=0;shape=mxgraph.bootstrap.rrect;rSize=5;html=1;strokeColor=#C8C8C8;fillColor=#ffffff;whiteSpace=wrap;verticalAlign=top;align=left;fontSize=18;spacing=15;spacingTop=-5;" parent="wmCo6_nYJ_gyvW0ipKls-236" vertex="1">
           <mxGeometry x="515.25" y="899" width="440" height="150" as="geometry" />
         </mxCell>
         <mxCell id="wmCo6_nYJ_gyvW0ipKls-420" value="" style="html=1;shadow=0;dashed=0;shape=mxgraph.bootstrap.rrect;rSize=5;strokeColor=#CED4DA;fillColor=none;align=left;verticalAlign=middle;spacing=10;fontSize=14;whiteSpace=wrap;html=1;" parent="wmCo6_nYJ_gyvW0ipKls-236" vertex="1">
           <mxGeometry x="524.5" y="939" width="425.5" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="1jqiSM_UwqI_HaPVVw3z-0" value="王雅琪&amp;nbsp;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(108, 118, 125), rgb(131, 139, 145));&quot;&gt;13007891234&lt;/span&gt;&lt;div&gt;福州市马尾区亭江镇长洋路177-3号福州综合保税区围网内跨境电商保税物流仓库1#楼201-11室（自贸...&lt;/div&gt;" style="html=1;shadow=0;dashed=0;shape=mxgraph.bootstrap.rrect;rSize=5;fillColor=none;strokeColor=#999999;align=left;spacing=5;fontSize=17;fontColor=#6C767D;container=0;whiteSpace=wrap;verticalAlign=top;" vertex="1" parent="wmCo6_nYJ_gyvW0ipKls-236">
+          <mxGeometry x="531" y="145" width="400" height="75" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>

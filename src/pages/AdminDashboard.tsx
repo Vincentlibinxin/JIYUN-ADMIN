@@ -1411,6 +1411,23 @@ export default function AdminDashboard() {
     } catch { setError('删除失败'); }
   };
 
+  const restoreParcel = async (id: number): Promise<boolean> => {
+    try {
+      const response = await adminFetch(`/admin/parcels/${id}/restore`, { method: 'POST' });
+      if (!ensureAuthorized(response)) return false;
+      if (response.ok) {
+        fetchParcels(parcelPage, parcelPageSize);
+        return true;
+      }
+      const data = await response.json().catch(() => ({}));
+      setError(data.error || '恢复包裹失败');
+      return false;
+    } catch {
+      setError('恢复包裹失败');
+      return false;
+    }
+  };
+
   const batchDeleteUsers = async (ids: number[]) => {
     try {
       const response = await adminFetch('/admin/users/batch-delete', {
@@ -2223,6 +2240,7 @@ export default function AdminDashboard() {
               }}
               onUpdateStatus={updateParcelStatus}
               onDelete={deleteParcel}
+              onRestore={restoreParcel}
               onBatchDelete={batchDeleteParcels}
               onBatchUpdateLogisticsProvider={actorScope === 'platform' ? batchUpdateParcelsLogisticsProvider : undefined}
               onBatchUpdateCargoStatus={batchUpdateParcelsCargoStatus}

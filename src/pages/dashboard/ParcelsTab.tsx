@@ -1,6 +1,6 @@
 ﻿import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
 import { Button, Card, Checkbox, DatePicker, Form, Image, Input, InputNumber, Modal, Pagination as AntPagination, Popconfirm, Row, Col, Select, Space, Table, Tooltip, Upload, Tag } from 'antd';
-import { ReloadOutlined, EyeOutlined, EditOutlined, DeleteOutlined, InboxOutlined, PlusOutlined, MinusCircleOutlined, FileTextOutlined, PictureOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EyeOutlined, EditOutlined, DeleteOutlined, InboxOutlined, PlusOutlined, MinusCircleOutlined, FileTextOutlined, PictureOutlined, SendOutlined, ExpandOutlined, AppstoreOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { adminFetch } from '../../lib/api';
@@ -89,6 +89,7 @@ interface ParcelsTabProps {
   onSortChange: (key: ParcelSortKey, direction: SortDirection) => void;
   onUpdateStatus: (parcelId: number, status: string) => void;
   onDelete: (id: number) => void;
+  onRestore?: (id: number) => Promise<boolean>;
   onBatchDelete: (ids: number[]) => void;
   onBatchUpdateLogisticsProvider?: (ids: number[], logisticsProviderId: number) => Promise<boolean>;
   onBatchUpdateCargoStatus?: (ids: number[], status: string) => Promise<boolean>;
@@ -123,6 +124,7 @@ export default memo(function ParcelsTab({
   onSortChange,
   onUpdateStatus,
   onDelete,
+  onRestore,
   onBatchDelete,
   onBatchUpdateLogisticsProvider,
   onBatchUpdateCargoStatus,
@@ -248,9 +250,25 @@ export default memo(function ParcelsTab({
     const regionPath = [entry.province, entry.city, entry.district, entry.street].filter(Boolean).join('');
     return `${entry.name} · ${entry.phone} · ${regionPath}${entry.address}`;
   }, []);
+  const formatAddressPrimaryLine = useCallback((entry: AddressOption) => {
+    const name = entry.name || '-';
+    const phone = entry.phone || '-';
+    return `${name}  ${phone}`;
+  }, []);
+  const formatAddressSecondaryLine = useCallback((entry: AddressOption) => {
+    const regionPath = [entry.province, entry.city, entry.district, entry.street].filter(Boolean).join('');
+    const addr = (entry.address || '').trim();
+    if (regionPath && addr) return `${regionPath}${addr}`;
+    return regionPath || addr || '-';
+  }, []);
   const toAddressSelectOptions = useCallback((entries: AddressOption[]) => (
-    entries.map((entry) => ({ value: entry.id, label: formatAddressLabel(entry) }))
-  ), [formatAddressLabel]);
+    entries.map((entry) => ({
+      value: entry.id,
+      label: formatAddressLabel(entry),
+      primaryLine: formatAddressPrimaryLine(entry),
+      secondaryLine: formatAddressSecondaryLine(entry),
+    }))
+  ), [formatAddressLabel, formatAddressPrimaryLine, formatAddressSecondaryLine]);
 
   interface IdentityDocOption {
     id: number;
@@ -266,9 +284,24 @@ export default memo(function ParcelsTab({
     const holder = entry.holder_name ? ` · ${entry.holder_name}` : '';
     return `${typeName} · ${entry.document_number}${holder}`;
   }, []);
+  const formatIdentityPrimaryLine = useCallback((entry: IdentityDocOption) => {
+    const typeName = IDENTITY_DOCUMENT_TYPE_MAP[entry.document_type] || entry.document_type || '-';
+    const docNo = entry.document_number || '-';
+    return `${typeName}  ${docNo}`;
+  }, []);
+  const formatIdentitySecondaryLine = useCallback((entry: IdentityDocOption) => {
+    const holderName = entry.holder_name || '-';
+    const holderPhone = entry.holder_phone || '-';
+    return `${holderName}  ${holderPhone}`;
+  }, []);
   const toIdentitySelectOptions = useCallback((entries: IdentityDocOption[]) => (
-    entries.map((entry) => ({ value: entry.id, label: formatIdentityLabel(entry) }))
-  ), [formatIdentityLabel]);
+    entries.map((entry) => ({
+      value: entry.id,
+      label: formatIdentityLabel(entry),
+      primaryLine: formatIdentityPrimaryLine(entry),
+      secondaryLine: formatIdentitySecondaryLine(entry),
+    }))
+  ), [formatIdentityLabel, formatIdentityPrimaryLine, formatIdentitySecondaryLine]);
 
   useEffect(() => {
     const isInbound = inboundOpen;
@@ -408,6 +441,72 @@ export default memo(function ParcelsTab({
   const [logsKeyword, setLogsKeyword] = useState('');
   const [logsDateRange, setLogsDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
 
+  interface StorageBinLog {
+    id: number;
+    parcel_id: number;
+    tracking_number: string | null;
+    storage_bin: string;
+    operator_name: string | null;
+    created_at: string;
+  }
+  const [binLogsOpen, setBinLogsOpen] = useState(false);
+  const [binLogsData, setBinLogsData] = useState<StorageBinLog[]>([]);
+  const [binLogsTotal, setBinLogsTotal] = useState(0);
+  const [binLogsPage, setBinLogsPage] = useState(1);
+  const [binLogsPageSize, setBinLogsPageSize] = useState(20);
+  const [binLogsLoading, setBinLogsLoading] = useState(false);
+  const [binLogsKeyword, setBinLogsKeyword] = useState('');
+  const [binLogsDateRange, setBinLogsDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+  const [binLogsParcelId, setBinLogsParcelId] = useState<number | null>(null);
+
+  interface MemberOption {
+    username: string;
+    real_name: string | null;
+    phone: string | null;
+  }
+  const [editMemberOptions, setEditMemberOptions] = useState<MemberOption[]>([]);
+  const [editMemberSearching, setEditMemberSearching] = useState(false);
+  const editMemberSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const memberLabel = useCallback((m: MemberOption): string => {
+    const namePart = m.real_name ? `${m.real_name}（${m.username}）` : m.username;
+    return m.phone ? `${namePart} · ${m.phone}` : namePart;
+  }, []);
+  const editMemberSelectOptions = useMemo(
+    () => editMemberOptions.map((m) => ({ label: memberLabel(m), value: m.username })),
+    [editMemberOptions, memberLabel]
+  );
+  const searchEditMembers = useCallback((keyword: string) => {
+    if (editMemberSearchTimer.current) clearTimeout(editMemberSearchTimer.current);
+    const kw = keyword.trim();
+    if (!kw) {
+      setEditMemberOptions((prev) => {
+        const currentUsername = String(editForm.getFieldValue('username') || '').trim();
+        if (!currentUsername) return [];
+        const existing = prev.find((item) => item.username === currentUsername);
+        return existing ? [existing] : [{ username: currentUsername, real_name: null, phone: null }];
+      });
+      return;
+    }
+    editMemberSearchTimer.current = setTimeout(async () => {
+      try {
+        setEditMemberSearching(true);
+        const res = await adminFetch(`/admin/users/search?q=${encodeURIComponent(kw)}&page=1&limit=20`);
+        if (!res.ok) return;
+        const json = await res.json();
+        const list = (json.data || []).map((u: any) => ({
+          username: String(u.username || ''),
+          real_name: u.real_name ?? null,
+          phone: u.phone ?? null,
+        })).filter((u: MemberOption) => Boolean(u.username));
+        setEditMemberOptions(list);
+      } catch {
+        // ignore member search error
+      } finally {
+        setEditMemberSearching(false);
+      }
+    }, 300);
+  }, [editForm]);
+
   const fetchStatusLogs = useCallback(async (page = 1, size = 20, keyword = '', dateRange: [dayjs.Dayjs, dayjs.Dayjs] | null = null) => {
     setLogsLoading(true);
     try {
@@ -437,6 +536,76 @@ export default memo(function ParcelsTab({
     fetchStatusLogs(1, logsPageSize);
   };
 
+  const fetchStorageBinLogs = useCallback(async (
+    page = 1,
+    size = 20,
+    keyword = '',
+    dateRange: [dayjs.Dayjs, dayjs.Dayjs] | null = null,
+    parcelId: number | null = null,
+  ) => {
+    setBinLogsLoading(true);
+    try {
+      if (parcelId && parcelId > 0) {
+        const res = await adminFetch(`/admin/parcels/${parcelId}/storage-bin-logs`);
+        const json = await res.json();
+        const list = Array.isArray(json.data) ? json.data : [];
+        const kw = keyword.trim();
+        const filtered = list.filter((row: StorageBinLog) => {
+          if (kw) {
+            const hay = `${row.parcel_id} ${row.tracking_number || ''} ${row.storage_bin || ''} ${row.operator_name || ''}`.toLowerCase();
+            if (!hay.includes(kw.toLowerCase())) return false;
+          }
+          if (dateRange) {
+            const t = dayjs(row.created_at);
+            if (!t.isValid()) return false;
+            const from = dateRange[0].startOf('day');
+            const to = dateRange[1].endOf('day');
+            if (t.isBefore(from) || t.isAfter(to)) return false;
+          }
+          return true;
+        });
+        setBinLogsTotal(filtered.length);
+        const start = (page - 1) * size;
+        setBinLogsData(filtered.slice(start, start + size));
+      } else {
+        const params = new URLSearchParams({ page: String(page), limit: String(size) });
+        if (keyword.trim()) params.set('keyword', keyword.trim());
+        if (dateRange) {
+          params.set('startDate', dateRange[0].format('YYYY-MM-DD'));
+          params.set('endDate', dateRange[1].format('YYYY-MM-DD'));
+        }
+        const res = await adminFetch(`/admin/parcels/storage-bin-logs?${params}`);
+        const json = await res.json();
+        setBinLogsData(json.data || []);
+        setBinLogsTotal(json.total || 0);
+      }
+    } catch {
+      setBinLogsData([]);
+      setBinLogsTotal(0);
+    } finally {
+      setBinLogsLoading(false);
+    }
+  }, []);
+
+  const openStorageBinLogsModal = () => {
+    setBinLogsParcelId(null);
+    setBinLogsOpen(true);
+    setBinLogsPage(1);
+    setBinLogsKeyword('');
+    setBinLogsDateRange(null);
+    fetchStorageBinLogs(1, binLogsPageSize, '', null, null);
+  };
+
+  const openParcelStorageBinLogsModal = (parcelId: number) => {
+    if (!Number.isInteger(parcelId) || parcelId <= 0) return;
+    setBinLogsParcelId(parcelId);
+    setBinLogsOpen(true);
+    setBinLogsPage(1);
+    setBinLogsKeyword('');
+    setBinLogsDateRange(null);
+    fetchStorageBinLogs(1, binLogsPageSize, '', null, parcelId);
+  };
+
   const logsColumns: ColumnsType<StatusLog> = useMemo(() => [
     { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 170, render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '' },
     { title: '包裹ID', dataIndex: 'parcel_id', key: 'parcel_id', width: 80 },
@@ -458,6 +627,16 @@ export default memo(function ParcelsTab({
 
   const statusLogsTableColumns = useMemo(() => constrainTableColumns(logsColumns), [logsColumns]);
   const statusLogsTableScrollX = useMemo(() => getConstrainedTableScrollX(statusLogsTableColumns), [statusLogsTableColumns]);
+
+  const binLogsColumns: ColumnsType<StorageBinLog> = useMemo(() => [
+    { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 170, render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '' },
+    { title: '包裹ID', dataIndex: 'parcel_id', key: 'parcel_id', width: 80 },
+    { title: '运单号', dataIndex: 'tracking_number', key: 'tracking_number', width: 170, render: (v: string | null) => v || '' },
+    { title: '绑定库位号', dataIndex: 'storage_bin', key: 'storage_bin', width: 160 },
+    { title: '操作账号', dataIndex: 'operator_name', key: 'operator_name', width: 120, render: (v: string | null) => v || '系统' },
+  ], []);
+  const binLogsTableColumns = useMemo(() => constrainTableColumns(binLogsColumns), [binLogsColumns]);
+  const binLogsTableScrollX = useMemo(() => getConstrainedTableScrollX(binLogsTableColumns), [binLogsTableColumns]);
 
   const handleInboundSubmit = async () => {
     try {
@@ -504,7 +683,7 @@ export default memo(function ParcelsTab({
       created_at: record.created_at ? dayjs(record.created_at).format('YYYY-MM-DD HH:mm:ss') : '',
       updated_at: record.updated_at ? dayjs(record.updated_at).format('YYYY-MM-DD HH:mm:ss') : '',
       deleted_at_display: record.deleted_at ? dayjs(record.deleted_at).format('YYYY-MM-DD HH:mm:ss') : '',
-      estimated_delivery: record.estimated_delivery ? dayjs(record.estimated_delivery).format('YYYY-MM-DD HH:mm:ss') : '',
+      estimated_delivery: record.estimated_delivery ? dayjs(record.estimated_delivery) : null,
       weight: record.weight,
       cod_amount: record.cod_amount,
       length_cm: record.length_cm,
@@ -523,22 +702,39 @@ export default memo(function ParcelsTab({
       declaration_document_id: record.declaration_document_id ?? undefined,
       items: [{ name: '', value: 0, quantity: 1 }],
     });
+    if (record.username) {
+      setEditMemberOptions((prev) => {
+        if (prev.some((item) => item.username === record.username)) return prev;
+        return [{ username: record.username, real_name: null, phone: null }, ...prev];
+      });
+    }
     try {
       const items = await onFetchItems(record.id);
       if (items.length > 0) editForm.setFieldsValue({ items });
     } catch { /* keep default */ }
   };
 
+  const closeEditModal = () => {
+    setEditOpen(false);
+  };
+
+  const cleanupEditModalState = () => {
+    editForm.resetFields();
+    setEditFileList([]);
+    setEditMemberOptions([]);
+    setEditingParcel(null);
+  };
+
   const openViewModal = async (record: Parcel) => {
     setEditMode('view');
-    await fillEditForm(record);
     setEditOpen(true);
+    void fillEditForm(record);
   };
 
   const openEditModal = async (record: Parcel) => {
     setEditMode('edit');
-    await fillEditForm(record);
     setEditOpen(true);
+    void fillEditForm(record);
   };
 
   const handleEditSubmit = async () => {
@@ -555,6 +751,8 @@ export default memo(function ParcelsTab({
       fd.append('height_cm', String(values.height_cm));
       fd.append('origin', values.origin || '');
       fd.append('destination', values.destination || '');
+      fd.append('estimated_delivery', values.estimated_delivery ? dayjs(values.estimated_delivery).format('YYYY-MM-DD HH:mm:ss') : '');
+      fd.append('username', values.username != null ? String(values.username).trim() : '');
       fd.append('status', values.status || editingParcel.status);
       fd.append('sub_status', values.sub_status || '');
       fd.append('remark', values.remark != null ? String(values.remark) : '');
@@ -571,10 +769,7 @@ export default memo(function ParcelsTab({
       });
       const ok = await onEdit(editingParcel.id, fd);
       if (ok) {
-        setEditOpen(false);
-        editForm.resetFields();
-        setEditFileList([]);
-        setEditingParcel(null);
+        closeEditModal();
       }
     } catch {
       // validation failed
@@ -691,21 +886,6 @@ export default memo(function ParcelsTab({
     />
   ), [columnFilters, handleColumnSearch]);
 
-  const renderImageFilter = useCallback(() => (
-    <Select
-      size="small"
-      value={columnFilters.images || ''}
-      onChange={(value) => handleColumnSearch('images', value)}
-      onClick={(event) => event.stopPropagation()}
-      style={{ width: '100%' }}
-      options={[
-        { label: '全部', value: '' },
-        { label: '有图', value: 'with' },
-        { label: '无图', value: 'without' },
-      ]}
-    />
-  ), [columnFilters.images, handleColumnSearch]);
-
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const [batchLogisticsModalOpen, setBatchLogisticsModalOpen] = useState(false);
   const [batchLogisticsProviderId, setBatchLogisticsProviderId] = useState<number | undefined>(undefined);
@@ -801,33 +981,44 @@ export default memo(function ParcelsTab({
       ],
     },
     {
-      title: '包裹单号',
-      key: 'tracking_number',
-      width: 180,
+      title: '包裹PID/订单号ORD',
+      key: 'parcel_order_number',
+      width: 260,
       sorter: true,
       sortOrder: sortKey === 'tracking_number' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
       children: [
         {
-          title: renderSearchInput('tracking_number', '包裹单号'),
-          dataIndex: 'tracking_number',
-          key: 'tracking_number_child',
-          width: 180,
+          title: renderSearchInput('tracking_number', '包裹/订单号'),
+          key: 'parcel_order_number_child',
+          width: 260,
           ellipsis: true,
-        },
-      ],
-    },
-    {
-      title: '订单号',
-      key: 'order_number',
-      width: 160,
-      children: [
-        {
-          title: renderSearchInput('order_number', '订单号'),
-          dataIndex: 'order_number',
-          key: 'order_number_child',
-          width: 160,
-          ellipsis: true,
-          render: (value: string | null) => value || '',
+          render: (_, record) => {
+            const trackingNo = record.tracking_number || '';
+            const orderNo = record.order_number || '';
+            const urls = (record.images || '').split(',').map(s => s.trim()).filter(Boolean);
+            const hasImages = urls.length > 0;
+            return (
+              <div style={{ minWidth: 0, lineHeight: 1.4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>PID : {trackingNo}</span>
+                  {hasImages && (
+                    <Tooltip title="查看图片">
+                      <PictureOutlined
+                        style={{ fontSize: 16, color: '#1677ff', cursor: 'pointer', flexShrink: 0 }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRowPreviewUrls(urls);
+                          setRowPreviewIndex(0);
+                          setRowPreviewOpen(true);
+                        }}
+                      />
+                    </Tooltip>
+                  )}
+                </div>
+                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>ORD : {orderNo}</div>
+              </div>
+            );
+          },
         },
       ],
     },
@@ -860,40 +1051,64 @@ export default memo(function ParcelsTab({
       ],
     },
     {
-      title: '尺寸',
-      key: 'dimensions',
-      width: 140,
+      title: '尺寸/体积',
+      key: 'dimension_volume',
+      width: 180,
       children: [
         {
-          title: renderSearchInput('dimensions', '尺寸 例:30*20'),
-          key: 'dimensions_child',
-          width: 140,
+          title: renderSearchInput('dimension_volume', '尺寸/体积'),
+          key: 'dimension_volume_child',
+          width: 180,
           render: (_, record) => {
-            if (record.length_cm != null && record.width_cm != null && record.height_cm != null) {
-              return `${record.length_cm}*${record.width_cm}*${record.height_cm}`;
-            }
-            return '';
+            const dimensions = (record.length_cm != null && record.width_cm != null && record.height_cm != null)
+              ? `${record.length_cm}*${record.width_cm}*${record.height_cm}`
+              : '';
+            const volume = (() => {
+              if (record.volume == null || record.volume === '') return '';
+              const num = Number(record.volume);
+              if (Number.isNaN(num)) return String(record.volume);
+              return num.toLocaleString('en-US');
+            })();
+
+            return (
+              <div style={{ lineHeight: 1.4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <ExpandOutlined style={{ color: '#1677ff', flexShrink: 0 }} />
+                  <span>{dimensions}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <AppstoreOutlined style={{ color: '#52c41a', flexShrink: 0 }} />
+                  <span>{volume}</span>
+                </div>
+              </div>
+            );
           },
         },
       ],
     },
     {
-      title: '体积',
-      key: 'volume',
-      width: 100,
-      sorter: true,
-      sortOrder: sortKey === 'volume' ? (sortDirection === 'asc' ? 'ascend' : 'descend') : null,
+      title: '库位号',
+      key: 'storage_bin',
+      width: 130,
       children: [
         {
-          title: renderSearchInput('volume', '体积'),
-          key: 'volume_child',
-          width: 100,
-          render: (_, record) => {
-            if (record.volume == null || record.volume === '') return '';
-            // 兼容字符串/数字，转为数字后用千分符格式化
-            const num = Number(record.volume);
-            if (Number.isNaN(num)) return String(record.volume);
-            return num.toLocaleString('en-US');
+          title: renderSearchInput('storage_bin', '库位号'),
+          dataIndex: 'storage_bin',
+          key: 'storage_bin_child',
+          width: 130,
+          ellipsis: true,
+          render: (value: string | null, record) => {
+            if (!value) return '';
+            return (
+              <Button
+                type="link"
+                size="small"
+                style={{ padding: 0, height: 'auto' }}
+                onClick={() => openParcelStorageBinLogsModal(record.id)}
+              >
+                {value}
+              </Button>
+            );
           },
         },
       ],
@@ -917,80 +1132,42 @@ export default memo(function ParcelsTab({
       ],
     },
     {
-      title: '库位号',
-      key: 'storage_bin',
-      width: 130,
-      children: [
-        {
-          title: renderSearchInput('storage_bin', '库位号'),
-          dataIndex: 'storage_bin',
-          key: 'storage_bin_child',
-          width: 130,
-          ellipsis: true,
-          render: (value: string | null) => value || '',
-        },
-      ],
-    },
-    {
-      title: '图片',
-      key: 'images',
-      width: 60,
-      children: [
-        {
-          title: renderImageFilter(),
-          key: 'images_child',
-          width: 60,
-          align: 'center' as const,
-          render: (_, record) => {
-            if (!record.images) return '';
-            const urls = record.images.split(',').map(s => s.trim()).filter(Boolean);
-            if (urls.length === 0) return '';
-            return (
-              <PictureOutlined
-                style={{ fontSize: 18, color: '#1677ff', cursor: 'pointer' }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setRowPreviewUrls(urls);
-                  setRowPreviewIndex(0);
-                  setRowPreviewOpen(true);
-                }}
-              />
-            );
-          },
-        },
-      ],
-    },
-    {
-      title: '发货人',
-      key: 'sender',
-      width: 190,
+      title: '收发货人',
+      key: 'sender_recipient',
+      width: 280,
       children: [{
-        title: renderSearchInput('sender', '发货人'),
-        key: 'sender_child',
-        width: 190,
-        ellipsis: true,
+        title: renderSearchInput('sender', '发货人/收货人'),
+        key: 'sender_recipient_child',
+        width: 280,
         render: (_, record) => {
-          if (!record.sender_name) return '';
-          const address = [record.sender_province, record.sender_city, record.sender_district, record.sender_street, record.sender_address].filter(Boolean).join('');
-          const text = `${record.sender_name} · ${record.sender_phone || ''} · ${address}`;
-          return <Tooltip title={text}>{text}</Tooltip>;
-        },
-      }],
-    },
-    {
-      title: '收货人',
-      key: 'recipient',
-      width: 190,
-      children: [{
-        title: renderSearchInput('recipient', '收货人'),
-        key: 'recipient_child',
-        width: 190,
-        ellipsis: true,
-        render: (_, record) => {
-          if (!record.recipient_name) return '';
-          const address = [record.recipient_province, record.recipient_city, record.recipient_district, record.recipient_street, record.recipient_address].filter(Boolean).join('');
-          const text = `${record.recipient_name} · ${record.recipient_phone || ''} · ${address}`;
-          return <Tooltip title={text}>{text}</Tooltip>;
+          const senderRegion = [record.sender_province, record.sender_city, record.sender_district, record.sender_street].filter(Boolean).join('');
+          const senderAddress = record.sender_address || '-';
+          const senderLine = `${record.sender_name || '-'} ${record.sender_phone || '-'} ${senderRegion || '-'} ${senderAddress}`;
+
+          const recipientRegion = [record.recipient_province, record.recipient_city, record.recipient_district, record.recipient_street].filter(Boolean).join('');
+          const recipientAddress = record.recipient_address || '-';
+          const recipientLine = `${record.recipient_name || '-'} ${record.recipient_phone || '-'} ${recipientRegion || '-'} ${recipientAddress}`;
+          return (
+            <Tooltip
+              title={(
+                <div>
+                  <div><SendOutlined style={{ marginRight: 6 }} />{senderLine}</div>
+                  <div><InboxOutlined style={{ marginRight: 6 }} />{recipientLine}</div>
+                </div>
+              )}
+            >
+              <div style={{ minWidth: 0, lineHeight: 1.4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                  <SendOutlined style={{ color: '#1677ff', flexShrink: 0 }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{senderLine}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                  <InboxOutlined style={{ color: '#52c41a', flexShrink: 0 }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{recipientLine}</span>
+                </div>
+              </div>
+            </Tooltip>
+          );
         },
       }],
     },
@@ -1139,7 +1316,6 @@ export default memo(function ParcelsTab({
     openViewModal,
     renderDateRangeInput,
     renderDeletedFilter,
-    renderImageFilter,
     renderSearchInput,
     resetFilters,
     selectedRowKeySet,
@@ -1214,6 +1390,7 @@ export default memo(function ParcelsTab({
     [editingParcel]
   );
   const remarkCount = useMemo(() => String(editRemark || '').length, [editRemark]);
+  const canRestoreCurrent = editMode === 'view' && Boolean(editingParcel?.id) && Boolean(editingParcel?.deleted_at) && Boolean(onRestore);
 
   return (
     <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 61px)', display: 'flex', flexDirection: 'column' }} bordered={false}>
@@ -1288,29 +1465,30 @@ export default memo(function ParcelsTab({
         </div>
       </div>
 
-      {/* 包裹状态快筛栏：显示所有包裹已有的货物态/信息态（可多选），按钮下方为包裹数量 */}
-      {(sortedCargoCounts.length > 0 || sortedInfoCounts.length > 0) && (
-        <div style={{ padding: '8px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', columnGap: 20, rowGap: 10 }}>
-          {sortedCargoCounts.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-              {sortedCargoCounts.map((s) =>
-                renderQuickStatusItem(s.code, s.count, selectedCargoStatuses.includes(s.code), () => toggleQuickStatus('status__in', s.code)),
-              )}
-            </div>
-          )}
-          {sortedCargoCounts.length > 0 && sortedInfoCounts.length > 0 && (
-            <div style={{ alignSelf: 'stretch', width: 1, background: '#f0f0f0' }} />
-          )}
-          {sortedInfoCounts.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-              <span style={{ fontSize: 12, color: '#8c8c8c', fontWeight: 500, whiteSpace: 'nowrap' }}>信息态</span>
-              {sortedInfoCounts.map((s) =>
-                renderQuickStatusItem(s.code, s.count, selectedInfoStatuses.includes(s.code), () => toggleQuickStatus('sub_status__in', s.code)),
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      {/* 包裹状态快筛栏：固定显示；展示已有货物态/信息态（可多选），按钮下方为包裹数量 */}
+      <div style={{ padding: '8px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', flexWrap: 'nowrap', alignItems: 'center', columnGap: 20, height: 56, overflowX: 'auto', overflowY: 'hidden' }}>
+        {sortedCargoCounts.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'nowrap', gap: 8 }}>
+            {sortedCargoCounts.map((s) =>
+              renderQuickStatusItem(s.code, s.count, selectedCargoStatuses.includes(s.code), () => toggleQuickStatus('status__in', s.code)),
+            )}
+          </div>
+        )}
+        {sortedCargoCounts.length > 0 && sortedInfoCounts.length > 0 && (
+          <div style={{ alignSelf: 'stretch', width: 1, background: '#f0f0f0' }} />
+        )}
+        {sortedInfoCounts.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'nowrap', gap: 8 }}>
+            <span style={{ fontSize: 12, color: '#8c8c8c', fontWeight: 500, whiteSpace: 'nowrap' }}>信息态</span>
+            {sortedInfoCounts.map((s) =>
+              renderQuickStatusItem(s.code, s.count, selectedInfoStatuses.includes(s.code), () => toggleQuickStatus('sub_status__in', s.code)),
+            )}
+          </div>
+        )}
+        {sortedCargoCounts.length === 0 && sortedInfoCounts.length === 0 && (
+          <span style={{ fontSize: 12, color: '#bfbfbf', lineHeight: '32px' }}>暂无可快筛状态</span>
+        )}
+      </div>
 
       <Modal
         title="批量修改物流商"
@@ -1514,13 +1692,39 @@ export default memo(function ParcelsTab({
         open={editOpen}
         rootClassName="detail-modal"
         className="detail-modal parcel-detail-modal"
-        onCancel={() => { setEditOpen(false); editForm.resetFields(); setEditFileList([]); setEditingParcel(null); }}
-        onOk={() => { if (editMode === 'view') setEditOpen(false); else void handleEditSubmit(); }}
+        onCancel={closeEditModal}
+        onOk={() => { if (editMode === 'view') closeEditModal(); else void handleEditSubmit(); }}
+        afterOpenChange={(open) => {
+          if (!open) {
+            cleanupEditModalState();
+          }
+        }}
         centered
         confirmLoading={editMode === 'edit' ? editLoading : false}
         okText={editMode === 'view' ? '关闭' : '保存'}
         cancelText="取消"
         cancelButtonProps={editMode === 'view' ? { style: { display: 'none' } } : undefined}
+        footer={editMode === 'view' ? [
+          <Button key="close" onClick={closeEditModal}>关闭</Button>,
+          <Popconfirm
+            key="restore"
+            title="确认恢复该包裹？"
+            description="恢复后将清除删除状态。"
+            okText="确认恢复"
+            cancelText="取消"
+            onConfirm={async () => {
+              if (!editingParcel?.id || !onRestore) return;
+              const ok = await onRestore(editingParcel.id);
+              if (ok) {
+                setEditingParcel((prev) => (prev ? { ...prev, deleted_at: null } : prev));
+                editForm.setFieldsValue({ deleted_at_display: '' });
+              }
+            }}
+            disabled={!canRestoreCurrent}
+          >
+            <Button key="restore-btn" type="primary" disabled={!canRestoreCurrent}>恢复</Button>
+          </Popconfirm>,
+        ] : undefined}
         width={840}
         styles={{ body: { paddingTop: 12, paddingBottom: 8 } }}
         style={{ maxWidth: 'calc(100vw - 24px)' }}
@@ -1567,9 +1771,26 @@ export default memo(function ParcelsTab({
 
                   <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '62px minmax(0, 1fr) 62px minmax(0, 1fr)', columnGap: 6, rowGap: 6, alignItems: 'start' }}>
                     <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>库位号</div>
-                    <Form.Item name="storage_bin" style={{ marginBottom: 0 }}>
-                      <Input maxLength={64} placeholder="库位号" />
-                    </Form.Item>
+                    {editMode === 'view' ? (
+                      <div style={{ display: 'flex', alignItems: 'center', minHeight: 30 }}>
+                        {editingParcel?.storage_bin ? (
+                          <Button
+                            type="link"
+                            size="small"
+                            style={{ padding: 0, height: 'auto' }}
+                            onClick={() => openParcelStorageBinLogsModal(editingParcel.id)}
+                          >
+                            {editingParcel.storage_bin}
+                          </Button>
+                        ) : (
+                          <span style={{ color: '#bfbfbf' }}>-</span>
+                        )}
+                      </div>
+                    ) : (
+                      <Form.Item name="storage_bin" style={{ marginBottom: 0 }}>
+                        <Input maxLength={64} placeholder="库位号" />
+                      </Form.Item>
+                    )}
                     <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>代收款</div>
                     <Form.Item name="cod_amount" style={{ marginBottom: 0 }}>
                       <InputNumber min={0} step={0.01} precision={2} style={{ width: '100%' }} placeholder="代收款(元)" />
@@ -1589,12 +1810,25 @@ export default memo(function ParcelsTab({
 
                   <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>预计到达</div>
                   <Form.Item name="estimated_delivery" style={{ marginBottom: 0 }}>
-                    <Input disabled placeholder="-" />
+                    <DatePicker
+                      showTime
+                      format="YYYY-MM-DD HH:mm:ss"
+                      style={{ width: '100%' }}
+                      placeholder="请选择预计到达时间"
+                    />
                   </Form.Item>
 
                   <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: '30px' }}>会员</div>
                   <Form.Item name="username" style={{ marginBottom: 0 }}>
-                    <Input disabled placeholder="-" />
+                    <Select
+                      allowClear
+                      showSearch
+                      filterOption={false}
+                      placeholder="搜索会员（用户名/姓名/电话）"
+                      onSearch={searchEditMembers}
+                      notFoundContent={editMemberSearching ? '搜索中…' : null}
+                      options={editMemberSelectOptions}
+                    />
                   </Form.Item>
 
                   {actorScope === 'platform' && (
@@ -1622,50 +1856,84 @@ export default memo(function ParcelsTab({
                   <div style={{ marginBottom: 8 }}>
                     <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 600, color: '#262626' }}>发货人</div>
                     {editMode === 'view' ? (
-                      <div style={{ minHeight: 72, border: '1px solid #d9d9d9', borderRadius: 4, padding: '6px 8px', fontSize: 12, lineHeight: 1.35 }}>
-                        <div>{editingParcel?.sender_name || '-'}</div>
-                        <div>{editingParcel?.sender_phone || '-'}</div>
-                        <div>{senderAddressLine}</div>
+                      <div style={{ height: 72, border: '1px solid #d9d9d9', borderRadius: 4, padding: '6px 8px', fontSize: 12, lineHeight: 1.35, overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
+                          <span>{editingParcel?.sender_name || '-'}</span>
+                          <span>{editingParcel?.sender_phone || '-'}</span>
+                        </div>
+                        <div style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{senderAddressLine}</div>
                       </div>
                     ) : (
-                      <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, padding: 6 }}>
-                        <Form.Item name="sender_address_id" style={{ marginBottom: 0 }}>
-                          <Select
-                            allowClear
-                            showSearch
-                            optionFilterProp="label"
-                            loading={addressOptionsLoading}
-                            disabled={actorScope === 'platform' && !editProviderId}
-                            placeholder={actorScope === 'platform' && !editProviderId ? '请先选择物流商' : '请选择发货人'}
-                            options={toAddressSelectOptions(editAddressOptions)}
-                          />
-                        </Form.Item>
-                      </div>
+                      <Form.Item name="sender_address_id" style={{ marginBottom: 0 }}>
+                        <Select
+                          className="receiver-block-select"
+                          allowClear
+                          showSearch
+                          optionFilterProp="label"
+                          loading={addressOptionsLoading}
+                          disabled={actorScope === 'platform' && !editProviderId}
+                          placeholder={actorScope === 'platform' && !editProviderId ? '请先选择物流商' : '请选择发货人'}
+                          options={toAddressSelectOptions(editAddressOptions)}
+                          optionRender={({ data }) => (
+                            <div className="receiver-block-option">
+                              <div className="line1">{data.primaryLine}</div>
+                              <div className="line2">{data.secondaryLine}</div>
+                            </div>
+                          )}
+                          labelRender={({ value }) => {
+                            const match = toAddressSelectOptions(editAddressOptions).find((option) => option.value === value);
+                            if (!match) return null;
+                            return (
+                              <div className="receiver-block-option">
+                                <div className="line1">{match.primaryLine}</div>
+                                <div className="line2">{match.secondaryLine}</div>
+                              </div>
+                            );
+                          }}
+                        />
+                      </Form.Item>
                     )}
                   </div>
 
                   <div style={{ marginBottom: 8 }}>
                     <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 600, color: '#262626' }}>收货人</div>
                   {editMode === 'view' ? (
-                    <div style={{ minHeight: 72, border: '1px solid #d9d9d9', borderRadius: 4, padding: '6px 8px', fontSize: 12, lineHeight: 1.35 }}>
-                      <div>{editingParcel?.recipient_name || '-'}</div>
-                      <div>{editingParcel?.recipient_phone || '-'}</div>
-                      <div>{recipientAddressLine}</div>
+                    <div style={{ height: 72, border: '1px solid #d9d9d9', borderRadius: 4, padding: '6px 8px', fontSize: 12, lineHeight: 1.35, overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
+                        <span>{editingParcel?.recipient_name || '-'}</span>
+                        <span>{editingParcel?.recipient_phone || '-'}</span>
+                      </div>
+                      <div style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{recipientAddressLine}</div>
                     </div>
                   ) : (
-                    <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, padding: 6 }}>
-                      <Form.Item name="recipient_address_id" style={{ marginBottom: 0 }}>
-                        <Select
-                          allowClear
-                          showSearch
-                          optionFilterProp="label"
-                          loading={addressOptionsLoading}
-                          disabled={actorScope === 'platform' && !editProviderId}
-                          placeholder={actorScope === 'platform' && !editProviderId ? '请先选择物流商' : '请选择收货人'}
-                          options={toAddressSelectOptions(editAddressOptions)}
-                        />
-                      </Form.Item>
-                    </div>
+                    <Form.Item name="recipient_address_id" style={{ marginBottom: 0 }}>
+                      <Select
+                        className="receiver-block-select"
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                        loading={addressOptionsLoading}
+                        disabled={actorScope === 'platform' && !editProviderId}
+                        placeholder={actorScope === 'platform' && !editProviderId ? '请先选择物流商' : '请选择收货人'}
+                        options={toAddressSelectOptions(editAddressOptions)}
+                        optionRender={({ data }) => (
+                          <div className="receiver-block-option">
+                            <div className="line1">{data.primaryLine}</div>
+                            <div className="line2">{data.secondaryLine}</div>
+                          </div>
+                        )}
+                        labelRender={({ value }) => {
+                          const match = toAddressSelectOptions(editAddressOptions).find((option) => option.value === value);
+                          if (!match) return null;
+                          return (
+                            <div className="receiver-block-option">
+                              <div className="line1">{match.primaryLine}</div>
+                              <div className="line2">{match.secondaryLine}</div>
+                            </div>
+                          );
+                        }}
+                      />
+                    </Form.Item>
                   )}
                   </div>
 
@@ -1679,19 +1947,34 @@ export default memo(function ParcelsTab({
                         <div>{editingParcel?.declaration_holder_phone || '-'}</div>
                       </div>
                     ) : (
-                      <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, padding: 6 }}>
-                        <Form.Item name="declaration_document_id" style={{ marginBottom: 0 }}>
-                          <Select
-                            allowClear
-                            showSearch
-                            optionFilterProp="label"
-                            loading={identityOptionsLoading}
-                            disabled={actorScope === 'platform' && !editProviderId}
-                            placeholder={actorScope === 'platform' && !editProviderId ? '请先选择物流商' : '请选择申报证件'}
-                            options={toIdentitySelectOptions(editIdentityOptions)}
-                          />
-                        </Form.Item>
-                      </div>
+                      <Form.Item name="declaration_document_id" style={{ marginBottom: 0 }}>
+                        <Select
+                          className="receiver-block-select"
+                          allowClear
+                          showSearch
+                          optionFilterProp="label"
+                          loading={identityOptionsLoading}
+                          disabled={actorScope === 'platform' && !editProviderId}
+                          placeholder={actorScope === 'platform' && !editProviderId ? '请先选择物流商' : '请选择申报证件'}
+                          options={toIdentitySelectOptions(editIdentityOptions)}
+                          optionRender={({ data }) => (
+                            <div className="receiver-block-option">
+                              <div className="line1">{data.primaryLine}</div>
+                              <div className="line2">{data.secondaryLine}</div>
+                            </div>
+                          )}
+                          labelRender={({ value }) => {
+                            const match = toIdentitySelectOptions(editIdentityOptions).find((option) => option.value === value);
+                            if (!match) return null;
+                            return (
+                              <div className="receiver-block-option">
+                                <div className="line1">{match.primaryLine}</div>
+                                <div className="line2">{match.secondaryLine}</div>
+                              </div>
+                            );
+                          }}
+                        />
+                      </Form.Item>
                     )}
                   </div>
                 </div>
@@ -1902,10 +2185,71 @@ export default memo(function ParcelsTab({
           onChange={(page, size) => onPageChange(page, size)}
           onShowSizeChange={(_, size) => onPageSizeChange(size)}
         />
-        <Button size="small" icon={<FileTextOutlined />} onClick={openLogsModal}>
-          状态流转日志
-        </Button>
+        <Space size={8}>
+          <Button size="small" icon={<AppstoreOutlined />} onClick={openStorageBinLogsModal}>
+            库位绑定日志
+          </Button>
+          <Button size="small" icon={<FileTextOutlined />} onClick={openLogsModal}>
+            状态流转日志
+          </Button>
+        </Space>
       </div>
+
+      {/* 库位绑定日志弹窗 */}
+      <Modal
+        title={binLogsParcelId ? `包裹库位绑定日志（包裹ID: ${binLogsParcelId}）` : '包裹库位绑定日志'}
+        open={binLogsOpen}
+        rootClassName="detail-modal"
+        className="detail-modal"
+        onCancel={() => { setBinLogsOpen(false); setBinLogsParcelId(null); }}
+        centered
+        footer={null}
+        width={960}
+        destroyOnClose
+        style={{ maxWidth: 'calc(100vw - 24px)' }}
+      >
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <Input.Search
+            placeholder="搜索运单号/库位号/操作账号..."
+            allowClear
+            style={{ width: 320 }}
+            value={binLogsKeyword}
+            onChange={e => setBinLogsKeyword(e.target.value)}
+            onSearch={(val) => { setBinLogsPage(1); fetchStorageBinLogs(1, binLogsPageSize, val, binLogsDateRange, binLogsParcelId); }}
+          />
+          <DatePicker.RangePicker
+            size="middle"
+            value={binLogsDateRange}
+            onChange={(dates) => {
+              const range = dates as [dayjs.Dayjs, dayjs.Dayjs] | null;
+              setBinLogsDateRange(range);
+              setBinLogsPage(1);
+              fetchStorageBinLogs(1, binLogsPageSize, binLogsKeyword, range, binLogsParcelId);
+            }}
+          />
+        </div>
+        <Table
+          rowKey="id"
+          columns={binLogsTableColumns}
+          dataSource={binLogsData}
+          loading={binLogsLoading}
+          size="small"
+          pagination={{
+            current: binLogsPage,
+            pageSize: binLogsPageSize,
+            total: binLogsTotal,
+            showSizeChanger: true,
+            pageSizeOptions: [10, 20, 50],
+            showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条 / 共 ${total} 条`,
+            onChange: (p, s) => {
+              setBinLogsPage(p);
+              setBinLogsPageSize(s);
+              fetchStorageBinLogs(p, s, binLogsKeyword, binLogsDateRange, binLogsParcelId);
+            },
+          }}
+          scroll={{ x: binLogsTableScrollX, y: 400 }}
+        />
+      </Modal>
 
       {/* 状态流转日志弹窗 */}
       <Modal

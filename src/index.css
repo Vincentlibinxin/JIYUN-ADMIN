@@ -167,15 +167,21 @@ main form details {
   font-size: 13px;
 }
 
-.parcel-detail-modal .compact-form .ant-input,
-.parcel-detail-modal .compact-form .ant-input-number-input {
-  height: 30px;
-}
 
+.parcel-detail-modal .compact-form input.ant-input,
 .parcel-detail-modal .compact-form .ant-input-number,
-.parcel-detail-modal .compact-form .ant-select-selector {
+.parcel-detail-modal .compact-form .ant-input-affix-wrapper,
+.parcel-detail-modal .compact-form .ant-select-single .ant-select-selector,
+.parcel-detail-modal .compact-form .ant-picker {
   min-height: 30px !important;
   height: 30px !important;
+}
+
+.parcel-detail-modal .compact-form .ant-input-number-input,
+.parcel-detail-modal .compact-form .ant-input-affix-wrapper > input.ant-input,
+.parcel-detail-modal .compact-form .ant-picker .ant-picker-input > input {
+  height: 28px !important;
+  line-height: 28px !important;
 }
 
 .parcel-detail-modal .compact-form .ant-select-selection-item,
@@ -183,6 +189,101 @@ main form details {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.parcel-detail-modal .compact-form .ant-select-single.ant-select-sm {
+  height: 30px !important;
+}
+
+.parcel-detail-modal .compact-form .ant-select-single.ant-select-sm .ant-select-selector {
+  height: 30px !important;
+  min-height: 30px !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.parcel-detail-modal .compact-form .ant-select-single.ant-select-sm .ant-select-selection-item,
+.parcel-detail-modal .compact-form .ant-select-single.ant-select-sm .ant-select-selection-placeholder,
+.parcel-detail-modal .compact-form .ant-select-single.ant-select-sm .ant-select-selection-search-input {
+  height: 28px !important;
+  line-height: 28px !important;
+}
+
+.parcel-detail-modal .receiver-block-select.ant-select-single .ant-select-selector {
+  min-height: 72px !important;
+  height: 72px !important;
+  position: relative;
+  overflow: hidden;
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+}
+
+.parcel-detail-modal .receiver-block-select.ant-select-single .ant-select-selection-item,
+.parcel-detail-modal .receiver-block-select.ant-select-single .ant-select-selection-placeholder {
+  position: static !important;
+  inset: auto !important;
+  transform: none !important;
+  margin: 0 !important;
+  align-self: stretch;
+  max-width: calc(100% - 18px);
+  height: auto !important;
+  line-height: 1.35 !important;
+  white-space: normal !important;
+  pointer-events: none;
+}
+
+.parcel-detail-modal .receiver-block-select.ant-select-single .ant-select-selection-search-input {
+  height: 58px !important;
+}
+
+.receiver-block-option {
+  line-height: 1.35;
+  overflow: hidden;
+}
+
+.receiver-block-option .line1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.receiver-block-option .line2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* 覆盖 compact-form 下 ant-select-sm 的固定 30px 高度规则，确保收发货人区可多行展示 */
+.parcel-detail-modal .compact-form .receiver-block-select.ant-select-single.ant-select-sm {
+  height: 72px !important;
+}
+
+.parcel-detail-modal .compact-form .receiver-block-select.ant-select-single.ant-select-sm .ant-select-selector {
+  min-height: 72px !important;
+  height: 72px !important;
+  align-items: flex-start !important;
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+}
+
+.parcel-detail-modal .compact-form .receiver-block-select.ant-select-single.ant-select-sm .ant-select-selection-item,
+.parcel-detail-modal .compact-form .receiver-block-select.ant-select-single.ant-select-sm .ant-select-selection-placeholder {
+  position: static !important;
+  transform: none !important;
+  height: auto !important;
+  max-height: 58px;
+  line-height: 1.35 !important;
+  white-space: normal !important;
+}
+
+.parcel-detail-modal .compact-form .receiver-block-select.ant-select-single.ant-select-sm .ant-select-selection-search-input {
+  height: 58px !important;
 }
 
 .parcel-detail-modal .compact-upload .ant-upload.ant-upload-select,
